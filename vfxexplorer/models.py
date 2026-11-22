@@ -1,0 +1,306 @@
+# -*- coding: utf-8 -*-
+"""Modelo de ítems, proxy de filtro/orden y workers de escaneo/búsqueda."""
+
+import os
+import time
+
+from PySide6.QtCore import Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, QMimeData, QUrl, QThread, Signal
+from PySide6.QtGui import QColor
+
+from .core import (scan_dir, entry_matches, resolve_refs, natural_key, human_size, fmt_time, fwd,
+                   compress_ranges, Query)
+
+ROLE_ENTRY = Qt.UserRole + 1
+ROLE_SORT = Qt.UserRole + 2
+
+COLS = ["Nombre", "Tipo", "Rango", "Frames", "Faltan", "Tamaño", "Modificado", "Rating", "Tags", "Carpeta"]
+C_NAME, C_TYPE, C_RANGE, C_FRAMES, C_MISSING, C_SIZE, C_MTIME, C_RATING, C_TAGS, C_FOLDER = range(10)
+
+
+def entry_tooltip(e, lib=None):
+    if e.kind == "seq":
+        t = f"{e.name}\nFrames {e.first}-{e.last} ({len(e.frames)})"
+        if e.missing:
+            t += f"\nFaltan {len(e.missing)}: {compress_ranges(e.missing)[:300]}"
+        t += f"\n{human_size(e.size)}"
+    else:
+        t = e.name
+    if lib:
+        tags = lib.tags(e.key())
+        if tags:
+            t += "\n#" + "  #".join(tags)
+    return t
+
+
+class EntryModel(QAbstractTableModel):
+    def __init__(self, app):
+        super().__init__()
+        self.app = app
+        self.entries = []
+        self.root = ""
+        self.virtual = False
+        self.key_rows = {}
+
+    def set_entries(self, entries, root, virtual=False):
+        self.beginResetModel()
+        self.entries = list(entries)
+        self.root = root
+        self.virtual = virtual
+        self._reindex()
+        self.endResetModel()
+
+    def append_entries(self, entries):
+        if not entries:
+            return
+        n = len(self.entries)
+        self.beginInsertRows(QModelIndex(), n, n + len(entries) - 1)
+        self.entries.extend(entries)
+        for i, e in enumerate(entries, n):
+            self.key_rows.setdefault(e.thumb_source(), []).append(i)
+        self.endInsertRows()
+
+    def _reindex(self):
+        self.key_rows = {}
+        for i, e in enumerate(self.entries):
+            self.key_rows.setdefault(e.thumb_source(), []).append(i)
+
+    def thumb_ready(self, key):
+        for r in self.key_rows.get(key, []):
+            ix = self.index(r, 0)
+            self.dataChanged.emit(ix, ix, [Qt.DecorationRole])
+
+    def refresh_all(self):
+        if self.entries:
+            self.dataChanged.emit(self.index(0, 0), self.index(len(self.entries) - 1, len(COLS) - 1))
+
+    def rowCount(self, parent=QModelIndex()):
+        return 0 if parent.isValid() else len(self.entries)
+
+    def columnCount(self, parent=QModelIndex()):
+        return len(COLS)
+
+    def headerData(self, section, orientation, role=Qt.DisplayRole):
+        if orientation == Qt.Horizontal and role == Qt.DisplayRole:
+            return COLS[section]
+        return None
+
+    def flags(self, index):
+        if not index.isValid():
+            return Qt.ItemIsDropEnabled
+        return Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsDragEnabled
+
+    def supportedDragActions(self):
+        return Qt.CopyAction
+
+    def folder_text(self, e):
+        if self.root:
+            rel = os.path.relpath(e.dirpath, self.root)
+            return "." if rel == "." else fwd(rel)
+        return fwd(e.dirpath)
+
+    def data(self, index, role=Qt.DisplayRole):
+        if not index.isValid():
+            return None
+        e = self.entries[index.row()]
+        col = index.column()
+        lib = self.app.lib
+        if role == ROLE_ENTRY:
+            return e
+        if role == Qt.DisplayRole:
+            if col == C_NAME:
+                return e.name
+            if col == C_TYPE:
+                return e.type_label()
+            if col == C_RANGE:
+                return f"{e.first}-{e.last}" if e.kind == "seq" else ""
+            if col == C_FRAMES:
+                return str(len(e.frames)) if e.kind == "seq" else ""
+            if col == C_MISSING:
+                return str(len(e.missing)) if e.kind == "seq" and e.missing else ""
+            if col == C_SIZE:
+                return "" if e.kind == "dir" else human_size(e.size)
+            if col == C_MTIME:
+                return fmt_time(e.mtime)
+            if col == C_RATING:
+                r = lib.rating(e.key())
+                return "★" * r if r else ""
+            if col == C_TAGS:
+                return ", ".join(lib.tags(e.key()))
+            if col == C_FOLDER:
+                return self.folder_text(e)
+        if role == ROLE_SORT:
+            if col == C_NAME:
+                return natural_key(e.name)
+            if col == C_TYPE:
+                return e.type_label()
+            if col == C_RANGE:
+                return e.first if e.kind == "seq" else -1
+            if col == C_FRAMES:
+                return len(e.frames)
+            if col == C_MISSING:
+                return len(e.missing)
+            if col == C_SIZE:
+                return e.size
+            if col == C_MTIME:
+                return e.mtime
+            if col == C_RATING:
+                return lib.rating(e.key())
+            if col == C_TAGS:
+                return ", ".join(lib.tags(e.key())).lower()
+            if col == C_FOLDER:
+                return natural_key(e.dirpath)
+        if role == Qt.DecorationRole and col == C_NAME:
+            if e.kind == "dir":
+                return self.app.icons.folder_icon(lib.color(e.key()), 18)
+            return self.app.icons.badge(e)
+        if role == Qt.ForegroundRole:
+            if col == C_MISSING and e.kind == "seq" and e.missing:
+                return QColor("#ff6b6b")
+            if col == C_RATING:
+                return QColor("#f5c542")
+            if col == C_TAGS:
+                return QColor("#8fb3ff")
+        if role == Qt.BackgroundRole and e.kind != "dir":
+            c = lib.color(e.key())
+            if c:
+                q = QColor(c)
+                q.setAlpha(55)
+                return q
+        if role == Qt.TextAlignmentRole and col in (C_FRAMES, C_MISSING, C_SIZE):
+            return int(Qt.AlignRight | Qt.AlignVCenter)
+        if role == Qt.ToolTipRole:
+            return entry_tooltip(e, lib)
+        return None
+
+    def mimeTypes(self):
+        return ["text/uri-list", "text/plain"]
+
+    def mimeData(self, indexes):
+        seen, ents = set(), []
+        for ix in indexes:
+            e = self.entries[ix.row()]
+            if id(e) not in seen:
+                seen.add(id(e))
+                ents.append(e)
+        md = QMimeData()
+        urls, texts = [], []
+        for e in ents:
+            urls += [QUrl.fromLocalFile(p) for p in e.all_paths()]
+            texts.append(f"{fwd(e.pattern_path('printf'))} {e.first}-{e.last}" if e.kind == "seq" else fwd(e.path))
+        md.setUrls(urls)
+        md.setText("\n".join(texts))
+        return md
+
+
+class EntryProxy(QSortFilterProxyModel):
+    def __init__(self, app):
+        super().__init__()
+        self.app = app
+        self.query = Query()
+        self.cat = "all"
+        self.setSortRole(ROLE_SORT)
+        self.setDynamicSortFilter(False)
+
+    def set_filter(self, query, cat):
+        self.query, self.cat = query, cat
+        self.invalidateFilter()
+
+    def filterAcceptsRow(self, row, parent):
+        m = self.sourceModel()
+        e = m.entries[row]
+        if m.virtual:
+            if self.query.empty and self.cat == "all":
+                return True
+            if e.kind == "dir" and self.cat not in ("all", "dir"):
+                return False
+            return entry_matches(e, self.query, self.cat, meta=self.app.lib.meta)
+        if e.kind == "dir" and self.cat not in ("all", "dir"):
+            return entry_matches(e, Query(names=self.query.names), "all") if self.query.names else True
+        return entry_matches(e, self.query, self.cat, meta=self.app.lib.meta)
+
+    def lessThan(self, left, right):
+        m = self.sourceModel()
+        a, b = m.entries[left.row()], m.entries[right.row()]
+        if (a.kind == "dir") != (b.kind == "dir"):
+            return (a.kind == "dir") == (self.sortOrder() == Qt.AscendingOrder)
+        va, vb = left.data(ROLE_SORT), right.data(ROLE_SORT)
+        try:
+            if va == vb:
+                return natural_key(a.name) < natural_key(b.name)
+            return va < vb
+        except TypeError:
+            return str(va) < str(vb)
+
+
+# ----------------------------------------------------------------------------
+# Workers
+# ----------------------------------------------------------------------------
+
+class ScanWorker(QThread):
+    done = Signal(int, str, object, str)
+
+    def __init__(self, gen, path, show_hidden):
+        super().__init__()
+        self.gen, self.path, self.show_hidden = gen, path, show_hidden
+
+    def run(self):
+        try:
+            self.done.emit(self.gen, self.path, scan_dir(self.path, self.show_hidden), "")
+        except Exception as ex:
+            self.done.emit(self.gen, self.path, [], str(ex))
+
+
+class SearchWorker(QThread):
+    batch = Signal(int, object)
+    progress = Signal(int, int, str)
+    finished_search = Signal(int, int, bool)
+    MAX_RESULTS = 5000
+
+    def __init__(self, gen, root, query, cat, show_hidden, meta):
+        super().__init__()
+        self.gen, self.root, self.query, self.cat = gen, root, query, cat
+        self.show_hidden, self.meta = show_hidden, meta
+        self.cancelled = False
+
+    def run(self):
+        stack, found, scanned, last = [self.root], 0, 0, 0.0
+        while stack and not self.cancelled:
+            d = stack.pop()
+            try:
+                entries = scan_dir(d, self.show_hidden)
+            except OSError:
+                continue
+            scanned += 1
+            hits, subdirs = [], []
+            for e in entries:
+                if e.kind == "dir":
+                    subdirs.append(e.path)
+                if entry_matches(e, self.query, self.cat, recursive=True, meta=self.meta.get):
+                    hits.append(e)
+            stack.extend(sorted(subdirs, key=natural_key, reverse=True))
+            if hits:
+                found += len(hits)
+                self.batch.emit(self.gen, hits)
+            now = time.time()
+            if now - last > 0.15:
+                last = now
+                self.progress.emit(self.gen, scanned, d)
+            if found >= self.MAX_RESULTS:
+                self.finished_search.emit(self.gen, found, True)
+                return
+        self.finished_search.emit(self.gen, found, False)
+
+
+class ResolveWorker(QThread):
+    done = Signal(int, object, int)
+
+    def __init__(self, gen, refs):
+        super().__init__()
+        self.gen, self.refs = gen, refs
+
+    def run(self):
+        try:
+            found, missing = resolve_refs(self.refs)
+        except Exception:
+            found, missing = [], self.refs
+        self.done.emit(self.gen, found, len(missing))

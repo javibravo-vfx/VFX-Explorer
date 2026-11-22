@@ -1,0 +1,350 @@
+# -*- coding: utf-8 -*-
+"""Operaciones de archivo: copiar / mover con progreso, renombrar y renumerar secuencias,
+papelera, carpeta nueva y portapapeles compatible con el Explorador de Windows."""
+
+import os
+import re
+import shutil
+import ctypes
+
+from PySide6.QtCore import QThread, Signal, QMimeData, QUrl, QFile
+
+from .core import IS_WIN, fwd, same_path, norm_key
+
+DROP_EFFECT_FMT = 'application/x-qt-windows-mime;value="Preferred DropEffect"'
+INVALID_CHARS = set('<>:"/\\|?*')
+CHUNK = 8 * 1024 * 1024
+
+
+# ----------------------------------------------------------------------------
+# Portapapeles
+# ----------------------------------------------------------------------------
+
+def make_clip_mime(paths, cut=False):
+    md = QMimeData()
+    md.setUrls([QUrl.fromLocalFile(p) for p in paths])
+    md.setData(DROP_EFFECT_FMT, (2 if cut else 5).to_bytes(4, "little"))
+    return md
+
+
+def read_clip_mime(md):
+    paths = [u.toLocalFile() for u in md.urls() if u.isLocalFile()] if md is not None else []
+    cut = False
+    if md is not None and md.hasFormat(DROP_EFFECT_FMT):
+        b = bytes(md.data(DROP_EFFECT_FMT))
+        if len(b) >= 1:
+            v = int.from_bytes(b[:4].ljust(4, b"\0"), "little")
+            cut = bool(v & 2) and not (v & 1)
+    return [os.path.normpath(p) for p in paths if p], cut
+
+
+# ----------------------------------------------------------------------------
+# Utilidades
+# ----------------------------------------------------------------------------
+
+def valid_name(name):
+    name = name.strip()
+    if not name or name in (".", "..") or any(c in INVALID_CHARS for c in name):
+        return False
+    return not name.endswith((".", " "))
+
+
+def is_subpath(child, parent):
+    c, p = norm_key(child), norm_key(parent)
+    return c == p or c.startswith(p.rstrip("\\/") + os.sep)
+
+
+def is_network_path(path):
+    p = os.path.abspath(path)
+    if p.startswith("\\\\") or p.startswith("//"):
+        return True
+    if IS_WIN:
+        try:
+            root = os.path.splitdrive(p)[0] + "\\"
+            return ctypes.windll.kernel32.GetDriveTypeW(ctypes.c_wchar_p(root)) == 4  # DRIVE_REMOTE
+        except Exception:
+            return False
+    return False
+
+
+def new_folder(parent, name):
+    if not valid_name(name):
+        raise ValueError("Nombre inválido")
+    p = os.path.join(parent, name.strip())
+    if os.path.exists(p):
+        raise FileExistsError(f"Ya existe: {name}")
+    os.makedirs(p)
+    return p
+
+
+# ----------------------------------------------------------------------------
+# Papelera
+# ----------------------------------------------------------------------------
+
+def _trash_windows(paths):
+    from ctypes import wintypes
+
+    class SHFILEOPSTRUCTW(ctypes.Structure):
+        _fields_ = [
+            ("hwnd", wintypes.HWND), ("wFunc", ctypes.c_uint),
+            ("pFrom", ctypes.c_wchar_p), ("pTo", ctypes.c_wchar_p),
+            ("fFlags", ctypes.c_ushort), ("fAnyOperationsAborted", wintypes.BOOL),
+            ("hNameMappings", ctypes.c_void_p), ("lpszProgressTitle", ctypes.c_wchar_p),
+        ]
+
+    FO_DELETE, FOF_SILENT, FOF_NOCONFIRMATION, FOF_ALLOWUNDO, FOF_NOERRORUI = 3, 0x4, 0x10, 0x40, 0x400
+    errors = []
+    for i in range(0, len(paths), 2000):
+        batch = [os.path.abspath(p) for p in paths[i:i + 2000]]
+        buf = ctypes.create_unicode_buffer("\0".join(batch) + "\0\0")
+        op = SHFILEOPSTRUCTW()
+        op.wFunc = FO_DELETE
+        op.pFrom = ctypes.cast(buf, ctypes.c_wchar_p)
+        op.fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI
+        res = ctypes.windll.shell32.SHFileOperationW(ctypes.byref(op))
+        if res != 0 or op.fAnyOperationsAborted:
+            errors.append(f"Error {res} al mover a la papelera ({len(batch)} archivos)")
+    return errors
+
+
+def trash(paths):
+    """Manda a la papelera. Devuelve lista de errores."""
+    paths = [p for p in paths if os.path.exists(p)]
+    if not paths:
+        return []
+    if IS_WIN:
+        return _trash_windows(paths)
+    errors = []
+    for p in paths:
+        if not QFile.moveToTrash(p):
+            errors.append(f"No se pudo mandar a la papelera: {p}")
+    return errors
+
+
+class TrashWorker(QThread):
+    done = Signal(list)
+
+    def __init__(self, paths):
+        super().__init__()
+        self.paths = paths
+
+    def run(self):
+        try:
+            self.done.emit(trash(self.paths))
+        except Exception as ex:
+            self.done.emit([str(ex)])
+
+
+# ----------------------------------------------------------------------------
+# Renombrar / renumerar
+# ----------------------------------------------------------------------------
+
+def split_head(head):
+    """'plate_v001.' -> ('plate_v001', '.')"""
+    if head and head[-1] in "._- ":
+        return head[:-1], head[-1]
+    return head, ""
+
+
+def rename_plan(e, new_base, start_frame=None, sep=None):
+    """Lista de (viejo, nuevo). Para secuencias: new_base sin separador, frame ni extensión."""
+    new_base = new_base.strip()
+    if e.kind != "seq":
+        if not valid_name(new_base):
+            raise ValueError("Nombre inválido")
+        return [(e.path, os.path.join(e.dirpath, new_base))]
+    if new_base and not valid_name(new_base):
+        raise ValueError("Nombre inválido")
+    base, old_sep = split_head(e.head)
+    sep = old_sep if sep is None else sep
+    offset = 0 if start_frame is None else int(start_frame) - e.first
+    if e.first + offset < 0:
+        raise ValueError("El primer frame no puede ser negativo")
+    pairs = []
+    ext = e.ext_real
+    for f, name in zip(e.frames, e.files):
+        nf = f + offset
+        num = str(nf).zfill(e.pad) if e.pad > 1 else str(nf)
+        pairs.append((os.path.join(e.dirpath, name), os.path.join(e.dirpath, f"{new_base}{sep}{num}{ext}")))
+    return pairs
+
+
+def apply_renames(pairs):
+    """Renombra en dos fases si hace falta (renumerado que se pisa). Falla antes de tocar nada si hay choques."""
+    pairs = [(a, b) for a, b in pairs if a != b]
+    if not pairs:
+        return
+    srcs = {norm_key(a) for a, _ in pairs}
+    dsts = [norm_key(b) for _, b in pairs]
+    if len(set(dsts)) != len(dsts):
+        raise ValueError("Dos archivos terminarían con el mismo nombre")
+    for _, b in pairs:
+        if os.path.exists(b) and norm_key(b) not in srcs:
+            # en Windows renombrar solo mayúsculas/minúsculas es válido
+            raise FileExistsError(f"Ya existe: {os.path.basename(b)}")
+    if any(d in srcs for d in dsts):
+        tmp = []
+        for i, (a, b) in enumerate(pairs):
+            t = f"{a}.__sbtmp{i}"
+            os.rename(a, t)
+            tmp.append((t, b))
+        pairs = tmp
+    done = []
+    try:
+        for a, b in pairs:
+            os.rename(a, b)
+            done.append((a, b))
+    except Exception:
+        for a, b in reversed(done):
+            try:
+                os.rename(b, a)
+            except OSError:
+                pass
+        raise
+
+
+# ----------------------------------------------------------------------------
+# Copiar / mover
+# ----------------------------------------------------------------------------
+
+def plan_conflicts(sources, dest_dir):
+    """Destinos que ya existen (archivos), para preguntar antes."""
+    out = []
+    for src in sources:
+        dst = os.path.join(dest_dir, os.path.basename(src))
+        if os.path.isdir(src):
+            if os.path.isdir(dst):
+                for root, _, files in os.walk(src):
+                    rel = os.path.relpath(root, src)
+                    for f in files:
+                        d = os.path.normpath(os.path.join(dst, rel, f))
+                        if os.path.exists(d):
+                            out.append(d)
+                            if len(out) > 500:
+                                return out
+        elif os.path.exists(dst):
+            out.append(dst)
+    return out
+
+
+def validate_transfer(sources, dest_dir, op):
+    """Devuelve mensaje de error o None."""
+    if not os.path.isdir(dest_dir):
+        return f"No existe la carpeta destino: {dest_dir}"
+    for s in sources:
+        if os.path.isdir(s) and is_subpath(dest_dir, s):
+            return f"No se puede {'copiar' if op == 'copy' else 'mover'} una carpeta dentro de sí misma: {os.path.basename(s)}"
+        if same_path(os.path.dirname(s), dest_dir):
+            return "El origen y el destino son la misma carpeta" if op == "move" else \
+                "No se puede copiar en la misma carpeta (elegí otra carpeta)"
+    return None
+
+
+class FileOpWorker(QThread):
+    progress = Signal(object, object, str)   # bytes hechos, bytes totales, archivo actual
+    done = Signal(int, list, bool)           # ok, errores, cancelado
+
+    def __init__(self, op, sources, dest_dir, overwrite):
+        super().__init__()
+        self.op, self.sources, self.dest, self.overwrite = op, list(sources), dest_dir, overwrite
+        self.cancelled = False
+        self.ok = 0
+        self.errors = []
+        self.total = 0
+        self.done_bytes = 0
+
+    def _same_dev(self, src):
+        try:
+            return os.stat(src).st_dev == os.stat(self.dest).st_dev
+        except OSError:
+            return False
+
+    def _plan(self):
+        tasks = []  # (tipo, src, dst, size)
+        for src in self.sources:
+            dst = os.path.join(self.dest, os.path.basename(src))
+            if same_path(src, dst) or not os.path.exists(src):
+                continue
+            fast_move = self.op == "move" and self._same_dev(src)
+            if os.path.isdir(src):
+                if fast_move and not os.path.exists(dst):
+                    tasks.append(("rename", src, dst, 0))
+                    continue
+                for root, dirs, files in os.walk(src):
+                    rel = os.path.relpath(root, src)
+                    droot = os.path.normpath(os.path.join(dst, rel))
+                    tasks.append(("mkdir", root, droot, 0))
+                    for f in files:
+                        s, d = os.path.join(root, f), os.path.join(droot, f)
+                        if os.path.exists(d) and not self.overwrite:
+                            continue
+                        size = os.path.getsize(s)
+                        tasks.append(("rename" if fast_move else "copy", s, d, size))
+                if self.op == "move":
+                    tasks.append(("prune", src, "", 0))
+            else:
+                if os.path.exists(dst) and not self.overwrite:
+                    continue
+                size = os.path.getsize(src)
+                tasks.append(("rename" if fast_move else "copy", src, dst, size))
+        return tasks
+
+    def _copy_file(self, s, d):
+        with open(s, "rb") as fi, open(d, "wb") as fo:
+            while True:
+                if self.cancelled:
+                    raise InterruptedError()
+                buf = fi.read(CHUNK)
+                if not buf:
+                    break
+                fo.write(buf)
+                self.done_bytes += len(buf)
+                self.progress.emit(self.done_bytes, self.total, os.path.basename(s))
+        shutil.copystat(s, d)
+
+    def run(self):
+        try:
+            tasks = self._plan()
+        except Exception as ex:
+            self.done.emit(0, [str(ex)], False)
+            return
+        self.total = sum(t[3] for t in tasks if t[0] == "copy") or 1
+        for kind, s, d, size in tasks:
+            if self.cancelled:
+                break
+            try:
+                if kind == "mkdir":
+                    os.makedirs(d, exist_ok=True)
+                elif kind == "rename":
+                    try:
+                        if self.overwrite and os.path.isfile(d):
+                            os.remove(d)
+                        os.replace(s, d)
+                    except OSError:
+                        if os.path.isdir(s):
+                            shutil.copytree(s, d, dirs_exist_ok=True)
+                            shutil.rmtree(s)
+                        else:
+                            self._copy_file(s, d)
+                            os.remove(s)
+                    self.ok += 1
+                    self.progress.emit(self.done_bytes, self.total, os.path.basename(s))
+                elif kind == "copy":
+                    self._copy_file(s, d)
+                    if self.op == "move":
+                        os.remove(s)
+                    self.ok += 1
+                elif kind == "prune":
+                    for root, dirs, files in os.walk(s, topdown=False):
+                        if not os.listdir(root):
+                            os.rmdir(root)
+            except InterruptedError:
+                try:
+                    if os.path.isfile(d):
+                        os.remove(d)   # archivo a medio copiar
+                except OSError:
+                    pass
+                break
+            except Exception as ex:
+                self.errors.append(f"{os.path.basename(s)}: {ex}")
+        self.done.emit(self.ok, self.errors, self.cancelled)
