@@ -5,9 +5,11 @@
 - "Tree Path Tracing": una línea de color más gruesa que va desde la raíz hasta la carpeta actual,
 - opcional: las líneas de los hijos con el color de la carpeta padre."""
 
-from PySide6.QtCore import Qt, QSize, QRect, QPersistentModelIndex
-from PySide6.QtGui import QPainter, QPen, QColor
-from PySide6.QtWidgets import QTreeView, QStyledItemDelegate, QStyleOptionViewItem
+import os
+
+from PySide6.QtCore import Qt, QSize, QRect, QPersistentModelIndex, QTimer
+from PySide6.QtGui import QPainter, QPen, QColor, QCursor
+from PySide6.QtWidgets import QTreeView, QTreeWidget, QTreeWidgetItem, QStyledItemDelegate, QStyleOptionViewItem
 
 LINE_GRAY = QColor("#5f6368")
 BOX_FILL = QColor("#2a2a2a")
@@ -35,29 +37,105 @@ class FolderTreeDelegate(QStyledItemDelegate):
         return QSize(s.width(), max(s.height(), 24))
 
 
-class LinedTree(QTreeView):
-    def __init__(self, app):
-        super().__init__()
+class _LinedMixin:
+    """Dibujo de líneas estilo XYplorer + path tracing + destino de drag & drop (copiar/mover a la carpeta)."""
+
+    def _lined_init(self, app):
         self.app = app
         self.setIndentation(18)
         self.setUniformRowHeights(True)
         self.setAnimated(False)
-        self.setItemDelegate(FolderTreeDelegate(app, self))
         self.setStyleSheet("QTreeView::branch { background: transparent; border-image: none; image: none; }")
         self._trace = []          # [QPersistentModelIndex] raíz → carpeta actual
         self._trace_path = ""
+        self.setAcceptDrops(True)
+        self.viewport().setAcceptDrops(True)
+        self._drop_ix = None
+        self._expand_timer = QTimer(self, singleShot=True, interval=750, timeout=self._drag_expand)
+
+    # a implementar
+    def path_of(self, index):
+        raise NotImplementedError
+
+    def index_of(self, path):
+        raise NotImplementedError
 
     # ---------------- path tracing
     def set_trace_path(self, path):
         """Marca el camino raíz → carpeta actual (como el Tree Path Tracing de XYplorer)."""
         chain = []
-        ix = self.model().index(path) if path else None
+        ix = self.index_of(path) if path else None
         while ix is not None and ix.isValid():
             chain.insert(0, QPersistentModelIndex(ix))
             ix = ix.parent()
         self._trace = chain
         self._trace_path = path or ""
         self.viewport().update()
+        return chain[-1] if chain else None
+
+    # ---------------- drop: soltar archivos sobre una carpeta del árbol
+    def _drop_target(self, ev):
+        ix = self.indexAt(ev.position().toPoint())
+        p = self.path_of(ix) if ix.isValid() else ""
+        return ix, (p if p and os.path.isdir(p) else "")
+
+    def dragEnterEvent(self, ev):
+        if ev.mimeData().hasUrls():
+            ev.acceptProposedAction()
+        else:
+            ev.ignore()
+
+    def dragMoveEvent(self, ev):
+        ix, p = self._drop_target(ev)
+        if not p:
+            self._set_drop(None)
+            ev.ignore()
+            return
+        if self._drop_ix is None or QPersistentModelIndex(ix) != self._drop_ix:
+            self._set_drop(ix)
+            self._expand_timer.start()
+        ev.setDropAction(Qt.CopyAction)
+        ev.accept()
+
+    def dragLeaveEvent(self, ev):
+        self._set_drop(None)
+
+    def _set_drop(self, ix):
+        self._drop_ix = QPersistentModelIndex(ix) if ix is not None else None
+        if ix is None:
+            self._expand_timer.stop()
+        self.viewport().update()
+
+    def _drag_expand(self):
+        if self._drop_ix is not None and self._drop_ix.isValid():
+            self.expand(self.model().index(self._drop_ix.row(), 0, self._drop_ix.parent()))
+
+    def dropEvent(self, ev):
+        ix, target = self._drop_target(ev)
+        self._set_drop(None)
+        paths = [os.path.normpath(u.toLocalFile()) for u in ev.mimeData().urls() if u.isLocalFile()]
+        mods = ev.modifiers()
+        ev.setDropAction(Qt.CopyAction)
+        ev.accept()
+        if target and paths:
+            pos = QCursor.pos()
+            QTimer.singleShot(0, lambda: self.app.handle_drop(None, paths, target, mods, pos))
+
+    def paintEvent(self, ev):
+        super().paintEvent(ev)
+        if self._drop_ix is not None and self._drop_ix.isValid():
+            r = self.visualRect(self.model().index(self._drop_ix.row(), 0, self._drop_ix.parent()))
+            p = QPainter(self.viewport())
+            p.setRenderHint(QPainter.Antialiasing)
+            c = QColor(self.app.accent())
+            p.setPen(QPen(c, 1.5))
+            c.setAlpha(45)
+            p.setBrush(c)
+            p.drawRoundedRect(r.adjusted(1, 1, -2, -1), 4, 4)
+            p.end()
+
+    def _box_edge(self):
+        return BOX_EDGE
 
     def _cfg(self, k, default=None):
         v = self.app.cfg[k]
@@ -74,7 +152,7 @@ class LinedTree(QTreeView):
     def _line_color(self, parent_index):
         if not self._cfg("tree_line_colors", True) or not parent_index.isValid():
             return LINE_GRAY
-        c = self.app.dir_color(self.model().filePath(parent_index))
+        c = self.app.dir_color(self.path_of(parent_index))
         if not c:
             return LINE_GRAY
         q = QColor(c)
@@ -152,7 +230,7 @@ class LinedTree(QTreeView):
             box = QRect(x - 4, cy - 4, 9, 9)
             pix = QPersistentModelIndex(index)
             on_path = tracing and pix in tr
-            p.setPen(QPen(QColor(self.app.accent()) if on_path else BOX_EDGE, 1))
+            p.setPen(QPen(self._trace_color() if on_path else self._box_edge(), 1))
             p.setBrush(BOX_FILL)
             p.drawRect(box.adjusted(0, 0, -1, -1))
             p.setPen(QPen(SIGN, 1))
@@ -160,3 +238,87 @@ class LinedTree(QTreeView):
             if not self.isExpanded(index):
                 p.drawLine(x, box.top() + 2, x, box.bottom() - 2)
         p.restore()
+
+
+class LinedTree(_LinedMixin, QTreeView):
+    """Árbol de carpetas del explorador (QFileSystemModel)."""
+
+    def __init__(self, app):
+        super().__init__()
+        self._lined_init(app)
+        self.setItemDelegate(FolderTreeDelegate(app, self))
+
+    def path_of(self, index):
+        return self.model().filePath(index)
+
+    def index_of(self, path):
+        return self.model().index(path)
+
+
+class _LibDelegate(QStyledItemDelegate):
+    def sizeHint(self, option, index):
+        s = super().sizeHint(option, index)
+        return QSize(s.width(), max(s.height(), 24))
+
+
+class LibTree(_LinedMixin, QTreeWidget):
+    """Árbol de la VFX Library: mismas líneas que el de carpetas pero con su propio color (violeta)."""
+
+    def __init__(self, app, make_item, expand_item):
+        super().__init__()
+        self._lined_init(app)
+        self._make_item, self._expand_item = make_item, expand_item
+        self.setItemDelegate(_LibDelegate(self))
+        self.setHeaderHidden(True)
+
+    def path_of(self, index):
+        return index.data(Qt.UserRole) or "" if index.isValid() else ""
+
+    def index_of(self, path):
+        it = self.item_for(path, expand=False)
+        return self.indexFromItem(it) if it is not None else None
+
+    def item_for(self, path, expand=True):
+        """Busca (y si hace falta carga) el ítem de una carpeta dentro de las raíces de la librería."""
+        if not path:
+            return None
+        key = os.path.normcase(os.path.normpath(path))
+        best = None
+        for i in range(self.topLevelItemCount()):
+            it = self.topLevelItem(i)
+            r = it.data(0, Qt.UserRole)
+            if not r:
+                continue
+            rk = os.path.normcase(os.path.normpath(r))
+            if key == rk or key.startswith(rk.rstrip("\\/") + os.sep):
+                if best is None or len(rk) > len(os.path.normcase(best.data(0, Qt.UserRole))):
+                    best = it
+        if best is None:
+            return None
+        rel = os.path.relpath(os.path.normpath(path), os.path.normpath(best.data(0, Qt.UserRole)))
+        it = best
+        if rel in (".", ""):
+            return it
+        for part in rel.split(os.sep):
+            self._expand_item(it)
+            nxt = None
+            for j in range(it.childCount()):
+                c = it.child(j)
+                if os.path.normcase(os.path.basename(c.data(0, Qt.UserRole))) == os.path.normcase(part):
+                    nxt = c
+                    break
+            if nxt is None:
+                return it
+            it = nxt
+        return it
+
+    def _line_color(self, parent_index):
+        c = QColor(self._cfg("lib_tree_line_color", "#8d6fd1"))
+        c.setAlpha(200)
+        return c
+
+    def _box_edge(self):
+        return QColor(self._cfg("lib_tree_line_color", "#8d6fd1"))
+
+    def _trace_color(self):
+        return QColor(self._cfg("lib_tree_line_color", "#8d6fd1")).lighter(150)

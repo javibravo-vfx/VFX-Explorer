@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QTr
 
 from .viewer import Viewer
 from .pane import FilePane
+from .tree import LibTree
 
 
 class LibraryPage(QWidget):
@@ -53,28 +54,16 @@ class LibraryPage(QWidget):
 
 
 class LibrarySidebar(QWidget):
-    """Lista de raíces de la librería (con sus subcarpetas)."""
+    """Árbol de las raíces de la librería (con sus subcarpetas), con líneas estilo XYplorer."""
 
-    def __init__(self, app, section_label):
+    def __init__(self, app):
         super().__init__()
         self.app = app
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(1)
-        head = QHBoxLayout()
-        head.setContentsMargins(0, 0, 4, 0)
-        head.addWidget(section_label, 1)
-        add = QToolButton()
-        add.setIcon(app.icons.glyph("plus", 14))
-        add.setAutoRaise(True)
-        add.setToolTip("Agregar carpeta a la VFX Library")
-        add.clicked.connect(self.add_root)
-        head.addWidget(add)
-        lay.addLayout(head)
-        self.tree = QTreeWidget()
-        self.tree.setHeaderHidden(True)
-        self.tree.setIndentation(14)
-        self.tree.setIconSize(app.icons.folder(None, 16).size())
+        self.tree = LibTree(app, self._item, self._expand)
+        self.tree.setIconSize(app.icons.folder(None, 18).size())
         self.tree.itemExpanded.connect(self._expand)
         self.tree.itemClicked.connect(lambda it, c: self.app.open_library(it.data(0, Qt.UserRole)))
         self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -82,10 +71,23 @@ class LibrarySidebar(QWidget):
         lay.addWidget(self.tree)
         self.reload()
 
+    def sync(self, path):
+        """La carpeta de la pestaña activa queda marcada en el árbol (con su trazo)."""
+        it = self.tree.item_for(path) if path else None
+        if it is not None:
+            p = it.parent()
+            while p is not None:
+                p.setExpanded(True)
+                p = p.parent()
+            self.tree.setCurrentItem(it)
+            self.tree.scrollToItem(it)
+        self.tree.set_trace_path(path if it is not None else "")
+
     def roots(self):
         return [r for r in (self.app.cfg["library_roots"] or []) if r]
 
     def reload(self):
+        cur = self.tree._trace_path
         self.tree.clear()
         roots = self.roots()
         if not roots:
@@ -98,11 +100,14 @@ class LibrarySidebar(QWidget):
             it = self._item(r, os.path.basename(r.rstrip("\\/")) or r)
             it.setToolTip(0, r)
             self.tree.addTopLevelItem(it)
+            it.setExpanded(len(roots) <= 3)      # las raíces arrancan abiertas
+        if cur:
+            self.sync(cur)
 
     def _item(self, path, label):
         it = QTreeWidgetItem([label])
         it.setData(0, Qt.UserRole, path)
-        it.setIcon(0, self.app.icons.folder_icon(self.app.dir_color(path), 16))
+        it.setIcon(0, self.app.icons.folder_icon(self.app.dir_color(path), 18))
         it.setChildIndicatorPolicy(QTreeWidgetItem.ShowIndicator)
         return it
 
@@ -142,7 +147,10 @@ class LibrarySidebar(QWidget):
         if it and it.data(0, Qt.UserRole):
             p = it.data(0, Qt.UserRole)
             m.addAction("Abrir en VFX Library", lambda: self.app.open_library(p))
-            m.addAction("Abrir en el Explorador (pestaña nueva)", lambda: self.app.open_in_explorer(p, new_tab=True))
+            m.addAction("Abrir en pestaña nueva", lambda: (self.app.set_mode("library"),
+                                                           self.app.libpane.add_tab(p)))
+            m.addAction("Agregar a acceso rápido", lambda: self.app.add_favorites([p], lib=True))
+            m.addAction("Abrir en Carpetas (pestaña nueva)", lambda: self.app.open_in_explorer(p, new_tab=True))
             if it.parent() is None:
                 def remove():
                     self.app.cfg["library_roots"] = [r for r in self.roots() if r != p]

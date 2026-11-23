@@ -165,6 +165,31 @@ def test_pipeline(tmp):
     assert info == {"project": "MOR", "seq": "101", "shot": "MOR_1001A_930", "dept": "3D", "task": "8_lighting"}, info
 
 
+def test_quick_tag_pills():
+    from vfxexplorer.core import parse_pill, parse_query, entry_matches, Entry, fold
+    label, kws = parse_pill("Explosión: explosion, Blast")
+    assert label == "Explosión" and kws == ["explosion", "blast"]
+    assert fold("Explosión") == "explosion"
+    root = os.path.join("lib")
+    e_name = Entry(kind="file", dirpath=os.path.join(root, "misc"), name="big_blast_01.mov",
+                   path=os.path.join(root, "misc", "big_blast_01.mov"), ext=".mov")
+    e_dir = Entry(kind="file", dirpath=os.path.join(root, "Explosions", "ground"), name="elem_01.mov",
+                  path=os.path.join(root, "Explosions", "ground", "elem_01.mov"), ext=".mov")
+    e_no = Entry(kind="file", dirpath=os.path.join(root, "smoke"), name="wisp.mov",
+                 path=os.path.join(root, "smoke", "wisp.mov"), ext=".mov")
+    q = parse_query("")
+    q.any_of, q.any_root = kws, root
+    assert entry_matches(e_name, q, "all", recursive=True)
+    assert entry_matches(e_dir, q, "all", recursive=True)
+    assert not entry_matches(e_no, q, "all", recursive=True)
+    # por tag
+    meta = {e_no.key(): {"tags": ["Explosion grande"]}}
+    assert entry_matches(e_no, q, "all", recursive=True, meta=meta.get)
+    # la raíz no cuenta: si la librería se llama "explosiones" no entra todo
+    q.any_root = os.path.join(root, "Explosions")
+    assert not entry_matches(e_dir, q, "all", recursive=True)
+
+
 if __name__ == "__main__":
     from PySide6.QtCore import QCoreApplication
     app = QCoreApplication([])
@@ -180,3 +205,4 @@ if __name__ == "__main__":
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print("TODOS LOS TESTS OK")
+

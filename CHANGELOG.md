@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.0
+- **Nueva disposición** (como el Explorador de Windows 11): pestañas y dirección a todo el ancho, selector **Carpetas / VFX Library** arriba a la derecha, fila con ＋ · pipeline · Doble panel · Detalles · ⚙, y Subcarpetas / Filtrar / Ordenar / Ver / ⋯ en la barra de abajo.
+- **Acceso rápido por modo**: uno para Carpetas y otro para la VFX Library, arriba del panel izquierdo.
+- **Árbol de la VFX Library** con las líneas estilo XYplorer en otro color (configurable) y path tracing; sigue a la pestaña activa.
+- **Tags rápidos** en la VFX Library (Humo, Fuego, Explosión…): filtran toda la rama por nombre, carpeta o tag. Editables.
+- **Arrastrar entre los dos mundos**: soltar archivos en las carpetas de los árboles; al arrastrar sobre un tab se muestra su árbol.
+- **Botón de colores** con los modos (manual, por proyecto, por nombre, ambos) en lugar del combo.
+
 ## 0.6.0
 - **Este equipo**: discos y ubicaciones de red con barras de uso, como en Windows 11 (también en la barra de dirección y al subir desde la raíz de un disco).
 - **Panel izquierdo en dos tabs**: Carpetas / VFX Library, sincronizados con el modo del panel central.

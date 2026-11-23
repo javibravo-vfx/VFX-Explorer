@@ -3,6 +3,7 @@
 
 import os
 import re
+import unicodedata
 import sys
 import json
 import time
@@ -444,10 +445,34 @@ class Query:
     names: list = field(default_factory=list)
     tags: list = field(default_factory=list)
     min_rating: int = 0
+    any_of: list = field(default_factory=list)   # pastillas de tags rápidos: alcanza con que coincida una
+    any_root: str = ""                          # raíz de la búsqueda (para mirar los nombres de las carpetas)
 
     @property
     def empty(self):
-        return not (self.names or self.tags or self.min_rating)
+        return not (self.names or self.tags or self.min_rating or self.any_of)
+
+
+def fold(text):
+    """minúsculas y sin acentos: «Explosión» == «explosion»."""
+    t = unicodedata.normalize("NFKD", (text or "").lower())
+    return "".join(c for c in t if not unicodedata.combining(c))
+
+
+def parse_pill(text):
+    """«Fuego: fire, flame» → ("Fuego", ["fuego", "fire", "flame"])."""
+    text = (text or "").strip()
+    if ":" in text:
+        label, rest = text.split(":", 1)
+    else:
+        label, rest = text, ""
+    label = label.strip()
+    kws = [fold(label)] + [fold(k.strip()) for k in re.split(r"[,;]", rest) if k.strip()]
+    out = []
+    for k in kws:
+        if k and k not in out:
+            out.append(k)
+    return label, out
 
 
 def parse_query(text):
@@ -495,6 +520,21 @@ def entry_matches(e, q, cat, recursive=False, meta=None):
                 return False
         elif tok not in name:
             return False
+    if q.any_of:
+        if recursive and e.kind == "dir" and cat != "dir":
+            return False
+        rel = e.dirpath
+        if q.any_root:
+            try:
+                rel = os.path.relpath(e.dirpath, q.any_root)
+            except ValueError:
+                pass
+        hay = fold(e.name + "/" + rel)
+        if not any(k in hay for k in q.any_of):
+            m = meta(e.key()) if meta else None
+            tags = [fold(t) for t in (m or {}).get("tags", [])]
+            if not any(t.startswith(k) for k in q.any_of for t in tags):
+                return False
     if q.tags or q.min_rating:
         m = meta(e.key()) if meta else None
         if not m:
@@ -511,6 +551,18 @@ def entry_matches(e, q, cat, recursive=False, meta=None):
 # ----------------------------------------------------------------------------
 # Configuración
 # ----------------------------------------------------------------------------
+
+DEFAULT_QUICK_TAGS = [
+    "Humo: smoke, humo",
+    "Fuego: fire, flame, llama",
+    "Explosión: explosion, blast, exp",
+    "Chispas: sparks, spark, embers",
+    "Polvo: dust, polvo",
+    "Agua: water, splash, agua",
+    "Debris: debris, rocks, escombros",
+    "Sangre: blood, sangre",
+]
+
 
 class Config:
     DEFAULTS = {
@@ -563,7 +615,12 @@ class Config:
         # 0.6
         "folder_color": "yellow",       # yellow (Windows) | blue
         "splitter_left2": "",
-        "cfg_version": 6,
+        "cfg_version": 7,
+        # 0.7
+        "lib_favorites": [],            # acceso rápido de la VFX Library
+        "quick_tags": None,             # None = pastillas por defecto (DEFAULT_QUICK_TAGS)
+        "lib_tree_line_color": "#8d6fd1",
+        "splitter_left3": "",
     }
 
     def __init__(self, path):

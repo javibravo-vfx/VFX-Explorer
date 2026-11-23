@@ -1,0 +1,179 @@
+# -*- coding: utf-8 -*-
+"""Tags rápidos de la VFX Library: pastillas (Humo, Fuego, Explosión…) que filtran toda la rama.
+
+Cada pastilla es «Nombre: palabra, palabra». Un elemento entra si alguna palabra aparece en su nombre,
+en el nombre de alguna de sus carpetas (desde la carpeta actual) o en sus tags. Varias pastillas = cualquiera."""
+
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import (QWidget, QHBoxLayout, QLabel, QToolButton, QMenu, QInputDialog, QScrollArea,
+                               QFrame, QSizePolicy)
+
+from .core import DEFAULT_QUICK_TAGS, parse_pill
+
+PILL_CSS = """
+QToolButton#pill {
+    background:#2b2b2b; color:#d6d6d6; border:1px solid #3a3a3a; border-radius:11px;
+    padding:2px 11px; font-size:8.5pt; min-height:18px;
+}
+QToolButton#pill:hover { background:#353535; border-color:#4a4a4a; }
+QToolButton#pill:checked { background:#4a3477; color:#ffffff; border-color:#b98cff; }
+QToolButton#pillAdd, QToolButton#pillClear {
+    background:transparent; color:#9d9d9d; border:1px dashed #3d3d3d; border-radius:11px;
+    padding:2px 8px; font-size:8.5pt; min-height:18px;
+}
+QToolButton#pillAdd:hover, QToolButton#pillClear:hover { color:#ffffff; border-color:#6a6a6a; }
+QToolButton#pillClear { border-style:solid; }
+"""
+
+
+class QuickTagBar(QWidget):
+    changed = Signal(list, list)          # etiquetas activas, palabras clave
+
+    def __init__(self, app):
+        super().__init__()
+        self.app = app
+        self.setStyleSheet(PILL_CSS)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(4, 0, 4, 0)
+        lay.setSpacing(6)
+        lbl = QLabel("TAGS")
+        lbl.setStyleSheet("color:#b98cff; font-weight:bold; font-size:8pt; letter-spacing:1px;")
+        lbl.setToolTip("Tags rápidos: filtran toda la rama de la carpeta actual de la librería.\n"
+                       "Coinciden con el nombre del archivo, el de sus carpetas o sus tags.\n"
+                       "Varias prendidas = cualquiera de ellas. Clic derecho para editar.")
+        lay.addWidget(lbl)
+        self.inner = QWidget()
+        self.il = QHBoxLayout(self.inner)
+        self.il.setContentsMargins(0, 0, 0, 0)
+        self.il.setSpacing(5)
+        sa = QScrollArea()
+        sa.setWidget(self.inner)
+        sa.setWidgetResizable(True)
+        sa.setFrameShape(QFrame.NoFrame)
+        sa.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        sa.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        sa.setStyleSheet("QScrollArea, QScrollArea > QWidget > QWidget { background:transparent; }")
+        sa.setFixedHeight(28)
+        sa.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        lay.addWidget(sa, 1)
+        self.buttons = []
+        self.reload()
+
+    # ---------------- datos
+    def specs(self):
+        v = self.app.cfg["quick_tags"]
+        return list(DEFAULT_QUICK_TAGS if v is None else v)
+
+    def _save(self, specs):
+        self.app.cfg["quick_tags"] = specs
+        self.app.cfg.save()
+        self.reload()
+
+    def reload(self):
+        active = {b.text() for b in self.buttons if b.isChecked()}
+        while self.il.count():
+            it = self.il.takeAt(0)
+            if it.widget():
+                it.widget().deleteLater()
+        self.buttons = []
+        for i, spec in enumerate(self.specs()):
+            label, kws = parse_pill(spec)
+            if not label:
+                continue
+            b = QToolButton()
+            b.setObjectName("pill")
+            b.setText(label)
+            b.setCheckable(True)
+            b.setChecked(label in active)
+            b.setCursor(Qt.PointingHandCursor)
+            b.setToolTip("Coincide con: " + ", ".join(kws))
+            b.setProperty("kws", kws)
+            b.setProperty("spec_i", i)
+            b.toggled.connect(self._emit)
+            b.setContextMenuPolicy(Qt.CustomContextMenu)
+            b.customContextMenuRequested.connect(lambda pos, b=b: self._menu(b))
+            self.il.addWidget(b)
+            self.buttons.append(b)
+        add = QToolButton()
+        add.setObjectName("pillAdd")
+        add.setText("＋")
+        add.setToolTip("Agregar un tag rápido")
+        add.clicked.connect(self.add)
+        self.il.addWidget(add)
+        self.clear_b = QToolButton()
+        self.clear_b.setObjectName("pillClear")
+        self.clear_b.setText("✕ Limpiar")
+        self.clear_b.setToolTip("Apagar todos los tags rápidos")
+        self.clear_b.clicked.connect(self.clear)
+        self.il.addWidget(self.clear_b)
+        self.il.addStretch(1)
+        self._emit()
+
+    def active(self):
+        labels, kws = [], []
+        for b in self.buttons:
+            if b.isChecked():
+                labels.append(b.text())
+                kws += [k for k in b.property("kws") if k not in kws]
+        return labels, kws
+
+    def _emit(self, *_):
+        labels, kws = self.active()
+        self.clear_b.setVisible(bool(labels))
+        self.changed.emit(labels, kws)
+
+    def clear(self):
+        if not any(b.isChecked() for b in self.buttons):
+            return
+        for b in self.buttons:
+            b.blockSignals(True)
+            b.setChecked(False)
+            b.blockSignals(False)
+        self._emit()
+
+    # ---------------- edición
+    def _ask(self, title, text=""):
+        t, ok = QInputDialog.getText(self, title, "Nombre: palabras que tiene que tener (separadas por coma)\n"
+                                                  "Ej.  Fuego: fire, flame, llama", text=text)
+        return t.strip() if ok and t.strip() and parse_pill(t)[0] else None
+
+    def add(self):
+        t = self._ask("Tag rápido nuevo")
+        if t:
+            self._save(self.specs() + [t])
+
+    def _menu(self, b):
+        i = b.property("spec_i")
+        specs = self.specs()
+        m = QMenu(self)
+
+        def edit():
+            t = self._ask("Editar tag rápido", specs[i])
+            if t:
+                specs[i] = t
+                self._save(specs)
+
+        def remove():
+            specs.pop(i)
+            self._save(specs)
+
+        def move(d):
+            j = i + d
+            if 0 <= j < len(specs):
+                specs[i], specs[j] = specs[j], specs[i]
+                self._save(specs)
+        def solo():
+            for x in self.buttons:
+                x.blockSignals(True)
+                x.setChecked(x is b)
+                x.blockSignals(False)
+            self._emit()
+        m.addAction("Solo este", solo)
+        m.addSeparator()
+        m.addAction("Editar…", edit)
+        m.addAction("Mover a la izquierda", lambda: move(-1)).setEnabled(i > 0)
+        m.addAction("Mover a la derecha", lambda: move(1)).setEnabled(i < len(specs) - 1)
+        m.addAction("Quitar", remove)
+        m.addSeparator()
+        m.addAction("Restaurar los de fábrica", lambda: self._save(list(DEFAULT_QUICK_TAGS)))
+        m.exec(b.mapToGlobal(b.rect().bottomLeft()))

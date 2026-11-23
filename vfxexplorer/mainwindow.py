@@ -4,8 +4,8 @@
 import os
 import subprocess
 
-from PySide6.QtCore import Qt, QSize, QTimer, QByteArray, QDir, QUrl
-from PySide6.QtGui import QKeySequence, QShortcut, QDesktopServices, QCursor
+from PySide6.QtCore import Qt, QSize, QTimer, QByteArray, QDir, QUrl, QEvent
+from PySide6.QtGui import QKeySequence, QShortcut, QDesktopServices, QCursor, QAction
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QTreeView,
                                QListWidget, QListWidgetItem, QComboBox, QSlider, QToolBar, QLabel, QMenu,
                                QFileSystemModel, QAbstractItemView, QToolButton, QScrollArea, QFrame,
@@ -25,6 +25,7 @@ from .tree import LinedTree
 from .dirsize import DirSizeManager
 from .library_ui import LibraryPage, LibrarySidebar
 from .pipebar import PipelineBar
+from .tagbar import QuickTagBar
 from . import fileops
 
 
@@ -72,102 +73,85 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ UI
     def _build(self):
         ic = self.icons
-        # --- pipeline horizontal: va sobre el panel central (debajo de la barra de comandos)
-        self.pipebar_top = PipelineBar(self, vertical=False)
-        self.pipe_frame = QFrame()
-        self.pipe_frame.setObjectName("pipeFrame")
-        pfl = QHBoxLayout(self.pipe_frame)
-        pfl.setContentsMargins(6, 4, 6, 4)
-        pfl.addWidget(self.pipebar_top)
-        pfl.addStretch(1)
+        # --- selector de modo: va arriba a la derecha, en la fila de pestañas
         self.modebar = QTabBar()
         self.modebar.setObjectName("modebar")
         self.modebar.setDocumentMode(True)
         self.modebar.setDrawBase(False)
         self.modebar.setExpanding(False)
-        self.modebar.addTab(ic.glyph("folder", 16), "Explorador")
+        self.modebar.setUsesScrollButtons(False)
+        self.modebar.setElideMode(Qt.ElideNone)
+        self.modebar.addTab(ic.glyph("folder", 16), "Carpetas")
         self.modebar.addTab(ic.glyph("library", 16, "#b98cff"), "VFX Library")
-        self.modebar.setTabToolTip(0, "Explorador de archivos (Ctrl+Shift+E)")
+        self.modebar.setTabToolTip(0, "Carpetas: el explorador de archivos (Ctrl+Shift+E)")
         self.modebar.setTabToolTip(1, "VFX Library: viewer arriba, elementos abajo (Ctrl+Shift+L)")
         self.modebar.currentChanged.connect(lambda i: self.set_mode("library" if i == 1 else "explorer"))
 
-        # --- barra de comandos (como la del Explorador de Windows 11)
-        cb = QToolBar("Comandos")
-        cb.setObjectName("cmdbar")
-        cb.setMovable(False)
-        cb.setIconSize(QSize(16, 16))
-        cb.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.addToolBar(cb)
-        self.cmdbar = cb
+        # --- fila de herramientas: ＋ | pipeline (Carpetas) o tags rápidos (VFX Library) | doble panel, detalles, ⚙
+        self.pipebar_top = PipelineBar(self, vertical=False)
+        self.tagbar = QuickTagBar(self)
+        self.ctx_stack = QStackedWidget()
+        pw = QWidget()
+        pwl = QHBoxLayout(pw)
+        pwl.setContentsMargins(0, 0, 0, 0)
+        pwl.addWidget(self.pipebar_top)
+        pwl.addStretch(1)
+        self.ctx_stack.addWidget(pw)
+        self.ctx_stack.addWidget(self.tagbar)
+        self.ctx_stack.addWidget(QWidget())
+        self.ctx_stack.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.ctx_stack.setFixedHeight(34)
+        self.pipe_frame = self.ctx_stack
 
-        def menu_button(glyph, text, menu, tip=""):
+        cmd = QFrame()
+        cmd.setObjectName("cmdrow")
+        self.cmdrow = cmd
+        ch = QHBoxLayout(cmd)
+        ch.setContentsMargins(0, 3, 6, 3)
+        ch.setSpacing(2)
+        self.cmd_left = QWidget()
+        cll = QHBoxLayout(self.cmd_left)
+        cll.setContentsMargins(6, 0, 6, 0)
+        self.m_new = QMenu(self)
+        self.m_new.aboutToShow.connect(self._fill_new_menu)
+        b_new = QToolButton()
+        b_new.setIcon(ic.glyph("plus", 18))
+        b_new.setToolTip("Nuevo: carpeta, pestaña…")
+        b_new.setAutoRaise(True)
+        b_new.setPopupMode(QToolButton.InstantPopup)
+        b_new.setMenu(self.m_new)
+        b_new.setStyleSheet("QToolButton::menu-indicator{image:none;}")
+        cll.addWidget(b_new)
+        cll.addStretch(1)
+        ch.addWidget(self.cmd_left)
+        ch.addWidget(self.ctx_stack, 1)
+
+        def tool(action):
             b = QToolButton()
-            b.setIcon(ic.glyph(glyph, 16))
-            b.setText(text + "  ")
-            b.setToolTip(tip or text)
-            b.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-            b.setPopupMode(QToolButton.InstantPopup)
-            b.setMenu(menu)
-            cb.addWidget(b)
+            b.setDefaultAction(action)
+            b.setAutoRaise(True)
+            b.setToolButtonStyle(Qt.ToolButtonTextBesideIcon if action.text() else Qt.ToolButtonIconOnly)
             return b
-
-        def act(glyph, tip, slot, text=None):
-            a = cb.addAction(ic.glyph(glyph, 16), text or "", slot)
-            a.setToolTip(tip)
-            w = cb.widgetForAction(a)
-            if w is not None and not text:
-                w.setToolButtonStyle(Qt.ToolButtonIconOnly)
-            return a
-
-        cb.addWidget(self.modebar)
-        cb.addSeparator()
-        m_new = QMenu(self)
-        m_new.addAction(ic.glyph("newfolder", 16), "Carpeta\tCtrl+Shift+N", lambda: self.op_new_folder(self.active))
-        menu_button("plus", "Nuevo", m_new, "Crear carpeta")
-        cb.addSeparator()
-        act("cut", "Cortar (Ctrl+X)", lambda: self.op_clip(self.active, cut=True))
-        act("copy", "Copiar (Ctrl+C)", lambda: self.op_clip(self.active, cut=False))
-        act("paste", "Pegar (Ctrl+V)", lambda: self.op_paste(self.active))
-        act("rename", "Cambiar nombre (F2) — también secuencias", lambda: self.start_inline_rename(self.active))
-        act("trash", "Eliminar: mandar a la papelera (Supr)", lambda: self.op_trash(self.active))
-        cb.addSeparator()
-
-        self.m_sort = QMenu(self)
-        self.m_sort.aboutToShow.connect(self._fill_sort_menu)
-        menu_button("sort", "Ordenar", self.m_sort)
-        self.m_view = QMenu(self)
-        self.m_view.aboutToShow.connect(self._fill_view_menu)
-        menu_button("grid", "Ver", self.m_view)
-        self.m_filter = QMenu(self)
-        self.m_filter.aboutToShow.connect(self._fill_filter_menu)
-        self.b_filter = menu_button("filter", "Filtrar", self.m_filter, "Mostrar solo un tipo de archivo")
-        self.act_sub = cb.addAction(ic.glyph("branch", 16), "Subcarpetas",
-                                    lambda: self.active.rec.toggle())
-        self.act_sub.setCheckable(True)
-        self.act_sub.setToolTip("Incluir subcarpetas (Ctrl+B)\nSin texto: todos los archivos de la rama.\n"
-                                "Con texto: busca en toda la rama.")
-        cb.addSeparator()
-        self.m_more = QMenu(self)
-        self.m_more.aboutToShow.connect(self._fill_more_menu)
-        more = menu_button("more", "", self.m_more, "Ver más")
-        more.setToolButtonStyle(Qt.ToolButtonIconOnly)
-        sp2 = QWidget()
-        sp2.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        cb.addWidget(sp2)
-        self.act_dual = cb.addAction(ic.glyph("dual", 16), "Doble panel", self.toggle_dual)
+        self.act_dual = QAction(ic.glyph("dual", 16), "Doble panel", self)
+        self.act_dual.triggered.connect(lambda: self.toggle_dual())
         self.act_dual.setCheckable(True)
         self.act_dual.setToolTip("Doble panel (F9) · F6 cambia de panel")
-        self.act_details = cb.addAction(ic.glyph("details", 16), "Detalles", self.toggle_details)
+        self.act_details = QAction(ic.glyph("details", 16), "Detalles", self)
+        self.act_details.triggered.connect(lambda: self.toggle_details())
         self.act_details.setCheckable(True)
         self.act_details.setToolTip("Panel de detalles (Alt+Shift+P)")
-        a = cb.addAction(ic.glyph("gear", 16), "", self.open_settings)
-        a.setToolTip("Configuración")
-        cb.widgetForAction(a).setToolButtonStyle(Qt.ToolButtonIconOnly)
+        a_set = QAction(ic.glyph("gear", 16), "", self)
+        a_set.setToolTip("Configuración")
+        a_set.triggered.connect(lambda: self.open_settings())
+        for a in (self.act_dual, self.act_details, a_set):
+            ch.addWidget(tool(a))
 
-        # sidebar
+        # --- sidebar: ACCESO RÁPIDO (de cada modo) arriba, y abajo los tabs CARPETAS / VFX LIBRARY
         self.favs = self._mk_list(self._favs_menu, lambda it: self.open_in_explorer(it.data(Qt.UserRole)))
-        self.favs.setDragDropMode(QAbstractItemView.InternalMove)
-        self.favs.model().rowsMoved.connect(self._favs_reordered)
+        self.lib_favs = self._mk_list(self._lib_favs_menu, lambda it: self.open_library(it.data(Qt.UserRole)))
+        for w in (self.favs, self.lib_favs):
+            w.setDragDropMode(QAbstractItemView.InternalMove)
+            w.model().rowsMoved.connect(self._favs_reordered)
         self.colls = self._mk_list(self._colls_menu, lambda it: self.open_collection(it.data(Qt.UserRole)))
         self.tagl = self._mk_list(self._tags_menu, lambda it: self.open_tag(it.data(Qt.UserRole)))
 
@@ -184,69 +168,106 @@ class MainWindow(QMainWindow):
         self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._tree_menu)
 
-        self.color_mode = QComboBox()
-        for label, key in COLOR_MODES:
-            self.color_mode.addItem(label, key)
-        self.color_mode.setCurrentIndex(max(0, self.color_mode.findData(self.cfg["color_mode"])))
-        self.color_mode.setToolTip("Colores automáticos de carpetas\n"
-                                   "Por proyecto: el proyecto tiene un color, las secuencias uno más claro y los shots más claro.\n"
-                                   "Por nombre: reglas como 3D = azul (se editan en ⚙ › Colores).\n"
-                                   "El color manual (clic derecho › Etiqueta de color) siempre gana.")
-        self.color_mode.setStyleSheet("QComboBox{font-size:8pt; padding:1px 4px;}")
-        self.color_mode.currentIndexChanged.connect(self._color_mode_changed)
-
-        self.libside = LibrarySidebar(self, self._section("VFX LIBRARY"))
+        self.libside = LibrarySidebar(self)
         self.pipebar_side = PipelineBar(self, vertical=True)
         self.pipebars = [self.pipebar_top, self.pipebar_side]
-        left = QSplitter(Qt.Vertical)
         self.side_boxes = {}
+
+        def boxed(title, w):
+            box = QWidget()
+            bl = QVBoxLayout(box)
+            bl.setContentsMargins(0, 0, 0, 0)
+            bl.setSpacing(1)
+            if title:
+                bl.addWidget(self._section(title))
+            bl.addWidget(w, 1)
+            return box
+
+        self.quick_stack = QStackedWidget()
+        self.quick_stack.addWidget(self.favs)
+        self.quick_stack.addWidget(self.lib_favs)
+        self.quick_title = self._section("ACCESO RÁPIDO")
+        quick = QWidget()
+        ql = QVBoxLayout(quick)
+        ql.setContentsMargins(0, 0, 0, 0)
+        ql.setSpacing(1)
+        ql.addWidget(self.quick_title)
+        ql.addWidget(self.quick_stack, 1)
+        self.side_boxes["favs"] = quick
+
+        # tab CARPETAS: (pipeline vertical) + Este equipo + árbol
         self.thispc = self._mk_list(lambda w, pos: None, lambda it: self.open_in_explorer("::thispc"))
         it = QListWidgetItem(ic.glyph("pc", 18, "#4cc2ff"), "Este equipo")
         it.setToolTip("Discos y ubicaciones de red")
         self.thispc.addItem(it)
         self.thispc.setFixedHeight(34)
         self.thispc.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        treebox = QWidget()
-        tbl = QVBoxLayout(treebox)
-        tbl.setContentsMargins(0, 0, 0, 0)
-        tbl.setSpacing(0)
-        tbl.addWidget(self.thispc)
-        tbl.addWidget(self.tree, 1)
-        for key, title, w, extra in (("pipeline", "PIPELINE", self.pipebar_side, None),
-                                     ("favs", "ACCESO RÁPIDO", self.favs, None),
-                                     ("colls", "COLECCIONES", self.colls, None),
-                                     ("tags", "TAGS", self.tagl, None),
-                                     ("tree", "CARPETAS", treebox, self.color_mode)):
-            if title is None:
-                box = w
-            else:
-                box = QWidget()
-                bl = QVBoxLayout(box)
-                bl.setContentsMargins(0, 0, 0, 0)
-                bl.setSpacing(1)
-                if extra is not None:
-                    h = QHBoxLayout()
-                    h.setContentsMargins(0, 0, 4, 0)
-                    h.addWidget(self._section(title), 1)
-                    h.addWidget(extra)
-                    bl.addLayout(h)
-                else:
-                    bl.addWidget(self._section(title))
-                bl.addWidget(w)
-            self.side_boxes[key] = box
-            left.addWidget(box)
-        left.setSizes([170, 150, 80, 100, 480])
-        left.setMinimumWidth(200)
-        self.left_split = left
-        # dos tabs: Carpetas (explorador) / VFX Library
+        folders_page = QWidget()
+        fpl = QVBoxLayout(folders_page)
+        fpl.setContentsMargins(0, 0, 0, 0)
+        fpl.setSpacing(0)
+        self.side_boxes["pipeline"] = boxed("PIPELINE", self.pipebar_side)
+        fpl.addWidget(self.side_boxes["pipeline"])
+        fpl.addWidget(self.thispc)
+        fpl.addWidget(self.tree, 1)
+        self.side_boxes["tree"] = folders_page
+
+        # tab VFX LIBRARY: árbol de la librería (+ colecciones y tags si están activados)
+        lib_page = QSplitter(Qt.Vertical)
+        lib_page.addWidget(self.libside)
+        self.side_boxes["colls"] = boxed("COLECCIONES", self.colls)
+        self.side_boxes["tags"] = boxed("TAGS", self.tagl)
+        lib_page.addWidget(self.side_boxes["colls"])
+        lib_page.addWidget(self.side_boxes["tags"])
+        lib_page.setSizes([500, 90, 110])
+        self.side_boxes["library"] = lib_page
+
         self.sidetabs = QTabWidget()
         self.sidetabs.setObjectName("sidetabs")
         self.sidetabs.setDocumentMode(True)
-        self.sidetabs.addTab(left, ic.glyph("folder", 16), "Carpetas")
-        self.sidetabs.addTab(self.libside, ic.glyph("library", 16, "#b98cff"), "VFX Library")
-        self.side_boxes["library"] = self.libside
+        self.sidetabs.tabBar().setDrawBase(False)
+        self.sidetabs.addTab(folders_page, "CARPETAS")
+        self.sidetabs.addTab(lib_page, "VFX LIBRARY")
+        self.sidetabs.setTabToolTip(0, "Carpetas: el explorador")
+        self.sidetabs.setTabToolTip(1, "VFX Library: tus carpetas de elementos.\n"
+                                       "Arrastrando archivos sobre un tab se muestra su árbol para soltarlos ahí.")
+        corner = QWidget()
+        crl = QHBoxLayout(corner)
+        crl.setContentsMargins(0, 0, 2, 0)
+        crl.setSpacing(0)
+        self.b_colors = QToolButton()
+        self.b_colors.setIcon(self._palette_icon())
+        self.b_colors.setAutoRaise(True)
+        self.b_colors.setPopupMode(QToolButton.InstantPopup)
+        self.b_colors.setStyleSheet("QToolButton::menu-indicator{image:none;}")
+        self.m_colors = QMenu(self)
+        self.m_colors.aboutToShow.connect(self._fill_colors_menu)
+        self.b_colors.setMenu(self.m_colors)
+        self.b_colors.setToolTip("Colores automáticos de carpetas (por proyecto, por nombre…)")
+        self.b_side_add = QToolButton()
+        self.b_side_add.setIcon(ic.glyph("plus", 14))
+        self.b_side_add.setAutoRaise(True)
+        self.b_side_add.clicked.connect(self._side_add)
+        crl.addWidget(self.b_colors)
+        crl.addWidget(self.b_side_add)
+        self.sidetabs.setCornerWidget(corner, Qt.TopRightCorner)
+        self._peek = False
+        self.sidetabs.currentChanged.connect(self._sidetab_changed)
+        tb = self.sidetabs.tabBar()
+        tb.setAcceptDrops(True)
+        tb.installEventFilter(self)
+        self.peek_timer = QTimer(self, interval=300, timeout=self._peek_check)
 
-        # paneles
+        left = QSplitter(Qt.Vertical)
+        left.addWidget(quick)
+        left.addWidget(self.sidetabs)
+        left.setStretchFactor(1, 1)
+        left.setSizes([190, 700])
+        left.setCollapsible(1, False)
+        left.setMinimumWidth(200)
+        self.left_split = left
+
+        # --- paneles
         self.paneA = FilePane(self, "A")
         self.paneB = FilePane(self, "B")
         self.panes = [self.paneA, self.paneB]
@@ -271,27 +292,13 @@ class MainWindow(QMainWindow):
         lp.status_changed.connect(self._pane_status)
         self.all_panes = [self.paneA, self.paneB, lp]
         self.explorer_active = self.paneA
+        self.tagbar.changed.connect(lambda labels, kws: self.libpane.set_pills(labels, kws))
 
-        self.modebar = QTabBar()
-        self.modebar.setDocumentMode(True)
-        self.modebar.setExpanding(False)
-        self.modebar.setObjectName("modebar")
-        self.modebar.addTab(ic.glyph("folder", 16), "Explorador")
-        self.modebar.addTab(ic.glyph("library", 16, "#b98cff"), "VFX Library")
-        self.modebar.setTabToolTip(0, "Explorador de archivos (Ctrl+Shift+E)")
-        self.modebar.setTabToolTip(1, "VFX Library: viewer arriba, elementos abajo (Ctrl+Shift+L)")
-        self.modebar.currentChanged.connect(lambda i: self.set_mode("library" if i == 1 else "explorer"))
         self.center_stack = QStackedWidget()
         self.center_stack.addWidget(self.pane_split)
         self.center_stack.addWidget(self.libpage)
-        center = QWidget()
-        cl = QVBoxLayout(center)
-        cl.setContentsMargins(0, 0, 0, 0)
-        cl.setSpacing(0)
-        cl.addWidget(self.pipe_frame)
-        cl.addWidget(self.center_stack, 1)
 
-        # info
+        # --- detalles
         self.preview = QLabel()
         self.preview.setAlignment(Qt.AlignCenter)
         self.preview.setMinimumHeight(170)
@@ -315,60 +322,111 @@ class MainWindow(QMainWindow):
         sa.setMinimumWidth(240)
 
         main = QSplitter(Qt.Horizontal)
-        main.addWidget(self.sidetabs)
-        main.addWidget(center)
+        main.addWidget(left)
+        main.addWidget(self.center_stack)
         main.addWidget(sa)
         main.setStretchFactor(1, 1)
         main.setSizes([280, 940, 300])
         main.setCollapsible(0, False)
+        main.splitterMoved.connect(lambda *_: self._sync_cmd_left())
         self.main_split = main
-        self.setCentralWidget(main)
 
+        # --- arriba: pestañas + dirección (del panel visible) a todo el ancho, después la fila de herramientas
+        root = QWidget()
+        rl = QVBoxLayout(root)
+        rl.setContentsMargins(0, 0, 0, 0)
+        rl.setSpacing(0)
+        self.head_host = QWidget()
+        self.head_host.setObjectName("headHost")
+        hh = QVBoxLayout(self.head_host)
+        hh.setContentsMargins(0, 0, 0, 0)
+        hh.setSpacing(0)
+        self.modecorner = QWidget()          # se usa en doble panel (cuando cada panel tiene su cabecera)
+        mcl = QHBoxLayout(self.modecorner)
+        mcl.setContentsMargins(6, 3, 6, 0)
+        mcl.addStretch(1)
+        rl.addWidget(self.head_host)
+        rl.addWidget(cmd)
+        rl.addWidget(main, 1)
+        self.setCentralWidget(root)
+
+        # --- barra de estado: cantidad | subcarpetas, filtro, ordenar, ver, ⋯ | selección, tamaño, vistas
+        sb = self.statusBar()
         self.status = QLabel()
-        self.statusBar().addWidget(self.status, 1)
+        sb.addWidget(self.status, 1)
+
+        def sbtn(glyph, tip, menu=None, slot=None, checkable=False):
+            b = QToolButton()
+            b.setIcon(ic.glyph(glyph, 16))
+            b.setToolTip(tip)
+            b.setAutoRaise(True)
+            b.setCheckable(checkable)
+            if menu is not None:
+                b.setMenu(menu)
+                b.setPopupMode(QToolButton.InstantPopup)
+                b.setStyleSheet("QToolButton::menu-indicator{image:none;}")
+            if slot:
+                b.clicked.connect(slot)
+            sb.addPermanentWidget(b)
+            return b
+        self.b_sub = sbtn("branch", "Subcarpetas (Ctrl+B)\nSin texto: todos los archivos de la rama.\n"
+                                    "Con texto: busca en toda la rama.", slot=lambda: self.active.rec.toggle(),
+                          checkable=True)
+        self.m_filter = QMenu(self)
+        self.m_filter.aboutToShow.connect(self._fill_filter_menu)
+        self.b_filter = sbtn("filter", "Filtrar: mostrar solo un tipo de archivo", self.m_filter)
+        self.m_sort = QMenu(self)
+        self.m_sort.aboutToShow.connect(self._fill_sort_menu)
+        sbtn("sort", "Ordenar y agrupar", self.m_sort)
+        self.m_view = QMenu(self)
+        self.m_view.aboutToShow.connect(self._fill_view_menu)
+        sbtn("grid", "Ver: tamaño de íconos, detalles, ocultos…", self.m_view)
+        self.m_more = QMenu(self)
+        self.m_more.aboutToShow.connect(self._fill_more_menu)
+        sbtn("more", "Más: seleccionar, copiar ruta…", self.m_more)
+        sep = QFrame()
+        sep.setFrameShape(QFrame.VLine)
+        sep.setStyleSheet("color:#333;")
+        sb.addPermanentWidget(sep)
         self.status_right = QLabel()
-        self.statusBar().addPermanentWidget(self.status_right)
+        self.status_right.setMaximumWidth(260)
+        sb.addPermanentWidget(self.status_right)
         self.size_slider = QSlider(Qt.Horizontal)
         self.size_slider.setRange(96, 320)
         self.size_slider.setFixedWidth(110)
         self.size_slider.setToolTip("Tamaño de los íconos")
         self.size_slider.setValue(int(self.cfg["thumb_size"]))
         self.size_slider.valueChanged.connect(self._on_thumb_size)
-        self.statusBar().addPermanentWidget(self.size_slider)
-        self.sb_list = QToolButton()
-        self.sb_list.setIcon(ic.glyph("list", 16))
-        self.sb_list.setToolTip("Detalles (Ctrl+2)")
-        self.sb_list.setCheckable(True)
-        self.sb_list.setAutoRaise(True)
-        self.sb_list.clicked.connect(lambda: self.active.set_view("list"))
-        self.sb_grid = QToolButton()
-        self.sb_grid.setIcon(ic.glyph("grid", 16))
-        self.sb_grid.setToolTip("Íconos grandes (Ctrl+1)")
-        self.sb_grid.setCheckable(True)
-        self.sb_grid.setAutoRaise(True)
-        self.sb_grid.clicked.connect(lambda: self.active.set_view("grid"))
-        self.statusBar().addPermanentWidget(self.sb_list)
-        self.statusBar().addPermanentWidget(self.sb_grid)
-        self.statusBar().setSizeGripEnabled(False)
+        sb.addPermanentWidget(self.size_slider)
+        self.sb_list = sbtn("list", "Detalles (Ctrl+2)", slot=lambda: self.active.set_view("list"), checkable=True)
+        self.sb_grid = sbtn("grid", "Íconos grandes (Ctrl+1)", slot=lambda: self.active.set_view("grid"),
+                            checkable=True)
+        sb.setSizeGripEnabled(False)
 
         self.setStyleSheet(f"""
             #pane {{ border:none; }}
             #paneNav[active="true"] {{ border-bottom:2px solid {ACCENT}; }}
             #paneHeader {{ background:#202020; }}
             #paneTabs {{ background:#202020; }}
-            #paneNav {{ background:#2b2b2b; border-bottom:2px solid #232323; }}
-            #pipeFrame {{ background:#202020; border-bottom:1px solid #1a1a1a; }}
+            #paneNav {{ background:#2b2b2b; border-bottom:1px solid #232323; }}
+            #cmdrow {{ background:#1f1f1f; border-bottom:1px solid #2a2a2a; }}
+            #cmdrow QToolButton {{ padding:4px 8px; border-radius:4px; }}
+            #cmdrow QToolButton:hover {{ background:#2d2d2d; }}
+            #cmdrow QToolButton:checked {{ background:#2d2d2d; }}
             #sidetabs::pane {{ border:none; }}
-            #sidetabs QTabBar::tab {{ padding:6px 14px; min-width:80px; border-radius:6px; margin:4px 2px 2px 4px; }}
+            #sidetabs QTabBar::tab {{ padding:5px 12px; border-radius:4px; margin:4px 2px 2px 4px;
+                                      color:#7d8590; font-size:7.5pt; font-weight:bold; letter-spacing:1px; }}
             #sidetabs QTabBar::tab:selected {{ background:#2d2d2d; color:#ffffff; }}
+            #sidetabs QTabBar::tab:hover:!selected {{ color:#c9ccd1; }}
             #paneSearch {{ border-radius:4px; }}
             #paneFooter {{ color:#9d9d9d; font-size:8pt; padding:3px 10px; background:#191919;
                            border-top:1px solid #232323; }}
             #paneBanner {{ background:#0f3a55; color:#e6f6ff; padding:5px 12px; font-size:8.5pt;
                            border-bottom:1px solid #1a5c86; }}
             #viewerBar {{ background:#202020; border-top:1px solid #2a2a2a; }}
-            #modebar::tab {{ padding:6px 16px; min-width:110px; border-radius:6px; margin:2px; }}
+            #modebar::tab {{ padding:5px 16px; min-width:100px; border-radius:6px; margin:0 2px 2px 2px; }}
             #modebar::tab:selected {{ background:#2d2d2d; color:#ffffff; }}
+            QStatusBar QToolButton {{ padding:2px; }}
             QListWidget, QTreeWidget, QTreeView {{ background:#191919; }}
         """)
         QShortcut(QKeySequence("F9"), self, self.toggle_dual)
@@ -378,7 +436,155 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Alt+Shift+P"), self, self.toggle_details)
         self._reload_sidebar()
         self.apply_features()
+        self._place_headers()
         self.apply_pipeline_location()
+
+    # ------------------------------------------------------------------ cabeceras / sidebar
+    def _place_headers(self):
+        """Con un solo panel, sus pestañas y su dirección van arriba a todo el ancho (como el Explorador de
+        Windows 11) y el selector de modo queda a la derecha de las pestañas. En doble panel cada panel tiene
+        su propia cabecera."""
+        lib = self.mode() == "library"
+        dual = self.paneB.isVisible() and not lib
+        hosted = None if dual else (self.libpane if lib else self.paneA)
+        hl = self.head_host.layout()
+        for p in self.all_panes:
+            if p is not hosted and p.header.parent() is not p:
+                hl.removeWidget(p.header)
+                p.layout().insertWidget(0, p.header)
+        if dual:
+            if self.modecorner.parent() is not self.head_host:
+                hl.addWidget(self.modecorner)
+            self.modecorner.layout().addWidget(self.modebar)
+            self.modecorner.show()
+        else:
+            if self.modecorner.parent() is self.head_host:
+                hl.removeWidget(self.modecorner)
+                self.modecorner.hide()
+            if hosted.header.parent() is not self.head_host:
+                hosted.layout().removeWidget(hosted.header)
+                hl.addWidget(hosted.header)
+            hosted.corner.addWidget(self.modebar)
+        self.head_host.setVisible(True)
+        for p in self.all_panes:
+            p.header.show()
+            p.footer.setVisible(dual)          # con un panel la cantidad ya está en la barra de estado
+        self.modebar.ensurePolished()
+        QTimer.singleShot(0, lambda: self.modebar.setMinimumWidth(
+            sum(self.modebar.tabRect(i).width() for i in range(self.modebar.count())) + 8))
+
+    def _sync_cmd_left(self):
+        s = self.main_split.sizes()
+        if s and s[0] > 0:
+            self.cmd_left.setFixedWidth(s[0] + self.main_split.handleWidth())
+
+    def resizeEvent(self, ev):
+        super().resizeEvent(ev)
+        QTimer.singleShot(0, self._sync_cmd_left)
+
+    def _palette_icon(self):
+        from PySide6.QtGui import QPixmap, QPainter, QColor, QIcon
+        pm = QPixmap(16, 16)
+        pm.fill(Qt.transparent)
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setPen(Qt.NoPen)
+        for (x, y), c in zip(((1, 1), (9, 1), (1, 9), (9, 9)), ("#f4c443", "#4ea1ff", "#ff6b6b", "#3ecf8e")):
+            p.setBrush(QColor(c))
+            p.drawRoundedRect(x, y, 6, 6, 2, 2)
+        p.end()
+        return QIcon(pm)
+
+    def _fill_colors_menu(self):
+        m = self.m_colors
+        m.clear()
+        m.addSection("Colores automáticos")
+        cur = self.cfg["color_mode"]
+        for label, key in COLOR_MODES:
+            a = m.addAction(label, lambda k=key: self.set_color_mode(k))
+            a.setCheckable(True)
+            a.setChecked(cur == key)
+        m.addSeparator()
+        m.addAction("El color manual (clic derecho › Etiqueta de color) siempre gana").setEnabled(False)
+        m.addAction(self.icons.glyph("gear", 16), "Configurar colores y líneas…", lambda: self.open_settings("Colores"))
+
+    def set_color_mode(self, key):
+        self.cfg["color_mode"] = key
+        self.colors.reload()
+        self.save_soon()
+        self.refresh_views()
+        self._reload_sidebar()
+
+    def _side_add(self):
+        if self.sidetabs.currentIndex() == 1:
+            self.libside.add_root()
+        else:
+            d = self.explorer_active.current_dir()
+            if d:
+                self.add_favorites([d], lib=False)
+
+    def _side_tooltip(self, i):
+        self.b_side_add.setToolTip("Agregar carpeta a la VFX Library" if i == 1 else
+                                   "Agregar la carpeta actual a Acceso rápido")
+
+    def _sidetab_changed(self, i):
+        self._side_tooltip(i)
+        if not self._peek:
+            self.set_mode("library" if i == 1 else "explorer")
+
+    def eventFilter(self, obj, ev):
+        if hasattr(self, "sidetabs") and obj is self.sidetabs.tabBar():
+            t = ev.type()
+            if t == QEvent.DragEnter:
+                ev.accept()
+                return True
+            if t == QEvent.DragMove:
+                i = obj.tabAt(ev.position().toPoint())
+                if i >= 0 and i != self.sidetabs.currentIndex():
+                    self._peek_side(i)
+                ev.ignore()
+                return True
+            if t == QEvent.Drop:
+                ev.ignore()
+                return True
+        return super().eventFilter(obj, ev)
+
+    def _peek_side(self, i):
+        """Mientras se arrastra, mostrar el árbol del otro tab sin cambiar de modo (para soltar ahí)."""
+        self._peek = True
+        self.sidetabs.setCurrentIndex(i)
+        self.quick_stack.setCurrentIndex(i)
+        self._peek = False
+        self.peek_timer.start()
+
+    def _peek_check(self):
+        if QApplication.mouseButtons() == Qt.NoButton:
+            self.end_peek()
+
+    def end_peek(self):
+        self.peek_timer.stop()
+        i = 1 if self.mode() == "library" else 0
+        if self.sidetabs.currentIndex() != i:
+            self._peek = True
+            self.sidetabs.setCurrentIndex(i)
+            self.quick_stack.setCurrentIndex(i)
+            self._peek = False
+
+    def _fill_new_menu(self):
+        m = self.m_new
+        m.clear()
+        pane = self.active
+        m.addAction(self.icons.glyph("newfolder", 16), "Carpeta\tCtrl+Shift+N",
+                    lambda: self.op_new_folder(pane)).setEnabled(bool(pane.current_dir()))
+        m.addAction(self.icons.glyph("plus", 16), "Pestaña\tCtrl+T",
+                    lambda: pane.add_tab(pane.current_dir() or pane.tab_path()))
+        m.addSeparator()
+        if self.mode() == "library":
+            m.addAction(self.icons.glyph("library", 16, "#b98cff"), "Carpeta en la VFX Library…",
+                        self.libside.add_root)
+        if pane.current_dir():
+            m.addAction(self.icons.glyph("pin", 16), "Acceso rápido a esta carpeta",
+                        lambda: self.add_favorites([pane.current_dir()]))
 
     def _mk_list(self, menu_fn, click_fn):
         w = QListWidget()
@@ -399,7 +605,7 @@ class MainWindow(QMainWindow):
             self.restoreGeometry(QByteArray.fromBase64(g.encode()))
         else:
             self.resize(1560, 920)
-        for k, sp in (("splitter", self.main_split), ("splitter_left2", self.left_split),
+        for k, sp in (("splitter", self.main_split), ("splitter_left3", self.left_split),
                       ("splitter_panes", self.pane_split), ("splitter_library", self.libpage.split)):
             if self.cfg[k]:
                 sp.restoreState(QByteArray.fromBase64(self.cfg[k].encode()))
@@ -448,7 +654,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, ev):
         self.cfg["geometry"] = bytes(self.saveGeometry().toBase64()).decode()
         self.cfg["splitter"] = bytes(self.main_split.saveState().toBase64()).decode()
-        self.cfg["splitter_left2"] = bytes(self.left_split.saveState().toBase64()).decode()
+        self.cfg["splitter_left3"] = bytes(self.left_split.saveState().toBase64()).decode()
         self.cfg["splitter_panes"] = bytes(self.pane_split.saveState().toBase64()).decode()
         self.cfg["splitter_library"] = bytes(self.libpage.split.saveState().toBase64()).decode()
         self._save_now()
@@ -473,14 +679,15 @@ class MainWindow(QMainWindow):
     def sync_commandbar(self, pane=None):
         """Refleja en la barra de comandos y en la barra de estado el estado del panel activo."""
         pane = pane or self.active
-        if pane is not getattr(self, "active", None) or not hasattr(self, "act_sub"):
+        if pane is not getattr(self, "active", None) or not hasattr(self, "b_sub"):
             return
-        self.act_sub.blockSignals(True)
-        self.act_sub.setChecked(pane.rec.isChecked())
-        self.act_sub.blockSignals(False)
+        self.b_sub.blockSignals(True)
+        self.b_sub.setChecked(pane.rec.isChecked())
+        self.b_sub.blockSignals(False)
         cat = pane.filter.currentData()
         label = next((l for l, k in FILTERS if k == cat), "Filtrar")
-        self.b_filter.setText(("Filtrar" if cat == "all" else label) + "  ")
+        self.b_filter.setIcon(self.icons.glyph("filter", 16, ACCENT if cat != "all" else "#c9ccd1"))
+        self.b_filter.setToolTip("Filtrar: mostrar solo un tipo de archivo" if cat == "all" else f"Filtro: {label}")
         self.sb_grid.setChecked(pane.view_mode == "grid")
         self.sb_list.setChecked(pane.view_mode != "grid")
 
@@ -596,15 +803,22 @@ class MainWindow(QMainWindow):
             self.modebar.setCurrentIndex(1 if lib else 0)
             self.modebar.blockSignals(False)
         self.center_stack.setCurrentIndex(1 if lib else 0)
+        self.peek_timer.stop()
+        self._peek = True
         self.sidetabs.setCurrentIndex(1 if lib else 0)
+        self.quick_stack.setCurrentIndex(1 if lib else 0)
+        self._peek = False
+        self._side_tooltip(1 if lib else 0)
         self.act_dual.setEnabled(not lib)
+        self._place_headers()
         self.apply_pipeline_location()
         if lib:
             self.set_active(self.libpane)
             self.libpane.view().setFocus()
             if not self.cfg["library_roots"]:
-                self.libpage.viewer.show_message("Elegí la carpeta de tu librería de VFX con el ＋ de «VFX LIBRARY» "
-                                                 "en el panel de la izquierda (videos, secuencias, imágenes, HDRIs…).")
+                self.libpage.viewer.show_message("Elegí la carpeta de tu librería de VFX con el ＋ al lado del tab "
+                                                 "«VFX LIBRARY» del panel de la izquierda (videos, secuencias, "
+                                                 "imágenes, HDRIs…).")
         else:
             self.libpage.viewer.pause()
             self.set_active(self.explorer_active)
@@ -644,19 +858,21 @@ class MainWindow(QMainWindow):
     def entry_color(self, e):
         return self.colors.dir_color(e.path) if e.kind == "dir" else self.lib.color(e.key())
 
-    def _color_mode_changed(self, _):
-        self.cfg["color_mode"] = self.color_mode.currentData()
-        self.colors.reload()
-        self.save_soon()
-        self.refresh_views()
-        self._reload_sidebar()
-
     def apply_pipeline_location(self):
         loc = self.cfg["pipeline_location"] or "center"
         if loc == "top":
             loc = "center"
-        self.pipe_frame.setVisible(loc == "center" and self.mode() == "explorer")
+        if self.mode() == "library":
+            self.ctx_stack.setCurrentIndex(1)
+        else:
+            self.ctx_stack.setCurrentIndex(0 if loc == "center" else 2)
         self.side_boxes["pipeline"].setVisible(loc == "sidebar")
+
+    def clear_pills(self):
+        self.tagbar.clear()
+
+    def drag_finished(self):
+        QTimer.singleShot(0, self.end_peek)
 
     def apply_features(self):
         on = bool(self.cfg["library_features"])
@@ -728,7 +944,7 @@ class MainWindow(QMainWindow):
     def set_active(self, pane):
         if pane in self.panes:
             self.explorer_active = pane
-        if hasattr(self, "act_sub"):
+        if hasattr(self, "b_sub"):
             QTimer.singleShot(0, lambda p=pane: self.sync_commandbar(p))
         if pane is not self.active or not pane.property("active"):
             self.active = pane
@@ -753,6 +969,7 @@ class MainWindow(QMainWindow):
             self.set_active(self.paneA)
         for p in self.panes:
             p.set_active(p is self.active and show)
+        self._place_headers()
         if show and sum(self.pane_split.sizes()) and min(self.pane_split.sizes()) < 50:
             w = sum(self.pane_split.sizes())
             self.pane_split.setSizes([w // 2, w // 2])
@@ -768,6 +985,11 @@ class MainWindow(QMainWindow):
         if pane is not self.active:
             return
         d = pane.current_dir()
+        if pane is self.libpane:
+            self.libside.sync(d or "")
+            if d:
+                self.setWindowTitle(f"{os.path.basename(d.rstrip(chr(92) + '/')) or d} — {APP_NAME} {VERSION}")
+            return
         self.tree.set_trace_path(d or "")
         if not d:
             for pb in self.pipebars:
@@ -1220,13 +1442,19 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ sidebar
     def _reload_sidebar(self):
-        self.favs.clear()
-        for p in self.cfg["favorites"]:
-            name = os.path.basename(p.rstrip("\\/")) or p
-            it = QListWidgetItem(self.icons.folder_icon(self.dir_color(p), 16), name)
-            it.setData(Qt.UserRole, p)
-            it.setToolTip(p)
-            self.favs.addItem(it)
+        for w, key in ((self.favs, "favorites"), (self.lib_favs, "lib_favorites")):
+            w.clear()
+            for p in self.cfg[key] or []:
+                name = os.path.basename(p.rstrip("\\/")) or p
+                it = QListWidgetItem(self.icons.folder_icon(self.dir_color(p), 16), name)
+                it.setData(Qt.UserRole, p)
+                it.setToolTip(p)
+                w.addItem(it)
+        if not self.cfg["lib_favorites"]:
+            it = QListWidgetItem("Clic derecho en una carpeta › Agregar a acceso rápido")
+            it.setForeground(Qt.gray)
+            it.setFlags(Qt.NoItemFlags)
+            self.lib_favs.addItem(it)
         self.colls.clear()
         for name, keys in self.lib.collections.items():
             it = QListWidgetItem(self.icons.glyph("grid", 16, "#b98cff"), f"{name}  ({len(keys)})")
@@ -1250,18 +1478,46 @@ class MainWindow(QMainWindow):
         if hasattr(self, "libside"):
             self.libside.reload()
 
-    def add_favorites(self, paths):
-        favs = list(self.cfg["favorites"])
+    def add_favorites(self, paths, lib=None):
+        """Acceso rápido: cada modo tiene el suyo (Carpetas / VFX Library)."""
+        if lib is None:
+            lib = self.mode() == "library"
+        key = "lib_favorites" if lib else "favorites"
+        favs = list(self.cfg[key] or [])
         for p in paths:
             if p and norm_key(p) not in {norm_key(x) for x in favs}:
                 favs.append(os.path.normpath(p))
-        self.cfg["favorites"] = favs
+        self.cfg[key] = favs
         self.cfg.save()
         self._reload_sidebar()
+        self.status.setText(f"Agregado a Acceso rápido de {'VFX Library' if lib else 'Carpetas'}")
 
     def _favs_reordered(self, *_):
-        self.cfg["favorites"] = [self.favs.item(i).data(Qt.UserRole) for i in range(self.favs.count())]
+        for w, key in ((self.favs, "favorites"), (self.lib_favs, "lib_favorites")):
+            vals = [w.item(i).data(Qt.UserRole) for i in range(w.count())]
+            vals = [v for v in vals if v]
+            if vals or key == "favorites":
+                self.cfg[key] = vals
         self.cfg.save()
+
+    def _lib_favs_menu(self, w, pos):
+        it = w.itemAt(pos)
+        if not it or not it.data(Qt.UserRole):
+            return
+        p = it.data(Qt.UserRole)
+        m = QMenu(self)
+        m.addAction("Abrir", lambda: self.open_library(p))
+        m.addAction("Abrir en pestaña nueva", lambda: (self.set_mode("library"), self.libpane.add_tab(p)))
+        m.addAction("Abrir en Carpetas", lambda: self.open_in_explorer(p, new_tab=True))
+        self._color_menu(m, [dir_target(p)])
+        m.addSeparator()
+
+        def remove():
+            self.cfg["lib_favorites"] = [x for x in self.cfg["lib_favorites"] if norm_key(x) != norm_key(p)]
+            self.cfg.save()
+            self._reload_sidebar()
+        m.addAction("Quitar de acceso rápido", remove)
+        m.exec(w.viewport().mapToGlobal(pos))
 
     def _color_menu(self, menu, targets):
         cm = menu.addMenu("Etiqueta de color")
@@ -1288,7 +1544,7 @@ class MainWindow(QMainWindow):
             self.cfg["favorites"] = [x for x in self.cfg["favorites"] if norm_key(x) != norm_key(p)]
             self.cfg.save()
             self._reload_sidebar()
-        m.addAction("Quitar de favoritos", remove)
+        m.addAction("Quitar de acceso rápido", remove)
         m.exec(w.viewport().mapToGlobal(pos))
 
     def _colls_menu(self, w, pos):
@@ -1345,9 +1601,13 @@ class MainWindow(QMainWindow):
         if self.paneB.isVisible():
             m.addAction("Abrir en el otro panel", lambda: (self.set_mode("explorer"),
                                                            self.other(self.explorer_active).navigate(p)))
-        m.addAction("Agregar a favoritos", lambda: self.add_favorites([p]))
+        m.addAction("Agregar a acceso rápido", lambda: self.add_favorites([p], lib=False))
+        if self.libpane.allowed(p):
+            m.addAction("Ver en VFX Library", lambda: self.open_library(p))
+        else:
+            m.addAction("Agregar a la VFX Library", lambda: self.open_library(p))
         self._color_menu(m, [dir_target(p)])
-        m.addAction("Abrir en el Explorador", lambda: self.open_default(p))
+        m.addAction("Abrir en el Explorador de Windows", lambda: self.open_default(p))
         m.exec(self.tree.viewport().mapToGlobal(pos))
 
     # ------------------------------------------------------------------ menú contextual de ítems
@@ -1438,13 +1698,13 @@ class MainWindow(QMainWindow):
                 else:
                     m.addAction("Agregar a la VFX Library", lambda: self.open_library(dirs[0].path))
             if dirs:
-                m.addAction("Agregar a favoritos", lambda: self.add_favorites([d.path for d in dirs]))
+                m.addAction("Agregar a acceso rápido", lambda: self.add_favorites([d.path for d in dirs]))
             m.addSeparator()
         if cur:
             if clip_paths:
                 m.addAction(f"Pegar ({len(clip_paths)} archivo(s))\tCtrl+V", lambda: self.op_paste(pane))
             m.addAction("Carpeta nueva…\tCtrl+Shift+N", lambda: self.op_new_folder(pane))
-            m.addAction("Agregar esta carpeta a favoritos", lambda: self.add_favorites([cur]))
+            m.addAction("Agregar esta carpeta a acceso rápido", lambda: self.add_favorites([cur]))
         if cur and self.mode() == "explorer":
             m.addAction("Ver en VFX Library" if self.libpane.allowed(cur) else "Agregar esta carpeta a la VFX Library",
                         lambda: self.open_library(cur))
@@ -1452,8 +1712,13 @@ class MainWindow(QMainWindow):
         m.exec(view.viewport().mapToGlobal(pos))
 
     # ------------------------------------------------------------------ configuración
-    def open_settings(self):
+    def open_settings(self, page=None):
         d = SettingsDialog(self, self)
+        if page:
+            tw = d.findChild(QTabWidget)
+            for i in range(tw.count()):
+                if tw.tabText(i) == page:
+                    tw.setCurrentIndex(i)
         if d.exec():
             ch = d.apply()
             self.thumbs.reload_settings()
@@ -1466,9 +1731,7 @@ class MainWindow(QMainWindow):
             self.colors.reload()
             self.icons.set_default_folder(self.cfg["folder_color"] or "yellow")
             self._reload_sidebar()
-            self.color_mode.blockSignals(True)
-            self.color_mode.setCurrentIndex(max(0, self.color_mode.findData(self.cfg["color_mode"])))
-            self.color_mode.blockSignals(False)
+            self.libside.tree.viewport().update()
             if not self.cfg["folder_sizes"]:
                 self.dirsizes.clear()
             self.apply_features()

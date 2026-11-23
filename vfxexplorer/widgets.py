@@ -1023,7 +1023,7 @@ class SettingsDialog(QDialog):
         cl.addRow("Colores automáticos:", self.cmode)
         cl.addRow("", _hint("Por proyecto: cada proyecto del pipeline tiene un color (o el que le pongas a mano) y "
                             "se aclara en secuencias y shots. Por nombre: las reglas de abajo. "
-                            "El color manual siempre gana. También se cambia desde el panel CARPETAS."))
+                            "El color manual siempre gana. También se cambia con el botón de colores del panel izquierdo."))
         self.fcolor = QComboBox()
         self.fcolor.addItem("Amarillo (como Windows)", "yellow")
         self.fcolor.addItem("Celeste", "blue")
@@ -1050,6 +1050,17 @@ class SettingsDialog(QDialog):
         self.tcolor.addItem("Color de la carpeta actual", "folder")
         self.tcolor.setCurrentIndex(max(0, self.tcolor.findData(cfg["tree_trace_color"])))
         cl.addRow("Color del trazo:", self.tcolor)
+        self.lcolor = QComboBox()
+        for label, hexc in (("Violeta", "#8d6fd1"), ("Rosa", "#d16fa8"), ("Verde", "#3ecf8e"),
+                            ("Naranja", "#ff9f43"), ("Celeste", "#4cc2ff"), ("Gris (como Carpetas)", "#5f6368")):
+            self.lcolor.addItem(app.icons.swatch(hexc), label, hexc)
+        i = self.lcolor.findData(cfg["lib_tree_line_color"])
+        if i < 0:
+            self.lcolor.addItem(app.icons.swatch(cfg["lib_tree_line_color"]), cfg["lib_tree_line_color"],
+                                cfg["lib_tree_line_color"])
+            i = self.lcolor.count() - 1
+        self.lcolor.setCurrentIndex(i)
+        cl.addRow("Líneas de VFX Library:", self.lcolor)
         from PySide6.QtWidgets import QPlainTextEdit
         self.rules = QPlainTextEdit(cfg["name_rules"] or DEFAULT_NAME_RULES)
         self.rules.setMinimumHeight(220)
@@ -1142,6 +1153,7 @@ class SettingsDialog(QDialog):
         cfg["tree_trace"] = self.ttrace.isChecked()
         cfg["tree_trace_width"] = self.twidth.value()
         cfg["tree_trace_color"] = self.tcolor.currentData()
+        cfg["lib_tree_line_color"] = self.lcolor.currentData()
         cfg["name_rules"] = self.rules.toPlainText()
         cfg["viewer_res"] = self.vres.currentData()
         cfg["viewer_mem"] = self.vmem.value()

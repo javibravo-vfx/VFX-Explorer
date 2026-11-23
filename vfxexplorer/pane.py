@@ -59,6 +59,7 @@ class _ViewMixin:
 
     def startDrag(self, actions):
         super().startDrag(Qt.CopyAction)
+        self.pane.app.drag_finished()
 
     def mouseReleaseEvent(self, ev):
         if ev.button() == Qt.MiddleButton:
@@ -154,6 +155,8 @@ class FilePane(QFrame):
         self.search_timer = QTimer(self, singleShot=True, interval=450, timeout=self._apply_search)
         self.root_lock = None          # función -> [raíces]; si está, el panel no sale de esas carpetas
         self.group_mode = "auto"       # auto | none | folder | type
+        self.pill_labels = []          # pastillas de tags rápidos activas
+        self.pill_kw = []
         self._pending = []
         self.flush_timer = QTimer(self, singleShot=True, interval=350, timeout=self._flush_pending)
         self._build()
@@ -205,6 +208,9 @@ class FilePane(QFrame):
             return b
         tb("plus", "Pestaña nueva (Ctrl+T)", lambda: self.add_tab(self.current_dir() or self.tab_path()), trow)
         trow.addStretch(1)
+        self.corner = QHBoxLayout()        # acá va el selector de modo (Carpetas / VFX Library)
+        self.corner.setContentsMargins(0, 0, 0, 0)
+        trow.addLayout(self.corner)
         hl.addWidget(tabsrow)
 
         # --- fila de navegación: ← → ↑ ⟳ | dirección | buscar
@@ -262,7 +268,7 @@ class FilePane(QFrame):
         self.banner.setWordWrap(False)
         self.banner.setCursor(Qt.PointingHandCursor)
         self.banner.setToolTip("Click para volver a ver solo esta carpeta")
-        self.banner.mousePressEvent = lambda ev: self.rec.setChecked(False)
+        self.banner.mousePressEvent = lambda ev: self._banner_clicked()
         self.banner.hide()
         lay.addWidget(self.banner)
 
@@ -687,7 +693,20 @@ class FilePane(QFrame):
 
     # ------------------------------------------------------------------ carga
     def _recursive_active(self):
-        return self.rec.isChecked() and not self.is_virtual()
+        return (self.rec.isChecked() or bool(self.pill_kw)) and not self.is_virtual()
+
+    def _query(self):
+        q = parse_query(self.search.text())
+        if self.pill_kw and not self.is_virtual():
+            q.any_of = list(self.pill_kw)
+            q.any_root = self.tab_path()
+        return q
+
+    def set_pills(self, labels, keywords):
+        """Tags rápidos: busca en toda la rama los elementos cuyo nombre, carpeta o tag coincida."""
+        self.pill_labels, self.pill_kw = list(labels), list(keywords)
+        if self.tabs:
+            self._load()
 
     def _load(self):
         self.app.thumbs.cancel_pending()
@@ -714,7 +733,7 @@ class FilePane(QFrame):
         self.list.setColumnHidden(C_FOLDER, True)
         self._set_banner(None)
         self._grid_uniform()
-        self.proxy.set_filter(parse_query(self.search.text()), self.filter.currentData())
+        self.proxy.set_filter(self._query(), self.filter.currentData())
         self._sort()
         self._update_status(f"Error: {err}" if err else None)
         self._select_pending()
@@ -756,7 +775,7 @@ class FilePane(QFrame):
         self.search_timer.stop()
         t = self.tab()
         if t and t["virtual"]:
-            self.proxy.set_filter(parse_query(self.search.text()), self.filter.currentData())
+            self.proxy.set_filter(self._query(), self.filter.currentData())
             self._update_status()
             return
         if self._recursive_active():
@@ -764,7 +783,7 @@ class FilePane(QFrame):
         elif self.model.virtual:
             self._load()
         else:
-            self.proxy.set_filter(parse_query(self.search.text()), self.filter.currentData())
+            self.proxy.set_filter(self._query(), self.filter.currentData())
             self._update_status()
 
     def _stop_search(self):
@@ -783,7 +802,7 @@ class FilePane(QFrame):
         self.list.setColumnHidden(C_FOLDER, False)
         self._set_banner(0, scanning=0)
         self.proxy.set_filter(parse_query(""), "all")
-        w = SearchWorker(self.gen, self.tab_path(), parse_query(self.search.text()), self.filter.currentData(),
+        w = SearchWorker(self.gen, self.tab_path(), self._query(), self.filter.currentData(),
                          bool(self.app.cfg["show_hidden"]), self.app.lib.snapshot())
         w.batch.connect(self._search_batch)
         w.progress.connect(self._search_progress)
@@ -829,6 +848,11 @@ class FilePane(QFrame):
         self._update_status(f"{'Búsqueda en' if self.search.text().strip() else 'Todo el contenido de'} "
                             f"subcarpetas: {found}{extra}")
 
+    def _banner_clicked(self):
+        if self.pill_kw:
+            self.app.clear_pills()
+        self.rec.setChecked(False)
+
     def _set_banner(self, count, scanning=None, capped=False):
         """Barra que deja claro que se está viendo el contenido de las subcarpetas."""
         if count is None:
@@ -838,6 +862,8 @@ class FilePane(QFrame):
         root = os.path.basename(self.tab_path().rstrip("\\/")) or self.tab_path()
         q = self.search.text().strip()
         what = f"Resultados de «{q}»" if q else "Todos los archivos"
+        if self.pill_labels:
+            what = " · ".join(self.pill_labels) + (f" + «{q}»" if q else "")
         tail = f" · buscando… ({scanning} carpetas)" if scanning else (" · límite alcanzado" if capped else "")
         self.banner.setText(f"<b>⤓ {what}</b> en <b>{root}</b> y sus subcarpetas — {count} encontrados{tail}"
                             f"&nbsp;&nbsp;<span style='color:#cfe0ff'>✕ ver solo esta carpeta</span>")
@@ -908,7 +934,7 @@ class FilePane(QFrame):
         self.model.group_mode = self.effective_group(virtual=True)
         self.model.set_entries(entries, "", virtual=True)
         self._grid_uniform()
-        self.proxy.set_filter(parse_query(self.search.text()), self.filter.currentData())
+        self.proxy.set_filter(self._query(), self.filter.currentData())
         self._sort()
         extra = f" · {n_missing} no encontrados (movidos o borrados)" if n_missing else ""
         self._update_status(f"{self.tab()['virtual']['title']}{extra}")
