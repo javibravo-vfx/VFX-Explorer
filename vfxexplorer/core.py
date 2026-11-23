@@ -152,6 +152,8 @@ class Entry:
     def cat(self):
         if self.kind == "header":
             return "header"
+        if self.kind == "drive":
+            return "drive"
         if self.kind == "dir":
             return "dir"
         if self.kind == "seq":
@@ -226,6 +228,9 @@ class Entry:
         e = self.ext[1:].upper() if self.ext else ""
         if self.kind == "dir":
             return "Carpeta"
+        if self.kind == "drive":
+            return {"network": "Unidad de red", "removable": "Unidad extraíble", "cdrom": "Unidad de CD"}.get(
+                getattr(self, "drive_kind", "local"), "Disco local")
         if self.kind == "seq":
             return f"Secuencia {e}"
         return {"video": f"Video {e}", "image": f"Imagen {e}", "model": f"Escena/Modelo {e}"}.get(self.cat, e or "Archivo")
@@ -312,6 +317,99 @@ def scan_dir(path, show_hidden=False):
             except OSError:
                 continue
     return dirs + group_files(path, files)
+
+
+# ----------------------------------------------------------------------------
+# Este equipo: discos y ubicaciones de red
+# ----------------------------------------------------------------------------
+
+THISPC = "::thispc"
+LINUX_FS = {"ext2", "ext3", "ext4", "xfs", "btrfs", "zfs", "ntfs", "ntfs3", "vfat", "exfat", "fuseblk",
+            "nfs", "nfs4", "cifs", "smbfs", "smb3", "overlay", "9p", "f2fs"}
+
+
+def _win_drives():
+    import ctypes
+    from ctypes import wintypes
+    k32 = ctypes.windll.kernel32
+    mpr = ctypes.windll.mpr
+    out = []
+    mask = k32.GetLogicalDrives()
+    for i in range(26):
+        if not mask & (1 << i):
+            continue
+        letter = chr(65 + i) + ":"
+        root = letter + "\\"
+        dtype = k32.GetDriveTypeW(ctypes.c_wchar_p(root))   # 2 removible, 3 fijo, 4 red, 5 cd
+        if dtype in (0, 1):
+            continue
+        label = ""
+        buf = ctypes.create_unicode_buffer(261)
+        if k32.GetVolumeInformationW(ctypes.c_wchar_p(root), buf, 261, None, None, None, None, 0):
+            label = buf.value
+        unc = ""
+        if dtype == 4:
+            ubuf = ctypes.create_unicode_buffer(1024)
+            n = wintypes.DWORD(1024)
+            if mpr.WNetGetConnectionW(ctypes.c_wchar_p(letter), ubuf, ctypes.byref(n)) == 0:
+                unc = ubuf.value
+        kind = {2: "removable", 3: "local", 4: "network", 5: "cdrom"}.get(dtype, "local")
+        out.append({"letter": letter, "root": root, "label": label, "unc": unc, "kind": kind})
+    return out
+
+
+def _posix_drives():
+    out, seen = [], set()
+    try:
+        with open("/proc/mounts") as f:
+            lines = f.read().splitlines()
+    except OSError:
+        lines = []
+    for line in lines:
+        parts = line.split()
+        if len(parts) < 3:
+            continue
+        dev, mnt, fs = parts[0], parts[1].replace("\\040", " "), parts[2]
+        if fs not in LINUX_FS or mnt in seen or mnt.startswith(("/proc", "/sys", "/dev", "/run", "/snap", "/boot/efi")):
+            continue
+        if fs == "overlay" and mnt != "/":
+            continue
+        seen.add(mnt)
+        kind = "network" if fs in ("nfs", "nfs4", "cifs", "smbfs", "smb3", "9p") else "local"
+        out.append({"letter": "", "root": mnt, "label": os.path.basename(mnt) or "Sistema",
+                    "unc": dev if kind == "network" else "", "kind": kind})
+    if not out:
+        out.append({"letter": "", "root": "/", "label": "Sistema", "unc": "", "kind": "local"})
+    return out
+
+
+def list_drives():
+    """Entradas tipo 'drive' con nombre, total y libre (puede tardar con unidades de red: usar en un thread)."""
+    raw = _win_drives() if IS_WIN else _posix_drives()
+    out = []
+    for d in raw:
+        total = free = 0
+        try:
+            u = shutil.disk_usage(d["root"])
+            total, free = u.total, u.free
+        except OSError:
+            pass
+        label = d["label"] or ({"local": "Disco local", "network": "Unidad de red", "removable": "Unidad extraíble",
+                                "cdrom": "Unidad de CD"}[d["kind"]])
+        if d["letter"]:
+            name = f"{label} ({d['unc'].rstrip(chr(92))}) ({d['letter']})" if d["unc"] and d["kind"] == "network" \
+                else f"{label} ({d['letter']})"
+            if d["unc"] and d["kind"] == "network":
+                host = d["unc"].lstrip("\\").split("\\")[0]
+                name = f"{label} (\\\\{host}) ({d['letter']})"
+        else:
+            name = label if d["root"] != "/" else "Sistema (/)"
+        e = Entry(kind="drive", dirpath="", name=name, path=d["root"], size=total)
+        e.free = free
+        e.drive_kind = d["kind"]
+        e.unc = d["unc"]
+        out.append(e)
+    return out
 
 
 def resolve_refs(refs, show_hidden=True):
@@ -458,10 +556,14 @@ class Config:
         "tree_trace_width": 2,
         "tree_trace_color": "accent",   # accent | folder
         # 0.5
-        "pipeline_location": "sidebar", # sidebar | top | hidden
+        "pipeline_location": "center",  # center | sidebar | hidden
         "pipeline_depts": "",           # vacío = todas las carpetas del shot (3D, Comp, DMP…)
         "group_mode": "auto",           # auto | none | folder | type
         "scrub_thumbs": True,
+        # 0.6
+        "folder_color": "yellow",       # yellow (Windows) | blue
+        "splitter_left2": "",
+        "cfg_version": 6,
     }
 
     def __init__(self, path):
@@ -469,7 +571,11 @@ class Config:
         self.data = json.loads(json.dumps(self.DEFAULTS))
         try:
             with open(path, "r", encoding="utf-8") as f:
-                self.data.update(json.load(f))
+                saved = json.load(f)
+            self.data.update(saved)
+            if int(saved.get("cfg_version", 0)) < 6:
+                self.data["pipeline_location"] = "center"   # 0.6: nuevo lugar por defecto
+                self.data["cfg_version"] = 6
         except Exception:
             pass
 

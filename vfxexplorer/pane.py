@@ -10,9 +10,9 @@ from PySide6.QtWidgets import (QFrame, QVBoxLayout, QHBoxLayout, QTabBar, QToolB
                                QCheckBox, QListView, QTreeView, QStackedWidget, QAbstractItemView, QHeaderView,
                                QLabel, QMenu, QWidget)
 
-from .core import IS_WIN, FILTERS, parse_query, norm_key, same_path
+from .core import IS_WIN, FILTERS, parse_query, norm_key, same_path, THISPC
 from .fileops import is_subpath
-from .models import (EntryModel, EntryProxy, ScanWorker, SearchWorker, ResolveWorker, ROLE_ENTRY, COLS,
+from .models import (EntryModel, EntryProxy, ScanWorker, SearchWorker, ResolveWorker, DrivesWorker, ROLE_ENTRY, COLS,
                      C_FOLDER, C_TAGS, C_RATING)
 from .widgets import GridDelegate, BreadcrumbBar, ListNameDelegate
 
@@ -453,6 +453,16 @@ class FilePane(QFrame):
         return not self.root_lock or self.lock_root_for(path) is not None
 
     def add_tab(self, path, activate=True):
+        if path == THISPC and not self.root_lock:
+            home = os.path.expanduser("~")
+            self.add_tab(home, activate=activate)
+            t = self.tabs[-1]
+            t["virtual"] = {"title": "Este equipo", "kind": "thispc", "name": ""}
+            self.tabbar.setTabText(len(self.tabs) - 1, "Este equipo")
+            if self.tabs[self.ti] is t:
+                self._show_location()
+                self._load_virtual()
+            return
         if self.root_lock:
             roots = self.root_lock()
             if not self.allowed(path):
@@ -543,12 +553,13 @@ class FilePane(QFrame):
         m.exec(self.tabbar.mapToGlobal(pos))
 
     def state(self):
-        return {"tabs": [{"path": t["path"]} for t in self.tabs], "current": self.ti, "view": self.view_mode,
-                "group": self.group_mode}
+        tabs = [{"path": THISPC if (t["virtual"] and t["virtual"]["kind"] == "thispc") else t["path"]}
+                for t in self.tabs]
+        return {"tabs": tabs, "current": self.ti, "view": self.view_mode, "group": self.group_mode}
 
     def restore(self, st, fallback):
         tabs = [t.get("path") for t in (st or {}).get("tabs", []) if t.get("path")]
-        tabs = [p for p in tabs if os.path.isdir(p)] or [fallback]
+        tabs = [p for p in tabs if p == THISPC or os.path.isdir(p)] or [fallback]
         for p in tabs:
             self.add_tab(p, activate=False)
         self.set_view((st or {}).get("view", "grid"), emit=False)
@@ -568,6 +579,18 @@ class FilePane(QFrame):
     def navigate(self, path, add_history=True, select=None, new_tab=False):
         path = (path or "").strip().strip('"').strip("'")
         if not path:
+            return
+        if path == THISPC:
+            if self.root_lock:
+                return
+            if new_tab:
+                self.add_tab(THISPC)
+                return
+            t = self.tab()
+            if t is not None and add_history and t["history"][t["hpos"]] != THISPC:
+                t["history"] = t["history"][: t["hpos"] + 1] + [THISPC]
+                t["hpos"] = len(t["history"]) - 1
+            self.show_virtual("Este equipo", "thispc", "")
             return
         path = os.path.expandvars(os.path.expanduser(path))
         if os.path.isfile(path):
@@ -620,7 +643,7 @@ class FilePane(QFrame):
         t = self.tab()
         if not t:
             return
-        if t["virtual"]:
+        if t["virtual"] and t["virtual"]["kind"] != "thispc":
             self.navigate(t["path"], add_history=False)
             return
         if t["hpos"] > 0:
@@ -645,6 +668,9 @@ class FilePane(QFrame):
             self._set_status("Estás en la raíz de la librería")
             return
         parent = os.path.dirname(cur.rstrip("\\/"))
+        if (not parent or same_path(parent, cur) or same_path(os.path.dirname(cur), cur)) and not self.root_lock:
+            self.navigate(THISPC)
+            return
         if parent and not same_path(parent, cur):
             if IS_WIN and len(parent) == 2 and parent[1] == ":":
                 parent += "\\"
@@ -819,6 +845,9 @@ class FilePane(QFrame):
         self.search.setPlaceholderText(f"Buscar en {root} y subcarpetas")
 
     def _placeholder(self):
+        t = self.tab()
+        if t and t["virtual"]:
+            return f"Buscar en {t['virtual']['title']}"
         name = os.path.basename(self.tab_path().rstrip("\\/")) if self.tabs else ""
         return f"Buscar en {name}" if name else "Buscar"
 
@@ -836,6 +865,20 @@ class FilePane(QFrame):
         self.app.thumbs.cancel_pending()
         t = self.tab()
         v = t["virtual"]
+        if v["kind"] == "thispc":
+            self.gen += 1
+            self.model.group_mode = "drives"
+            self.model.set_entries([], "", virtual=True)
+            self._grid_uniform()
+            self.list.setColumnHidden(C_FOLDER, True)
+            self._set_banner(None)
+            self._show_location()
+            self._set_status("Leyendo unidades…")
+            w = DrivesWorker(self.gen)
+            w.done.connect(self._drives_done)
+            self._track(w)
+            w.start()
+            return
         refs = self.app.refs_for(v["kind"], v["name"])
         self.gen += 1
         self.model.set_entries([], "", virtual=True)
@@ -847,6 +890,17 @@ class FilePane(QFrame):
         w.done.connect(self._virtual_done)
         self._track(w)
         w.start()
+
+    def _drives_done(self, gen, entries):
+        if gen != self.gen:
+            return
+        self.model.group_mode = "drives"
+        self.model.set_entries(entries, "", virtual=True)
+        self._grid_uniform()
+        self.proxy.set_filter(parse_query(""), "all")
+        self._sort()
+        n = len(entries)
+        self._set_status(f"{n} {'unidad' if n == 1 else 'unidades'}")
 
     def _virtual_done(self, gen, entries, n_missing):
         if gen != self.gen:
@@ -883,7 +937,7 @@ class FilePane(QFrame):
         e = ix.data(ROLE_ENTRY)
         if e is None or e.kind == "header":
             return
-        if e.kind == "dir":
+        if e.kind in ("dir", "drive"):
             self.navigate(e.path)
         else:
             self.app.open_entry(e)

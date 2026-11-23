@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                                QListWidget, QListWidgetItem, QComboBox, QSlider, QToolBar, QLabel, QMenu,
                                QFileSystemModel, QAbstractItemView, QToolButton, QScrollArea, QFrame,
                                QMessageBox, QInputDialog, QProgressDialog, QStyledItemDelegate, QSizePolicy, QStyleOptionViewItem,
-                               QTabBar, QStackedWidget)
+                               QTabBar, QStackedWidget, QTabWidget)
 
 from . import APP_NAME, VERSION
 from .core import (Config, IS_WIN, data_dir, norm_key, fwd, human_size, fmt_time, compress_ranges, find_tool,
@@ -49,6 +49,7 @@ class MainWindow(QMainWindow):
         self.dirsizes = DirSizeManager()
         self.dirsizes.ready.connect(self._dir_size_ready)
         self.icons = Icons()
+        self.icons.set_default_folder(self.cfg["folder_color"] or "yellow")
         self.thumbs = ThumbManager(self.cfg, self.data_dir)
         self.fs = QFileSystemModel()
         self.fs.setFilter(QDir.AllDirs | QDir.NoDotAndDotDot | QDir.Drives)
@@ -71,16 +72,14 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ UI
     def _build(self):
         ic = self.icons
-        # --- fila superior opcional: pipeline horizontal
-        tb = QToolBar("Pipeline")
-        tb.setObjectName("topbar")
-        tb.setMovable(False)
-        tb.setIconSize(QSize(16, 16))
-        self.addToolBar(tb)
-        self.topbar = tb
+        # --- pipeline horizontal: va sobre el panel central (debajo de la barra de comandos)
         self.pipebar_top = PipelineBar(self, vertical=False)
-        tb.addWidget(self.pipebar_top)
-        self.addToolBarBreak()
+        self.pipe_frame = QFrame()
+        self.pipe_frame.setObjectName("pipeFrame")
+        pfl = QHBoxLayout(self.pipe_frame)
+        pfl.setContentsMargins(6, 4, 6, 4)
+        pfl.addWidget(self.pipebar_top)
+        pfl.addStretch(1)
         self.modebar = QTabBar()
         self.modebar.setObjectName("modebar")
         self.modebar.setDocumentMode(True)
@@ -201,12 +200,23 @@ class MainWindow(QMainWindow):
         self.pipebars = [self.pipebar_top, self.pipebar_side]
         left = QSplitter(Qt.Vertical)
         self.side_boxes = {}
+        self.thispc = self._mk_list(lambda w, pos: None, lambda it: self.open_in_explorer("::thispc"))
+        it = QListWidgetItem(ic.glyph("pc", 18, "#4cc2ff"), "Este equipo")
+        it.setToolTip("Discos y ubicaciones de red")
+        self.thispc.addItem(it)
+        self.thispc.setFixedHeight(34)
+        self.thispc.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        treebox = QWidget()
+        tbl = QVBoxLayout(treebox)
+        tbl.setContentsMargins(0, 0, 0, 0)
+        tbl.setSpacing(0)
+        tbl.addWidget(self.thispc)
+        tbl.addWidget(self.tree, 1)
         for key, title, w, extra in (("pipeline", "PIPELINE", self.pipebar_side, None),
-                                     ("library", None, self.libside, None),
-                                     ("favs", "FAVORITOS", self.favs, None),
+                                     ("favs", "ACCESO RÁPIDO", self.favs, None),
                                      ("colls", "COLECCIONES", self.colls, None),
                                      ("tags", "TAGS", self.tagl, None),
-                                     ("tree", "CARPETAS", self.tree, self.color_mode)):
+                                     ("tree", "CARPETAS", treebox, self.color_mode)):
             if title is None:
                 box = w
             else:
@@ -225,9 +235,16 @@ class MainWindow(QMainWindow):
                 bl.addWidget(w)
             self.side_boxes[key] = box
             left.addWidget(box)
-        left.setSizes([170, 110, 110, 80, 100, 400])
+        left.setSizes([170, 150, 80, 100, 480])
         left.setMinimumWidth(200)
         self.left_split = left
+        # dos tabs: Carpetas (explorador) / VFX Library
+        self.sidetabs = QTabWidget()
+        self.sidetabs.setObjectName("sidetabs")
+        self.sidetabs.setDocumentMode(True)
+        self.sidetabs.addTab(left, ic.glyph("folder", 16), "Carpetas")
+        self.sidetabs.addTab(self.libside, ic.glyph("library", 16, "#b98cff"), "VFX Library")
+        self.side_boxes["library"] = self.libside
 
         # paneles
         self.paneA = FilePane(self, "A")
@@ -271,6 +288,7 @@ class MainWindow(QMainWindow):
         cl = QVBoxLayout(center)
         cl.setContentsMargins(0, 0, 0, 0)
         cl.setSpacing(0)
+        cl.addWidget(self.pipe_frame)
         cl.addWidget(self.center_stack, 1)
 
         # info
@@ -297,7 +315,7 @@ class MainWindow(QMainWindow):
         sa.setMinimumWidth(240)
 
         main = QSplitter(Qt.Horizontal)
-        main.addWidget(left)
+        main.addWidget(self.sidetabs)
         main.addWidget(center)
         main.addWidget(sa)
         main.setStretchFactor(1, 1)
@@ -339,7 +357,10 @@ class MainWindow(QMainWindow):
             #paneHeader {{ background:#202020; }}
             #paneTabs {{ background:#202020; }}
             #paneNav {{ background:#2b2b2b; border-bottom:2px solid #232323; }}
-            QToolBar#topbar {{ background:#202020; border:none; }}
+            #pipeFrame {{ background:#202020; border-bottom:1px solid #1a1a1a; }}
+            #sidetabs::pane {{ border:none; }}
+            #sidetabs QTabBar::tab {{ padding:6px 14px; min-width:80px; border-radius:6px; margin:4px 2px 2px 4px; }}
+            #sidetabs QTabBar::tab:selected {{ background:#2d2d2d; color:#ffffff; }}
             #paneSearch {{ border-radius:4px; }}
             #paneFooter {{ color:#9d9d9d; font-size:8pt; padding:3px 10px; background:#191919;
                            border-top:1px solid #232323; }}
@@ -378,13 +399,14 @@ class MainWindow(QMainWindow):
             self.restoreGeometry(QByteArray.fromBase64(g.encode()))
         else:
             self.resize(1560, 920)
-        for k, sp in (("splitter", self.main_split), ("splitter_left", self.left_split),
+        for k, sp in (("splitter", self.main_split), ("splitter_left2", self.left_split),
                       ("splitter_panes", self.pane_split), ("splitter_library", self.libpage.split)):
             if self.cfg[k]:
                 sp.restoreState(QByteArray.fromBase64(self.cfg[k].encode()))
         states = self.cfg["panes"] or []
         home = QDir.homePath()
-        fallback = start_path if start_path and os.path.isdir(start_path) else home
+        from .core import THISPC
+        fallback = start_path if start_path and os.path.isdir(start_path) else (THISPC if IS_WIN else home)
         a_state = states[0] if states else None
         if start_path and os.path.isdir(start_path):
             a_state = {"tabs": [{"path": start_path}], "current": 0, "view": (a_state or {}).get("view", "grid")}
@@ -426,7 +448,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, ev):
         self.cfg["geometry"] = bytes(self.saveGeometry().toBase64()).decode()
         self.cfg["splitter"] = bytes(self.main_split.saveState().toBase64()).decode()
-        self.cfg["splitter_left"] = bytes(self.left_split.saveState().toBase64()).decode()
+        self.cfg["splitter_left2"] = bytes(self.left_split.saveState().toBase64()).decode()
         self.cfg["splitter_panes"] = bytes(self.pane_split.saveState().toBase64()).decode()
         self.cfg["splitter_library"] = bytes(self.libpage.split.saveState().toBase64()).decode()
         self._save_now()
@@ -574,7 +596,9 @@ class MainWindow(QMainWindow):
             self.modebar.setCurrentIndex(1 if lib else 0)
             self.modebar.blockSignals(False)
         self.center_stack.setCurrentIndex(1 if lib else 0)
+        self.sidetabs.setCurrentIndex(1 if lib else 0)
         self.act_dual.setEnabled(not lib)
+        self.apply_pipeline_location()
         if lib:
             self.set_active(self.libpane)
             self.libpane.view().setFocus()
@@ -628,8 +652,10 @@ class MainWindow(QMainWindow):
         self._reload_sidebar()
 
     def apply_pipeline_location(self):
-        loc = self.cfg["pipeline_location"] or "sidebar"
-        self.topbar.setVisible(loc == "top")
+        loc = self.cfg["pipeline_location"] or "center"
+        if loc == "top":
+            loc = "center"
+        self.pipe_frame.setVisible(loc == "center" and self.mode() == "explorer")
         self.side_boxes["pipeline"].setVisible(loc == "sidebar")
 
     def apply_features(self):
@@ -743,6 +769,9 @@ class MainWindow(QMainWindow):
             return
         d = pane.current_dir()
         self.tree.set_trace_path(d or "")
+        if not d:
+            for pb in self.pipebars:
+                pb.clear()
         if d:
             ix = self.fs.index(d)
             if ix.isValid():
@@ -1332,6 +1361,16 @@ class MainWindow(QMainWindow):
         ents = pane.selected_entries()
         m = QMenu(self)
         cur = pane.current_dir()
+        if ents and all(e.kind == "drive" for e in ents):
+            e = ents[0]
+            m.addAction("Abrir", lambda: pane.navigate(e.path))
+            m.addAction("Abrir en pestaña nueva", lambda: pane.add_tab(e.path, activate=False))
+            m.addAction("Agregar a acceso rápido", lambda: self.add_favorites([x.path for x in ents]))
+            m.addAction("Copiar ruta", lambda: QApplication.clipboard().setText(getattr(e, "unc", "") or e.path))
+            m.addSeparator()
+            m.addAction("Actualizar\tF5", pane.refresh)
+            m.exec(view.viewport().mapToGlobal(pos))
+            return
         other = self.other(pane)
         clip_paths, _ = fileops.read_clip_mime(QApplication.clipboard().mimeData())
         if ents:
@@ -1425,6 +1464,8 @@ class MainWindow(QMainWindow):
                 for pb in self.pipebars:
                     pb.reload()
             self.colors.reload()
+            self.icons.set_default_folder(self.cfg["folder_color"] or "yellow")
+            self._reload_sidebar()
             self.color_mode.blockSignals(True)
             self.color_mode.setCurrentIndex(max(0, self.color_mode.findData(self.cfg["color_mode"])))
             self.color_mode.blockSignals(False)

@@ -8,7 +8,7 @@ from PySide6.QtCore import Qt, QAbstractTableModel, QModelIndex, QSortFilterProx
 from PySide6.QtGui import QColor, QFont
 
 from .core import (scan_dir, entry_matches, resolve_refs, natural_key, human_size, fmt_time, fwd,
-                   compress_ranges, Query)
+                   compress_ranges, Query, list_drives)
 
 ROLE_ENTRY = Qt.UserRole + 1
 ROLE_SORT = Qt.UserRole + 2
@@ -73,7 +73,11 @@ class EntryModel(QAbstractTableModel):
         order = {k: i for i, (k, _) in enumerate(self.TYPE_GROUPS)}
         labels = dict(self.TYPE_GROUPS)
         for e in self.entries:
-            if self.group_mode == "type":
+            if self.group_mode == "drives":
+                net = getattr(e, "drive_kind", "local") == "network"
+                key = (1 if net else 0,)
+                label = "Ubicaciones de red" if net else "Dispositivos y unidades"
+            elif self.group_mode == "type":
                 c = e.cat
                 key = (order.get(c, 99),)
                 label = labels.get(c, "Otros")
@@ -173,6 +177,24 @@ class EntryModel(QAbstractTableModel):
         lib = self.app.lib
         if role == ROLE_ENTRY:
             return e
+        if e.kind == "drive":
+            if role == Qt.DisplayRole:
+                if col == C_NAME:
+                    return e.name
+                if col == C_TYPE:
+                    return e.type_label()
+                if col == C_SIZE:
+                    return human_size(e.size)
+                if col == C_RANGE:
+                    return f"{human_size(getattr(e, 'free', 0))} libres"
+                return ""
+            if role == Qt.DecorationRole and col == C_NAME:
+                return self.app.icons.drive_icon(getattr(e, "drive_kind", "local"), 18)
+            if role == ROLE_SORT:
+                return natural_key(e.path) if col == C_NAME else (e.size if col == C_SIZE else 0)
+            if role == Qt.ToolTipRole:
+                return f"{e.name}\n{getattr(e, 'unc', '') or e.path}\n{human_size(getattr(e, 'free', 0))} libres de {human_size(e.size)}"
+            return None
         if e.kind == "header":
             if role == Qt.DisplayRole:
                 return f"{e.name}   ({getattr(e, 'count', 0)} · {human_size(e.size)})" if col == C_NAME else ""
@@ -390,6 +412,20 @@ class SearchWorker(QThread):
                 self.finished_search.emit(self.gen, found, True)
                 return
         self.finished_search.emit(self.gen, found, False)
+
+
+class DrivesWorker(QThread):
+    done = Signal(int, object)
+
+    def __init__(self, gen):
+        super().__init__()
+        self.gen = gen
+
+    def run(self):
+        try:
+            self.done.emit(self.gen, list_drives())
+        except Exception:
+            self.done.emit(self.gen, [])
 
 
 class ResolveWorker(QThread):

@@ -37,15 +37,63 @@ def cat_color(e):
 # Íconos
 # ----------------------------------------------------------------------------
 
+FOLDER_COLORS = {"yellow": "#f4c443", "blue": "#8a96a8"}
+
+
 class Icons:
     def __init__(self):
         self._c = {}
+        self.default_folder = FOLDER_COLORS["yellow"]
+
+    def set_default_folder(self, name_or_hex):
+        self.default_folder = FOLDER_COLORS.get(name_or_hex, name_or_hex) or FOLDER_COLORS["yellow"]
+        self._c.clear()
+
+    def drive(self, kind="local", size=48):
+        key = ("drv", kind, size)
+        if key in self._c:
+            return self._c[key]
+        pm = QPixmap(size, size)
+        pm.fill(Qt.transparent)
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.Antialiasing)
+        s = size
+        body = QRectF(s * .08, s * .40, s * .84, s * .34)
+        top = QPainterPath()
+        top.moveTo(s * .18, s * .40)
+        top.lineTo(s * .28, s * .24)
+        top.lineTo(s * .72, s * .24)
+        top.lineTo(s * .82, s * .40)
+        top.closeSubpath()
+        p.fillPath(top, QColor("#d9d9d9"))
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor("#9a9a9a"))
+        p.drawRoundedRect(body, s * .05, s * .05)
+        p.setBrush(QColor("#5f5f5f"))
+        p.drawRoundedRect(body.adjusted(s * .03, s * .03, -s * .03, -s * .03), s * .04, s * .04)
+        p.setBrush(QColor("#46d160"))
+        p.drawEllipse(QPointF(s * .2, s * .57), s * .035, s * .035)
+        if kind == "network":
+            p.setBrush(QColor("#46d160"))
+            p.drawRoundedRect(QRectF(s * .14, s * .80, s * .72, s * .08), 2, 2)
+        elif kind == "removable":
+            p.setBrush(QColor("#4cc2ff"))
+            p.drawRoundedRect(QRectF(s * .40, s * .80, s * .20, s * .08), 2, 2)
+        p.end()
+        self._c[key] = pm
+        return pm
+
+    def drive_icon(self, kind="local", size=18):
+        key = ("drvi", kind, size)
+        if key not in self._c:
+            self._c[key] = QIcon(self.drive(kind, max(size, 18)))
+        return self._c[key]
 
     def folder(self, color=None, size=20):
         key = ("f", color, size)
         if key in self._c:
             return self._c[key]
-        base = QColor(color or CAT_COLORS["dir"])
+        base = QColor(color or self.default_folder)
         pm = QPixmap(size, size)
         pm.fill(Qt.transparent)
         p = QPainter(pm)
@@ -172,6 +220,10 @@ class Icons:
         elif kind == "plus":
             path.moveTo(s * .5, s * .22); path.lineTo(s * .5, s * .78)
             path.moveTo(s * .22, s * .5); path.lineTo(s * .78, s * .5)
+        elif kind == "pc":
+            p.drawRoundedRect(QRectF(s * .12, s * .18, s * .76, s * .50), 2, 2)
+            path.moveTo(s * .5, s * .68); path.lineTo(s * .5, s * .80)
+            path.moveTo(s * .32, s * .82); path.lineTo(s * .68, s * .82)
         elif kind == "branch":
             path.moveTo(s * .25, s * .18); path.lineTo(s * .25, s * .82)
             path.moveTo(s * .25, s * .40); path.lineTo(s * .55, s * .40)
@@ -295,8 +347,48 @@ class GridDelegate(QStyledItemDelegate):
         e = index.data(ROLE_ENTRY)
         if e is not None and e.kind == "header":
             return QSize(max(200, self.view.viewport().width() - 10), 34)
+        if e is not None and e.kind == "drive":
+            return QSize(380, 92)
         ts = self.view.iconSize().width()
         return QSize(ts + 16, int(ts * 9 / 16) + 16 + self.TEXT_H)
+
+    def paint_drive(self, p, opt, e):
+        """Tarjeta de disco como la de «Este equipo» de Windows 11: ícono, nombre, barra de uso y libre/total."""
+        p.save()
+        p.setRenderHint(QPainter.Antialiasing)
+        r = opt.rect.adjusted(4, 4, -4, -4)
+        sel = bool(opt.state & QStyle.State_Selected)
+        hov = bool(opt.state & QStyle.State_MouseOver)
+        if sel or hov:
+            p.setPen(QPen(QColor("#5a5a5a"), 1) if sel else Qt.NoPen)
+            p.setBrush(QColor("#333333") if sel else QColor("#262626"))
+            p.drawRoundedRect(QRectF(r).adjusted(0.5, 0.5, -0.5, -0.5), 4, 4)
+        ic = self.app.icons.drive(getattr(e, "drive_kind", "local"), 56)
+        p.drawPixmap(r.x() + 6, r.y() + (r.height() - 56) // 2, ic)
+        x = r.x() + 74
+        w = r.right() - x - 8
+        f = QFont(opt.font)
+        f.setPointSizeF(9.5)
+        p.setFont(f)
+        fm = QFontMetrics(f)
+        p.setPen(QColor("#f3f3f3"))
+        p.drawText(QRect(x, r.y() + 10, w, fm.height()), Qt.AlignLeft | Qt.AlignVCenter,
+                   fm.elidedText(e.name, Qt.ElideMiddle, w))
+        total, free = e.size or 0, getattr(e, "free", 0) or 0
+        used = (total - free) / total if total else 0
+        bar = QRectF(x, r.y() + 14 + fm.height(), w, 14)
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor("#e6e6e6"))
+        p.drawRect(bar)
+        p.setBrush(QColor("#da3b3b") if used > 0.9 else QColor("#2a8de8"))
+        p.drawRect(QRectF(bar.x(), bar.y(), bar.width() * used, bar.height()))
+        f2 = QFont(opt.font)
+        f2.setPointSizeF(8.6)
+        p.setFont(f2)
+        p.setPen(QColor("#c5c5c5"))
+        txt = f"{human_size(free)} libres de {human_size(total)}" if total else "sin acceso"
+        p.drawText(QRect(x, int(bar.bottom()) + 4, w, 18), Qt.AlignLeft | Qt.AlignVCenter, txt)
+        p.restore()
 
     def paint_header(self, p, opt, e):
         r = opt.rect.adjusted(6, 6, -6, -2)
@@ -334,6 +426,9 @@ class GridDelegate(QStyledItemDelegate):
             return
         if e.kind == "header":
             self.paint_header(p, opt, e)
+            return
+        if e.kind == "drive":
+            self.paint_drive(p, opt, e)
             return
         app, lib = self.app, self.app.lib
         key = e.key()
@@ -560,6 +655,14 @@ def path_segments(path):
 
 
 _FOLDER_PM = None
+_ICONS = None
+
+
+def _drive_icon_cache(e):
+    global _ICONS
+    if _ICONS is None:
+        _ICONS = Icons()
+    return _ICONS.drive_icon(getattr(e, "drive_kind", "local"), 16)
 
 
 def _folder_pm():
@@ -647,6 +750,11 @@ class BreadcrumbBar(QWidget):
 
         def fill():
             m.clear()
+            if path == "::thispc":
+                from .core import list_drives
+                for d in list_drives():
+                    m.addAction(_drive_icon_cache(d), d.name, lambda p=d.path: self.navigate.emit(p))
+                return
             try:
                 with os.scandir(path) as it:
                     dirs = sorted((d.name for d in it if d.is_dir() and not d.name.startswith(".")), key=str.lower)
@@ -677,6 +785,8 @@ class BreadcrumbBar(QWidget):
             return
         segs = path_segments(self.path)
         root = getattr(self, "root", None)
+        if not root:
+            segs = [("Este equipo", "::thispc")] + segs
         if root:
             from .core import same_path
             for i, (_, sp) in enumerate(segs):
@@ -895,9 +1005,10 @@ class SettingsDialog(QDialog):
         self.p_depts.setPlaceholderText("vacío = todas las carpetas del shot   (ej: 3D, Comp, DMP)")
         pl.addRow("Departamentos:", self.p_depts)
         self.p_loc = QComboBox()
-        for label, key in (("Panel izquierdo", "sidebar"), ("Barra superior", "top"), ("Oculta", "hidden")):
+        for label, key in (("Sobre el panel central", "center"), ("Panel izquierdo", "sidebar"), ("Oculta", "hidden")):
             self.p_loc.addItem(label, key)
-        self.p_loc.setCurrentIndex(max(0, self.p_loc.findData(cfg["pipeline_location"] or "sidebar")))
+        self.p_loc.setCurrentIndex(max(0, self.p_loc.findData(
+            "center" if cfg["pipeline_location"] in (None, "top") else cfg["pipeline_location"])))
         pl.addRow("Mostrar los dropdowns en:", self.p_loc)
         tabs.addTab(pw, "Pipeline")
 
@@ -913,6 +1024,11 @@ class SettingsDialog(QDialog):
         cl.addRow("", _hint("Por proyecto: cada proyecto del pipeline tiene un color (o el que le pongas a mano) y "
                             "se aclara en secuencias y shots. Por nombre: las reglas de abajo. "
                             "El color manual siempre gana. También se cambia desde el panel CARPETAS."))
+        self.fcolor = QComboBox()
+        self.fcolor.addItem("Amarillo (como Windows)", "yellow")
+        self.fcolor.addItem("Celeste", "blue")
+        self.fcolor.setCurrentIndex(max(0, self.fcolor.findData(cfg["folder_color"] or "yellow")))
+        cl.addRow("Color de las carpetas:", self.fcolor)
         self.tlines = QCheckBox("Líneas del árbol con el color de la carpeta")
         self.tlines.setChecked(bool(cfg["tree_line_colors"]))
         cl.addRow("", self.tlines)
@@ -1021,6 +1137,7 @@ class SettingsDialog(QDialog):
         cfg["library_features"] = self.feats.isChecked()
         cfg["color_mode"] = self.cmode.currentData()
         cfg["tree_line_colors"] = self.tlines.isChecked()
+        cfg["folder_color"] = self.fcolor.currentData()
         cfg["tree_lines_style"] = self.tstyle.currentData()
         cfg["tree_trace"] = self.ttrace.isChecked()
         cfg["tree_trace_width"] = self.twidth.value()

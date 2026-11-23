@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.0
+- **Este equipo**: discos y ubicaciones de red con barras de uso, como en Windows 11 (también en la barra de dirección y al subir desde la raíz de un disco).
+- **Panel izquierdo en dos tabs**: Carpetas / VFX Library, sincronizados con el modo del panel central.
+- **Pipeline** horizontal sobre el panel central por defecto (también panel izquierdo u oculto).
+- **Carpetas amarillas** estilo Windows por defecto; el celeste queda como opción en ⚙ › Colores.
+
 ## 0.5.0
 - **Viewer: AOVs / canales de EXR**: selector de capa (beauty, alpha, depth, normales…); las capas de datos se ven sin conversión de color y normalizadas.
 - **Scrub** en los thumbnails de secuencias y videos.

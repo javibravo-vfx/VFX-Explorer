@@ -1,6 +1,6 @@
 # VFX Explorer
 
-![Version](https://img.shields.io/badge/version-0.5.0-informational) ![Platform](https://img.shields.io/badge/platform-Windows-555) ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white) ![Qt](https://img.shields.io/badge/PySide-6-41CD52?logo=qt&logoColor=white) [![Build](https://github.com/javibravo-vfx/VFX-Explorer/actions/workflows/build.yml/badge.svg)](https://github.com/javibravo-vfx/VFX-Explorer/actions/workflows/build.yml)
+![Version](https://img.shields.io/badge/version-0.6.0-informational) ![Platform](https://img.shields.io/badge/platform-Windows-555) ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white) ![Qt](https://img.shields.io/badge/PySide-6-41CD52?logo=qt&logoColor=white) [![Build](https://github.com/javibravo-vfx/VFX-Explorer/actions/workflows/build.yml/badge.svg)](https://github.com/javibravo-vfx/VFX-Explorer/actions/workflows/build.yml)
 
 Explorador de archivos **liviano y portable** pensado para VFX, con la cara del **Explorador de Windows 11** y el manejo de carpetas de **XYplorer**: secuencias EXR como un solo ítem, thumbnails de EXR, HDR, TX y videos, pestañas, doble panel, **VFX Library con viewer/player**, colores automáticos por proyecto y la navegación de pipeline de [Studio Toolbar](https://github.com/javibravo-vfx/StudioToolbar-max).
 
@@ -19,6 +19,8 @@ Para thumbnails e info de videos, copiá `ffmpeg.exe` y `ffprobe.exe` en la carp
 | | |
 |---|---|
 | **Estilo Windows 11** | Pestañas arriba, fila con ← → ↑ ⟳, barra de dirección y «Buscar en…», barra de comandos (Nuevo, Cortar, Copiar, Pegar, Cambiar nombre, Eliminar, Ordenar, Ver, Filtrar, Subcarpetas, ⋯), panel de Detalles y botones de vista abajo a la derecha. Tema oscuro y barra de título oscura |
+| **Este equipo** | Como en Windows 11: discos locales y ubicaciones de red con etiqueta, letra (y servidor en las unidades de red), barra de uso (roja cuando está casi lleno) y espacio libre. Desde «Este equipo» en el panel izquierdo, el primer tramo de la barra de dirección, o subiendo desde la raíz de un disco |
+| **Panel izquierdo** | Dos tabs: **Carpetas** (acceso rápido, Este equipo y árbol) y **VFX Library**. Al pasar a la VFX Library se muestra su tab; en Carpetas, un click en una carpeta lleva el panel central al Explorador |
 | **Árbol estilo XYplorer** | Líneas finas (sólidas o punteadas), cajitas ⊞/⊟ y **Tree Path Tracing**: una línea de acento marca el camino desde la raíz hasta la carpeta actual. Las líneas pueden tomar el color de cada carpeta. Se configura en ⚙ › Colores (grosor y color del trazo) |
 | **VFX Library** | Tab propio (Ctrl+Shift+L), que solo navega **dentro de las carpetas de la librería** (no se puede salir de sus raíces). Los clicks en el árbol y en los favoritos del panel izquierdo siempre llevan al Explorador. En el panel izquierdo, «VFX LIBRARY» › ＋ para elegir dónde está tu librería (una o varias carpetas). Arriba hay un viewer y abajo los elementos en grilla: te movés con las flechas y cada uno se reproduce solo, en loop. Reproduce secuencias EXR/JPG/PNG/DPX, videos MOV/MP4 (con ffmpeg) e imágenes / HDRIs. En EXR multicapa, un selector cambia de **AOV / canal** (beauty, alpha, depth, normales…); las capas de datos se muestran sin conversión de color y normalizadas. Espacio: play/pausa · `,` `.`: frame a frame. Elegís los fps y el loop/autoplay se recuerdan |
 | **Scrub en thumbnails** | Pasá el mouse sobre una secuencia o un video en la grilla y se recorren sus frames (con el número de frame) |
@@ -36,7 +38,7 @@ Para thumbnails e info de videos, copiá `ffmpeg.exe` y `ffprobe.exe` en la carp
 | **Tamaño de carpetas** | Opcional (⚙ › General): se calcula en segundo plano y se ve en la grilla y en la lista |
 | **Tags / rating / colecciones** | Apagados por defecto; se prenden en ⚙ › General. Rating ★1–5 (Ctrl+0…5), tags (Ctrl+E) y colecciones que agrupan assets de distintas carpetas sin moverlos |
 | **Búsqueda** | Nombre o parte, `*comodines*`, filtro por tipo y **Subcarpetas** para buscar en toda la rama (con tags activos: `#tag`, `★3`) |
-| **Pipeline** | Proyecto → Secuencia → Shot → **Depto** (3D, Comp, DMP, 2D…) → Task, con la estructura de Studio Toolbar (`T:\VFX-{PROY}\{SEQ}\{SHOT}\{DEPTO}\{TASK}\`). Los dropdowns van en el panel izquierdo, arriba u ocultos (⚙ › Pipeline), y se puede limitar qué carpetas cuentan como departamento. Elegir un nivel navega ahí; el botón de carpeta lleva al shot, al task o a sus subcarpetas (`1_projects`, `2_review`, `3_publish`…). Al navegar, los combos se sincronizan solos, y quedan vacíos en carpetas que no son del pipeline |
+| **Pipeline** | Proyecto → Secuencia → Shot → **Depto** (3D, Comp, DMP, 2D…) → Task, con la estructura de Studio Toolbar (`T:\VFX-{PROY}\{SEQ}\{SHOT}\{DEPTO}\{TASK}\`). Los dropdowns van en horizontal sobre el panel central (por defecto), en el panel izquierdo u ocultos (⚙ › Pipeline), y se puede limitar qué carpetas cuentan como departamento. Elegir un nivel navega ahí; el botón de carpeta lleva al shot, al task o a sus subcarpetas (`1_projects`, `2_review`, `3_publish`…). Al navegar, los combos se sincronizan solos, y quedan vacíos en carpetas que no son del pipeline |
 | **Info** | Resolución, data window, compresión, canales/AOVs, partes, mipmaps y chromaticities de EXR; codec, fps, duración, timecode y pixel format de video |
 | **Copiar ruta** | `plate.####.exr`, formato Nuke `plate.%04d.exr 1001-1100`, ruta Windows, primer frame o carpeta |
 
@@ -68,7 +70,7 @@ Para thumbnails e info de videos, copiá `ffmpeg.exe` y `ffprobe.exe` en la carp
 En ⚙:
 - **Reproductor**: mrv2, DJV u OpenRV para abrir secuencias y videos con doble click.
 - **Espacio de color EXR**: ACEScg por defecto (también se usa en el viewer).
-- **Colores**: modo automático y reglas por nombre.
+- **Colores**: color de las carpetas (amarillo como Windows o celeste), modo automático y reglas por nombre.
 - **VFX Library**: resolución del viewer, memoria para frames (cuánto del loop queda en caché), autoplay y loop.
 - **Pipeline**: por defecto lee `%USERPROFILE%\.studio-toolbar\pipeline_config.ini`, la misma configuración que la toolbar. Si no existe, usa la raíz, el prefijo y las exclusiones que pongas acá.
 
