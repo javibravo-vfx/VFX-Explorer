@@ -126,16 +126,21 @@ class FilePane(QFrame):
         self.header = QFrame()
         self.header.setObjectName("paneHeader")
         hl = QVBoxLayout(self.header)
-        hl.setContentsMargins(4, 3, 4, 4)
-        hl.setSpacing(3)
+        hl.setContentsMargins(0, 0, 0, 0)
+        hl.setSpacing(0)
 
-        trow = QHBoxLayout()
-        trow.setSpacing(3)
+        # --- fila de pestañas (como la barra de pestañas del Explorador de Windows 11)
+        tabsrow = QFrame()
+        tabsrow.setObjectName("paneTabs")
+        trow = QHBoxLayout(tabsrow)
+        trow.setContentsMargins(6, 4, 6, 0)
+        trow.setSpacing(2)
         self.tabbar = QTabBar()
         self.tabbar.setTabsClosable(False)
         self.tabbar.setMovable(True)
         self.tabbar.setExpanding(False)
         self.tabbar.setDocumentMode(True)
+        self.tabbar.setDrawBase(False)
         self.tabbar.setElideMode(Qt.ElideMiddle)
         self.tabbar.setUsesScrollButtons(True)
         self.tabbar.setMinimumWidth(80)
@@ -144,63 +149,67 @@ class FilePane(QFrame):
         self.tabbar.installEventFilter(self)
         self.tabbar.setContextMenuPolicy(Qt.CustomContextMenu)
         self.tabbar.customContextMenuRequested.connect(self._tab_menu)
-        trow.addWidget(self.tabbar, 1)
+        trow.addWidget(self.tabbar, 0)
 
-        def tb(glyph, tip, slot, row):
+        def tb(glyph, tip, slot, row, size=16):
             b = QToolButton()
-            b.setIcon(ic.glyph(glyph, 18))
+            b.setIcon(ic.glyph(glyph, size))
             b.setToolTip(tip)
             b.setAutoRaise(True)
             b.clicked.connect(slot)
             row.addWidget(b)
             return b
         tb("plus", "Pestaña nueva (Ctrl+T)", lambda: self.add_tab(self.current_dir() or self.tab_path()), trow)
-        hl.addLayout(trow)
+        trow.addStretch(1)
+        hl.addWidget(tabsrow)
 
-        nrow = QHBoxLayout()
-        nrow.setSpacing(3)
+        # --- fila de navegación: ← → ↑ ⟳ | dirección | buscar
+        navrow = QFrame()
+        navrow.setObjectName("paneNav")
+        self.navrow = navrow
+        nrow = QHBoxLayout(navrow)
+        nrow.setContentsMargins(6, 6, 8, 6)
+        nrow.setSpacing(2)
         self.b_back = tb("back", "Atrás (Alt+←)", self.go_back, nrow)
         self.b_fwd = tb("fwd", "Adelante (Alt+→)", self.go_forward, nrow)
-        tb("up", "Subir (Backspace)", self.go_up, nrow)
-        tb("reload", "Refrescar (F5)", self.refresh, nrow)
+        tb("up", "Subir (Alt+↑ · Backspace)", self.go_up, nrow)
+        tb("reload", "Actualizar (F5)", self.refresh, nrow)
+        nrow.addSpacing(6)
         self.crumb = BreadcrumbBar(self.app.fs)
-        self.crumb.setMinimumWidth(120)
+        self.crumb.setMinimumWidth(140)
         self.crumb.navigate.connect(self.navigate)
-        nrow.addWidget(self.crumb, 3)
+        nrow.addWidget(self.crumb, 4)
+        nrow.addSpacing(6)
         self.search = QLineEdit()
-        self.search.setPlaceholderText(self._placeholder())
-        self.search.setToolTip("Nombre o parte · *comodines* · #tag · ★3 (si los tags están activos)\n"
+        self.search.setObjectName("paneSearch")
+        self.search.setToolTip("Nombre o parte · *comodines* · (con tags activos: #tag, ★3)\n"
                                "Con «Subcarpetas» prendido busca en toda la rama · Ctrl+F · Esc limpia")
         self.search.setClearButtonEnabled(True)
-        self.search.setMinimumWidth(110)
-        self.search.setMaximumWidth(230)
+        self.search.addAction(ic.glyph("search", 16, "#c5c5c5"), QLineEdit.TrailingPosition)
+        self.search.setMinimumWidth(150)
+        self.search.setMaximumWidth(300)
         self.search.textChanged.connect(self._on_search_text)
         self.search.returnPressed.connect(self._apply_search)
-        nrow.addWidget(self.search, 1)
-        self.filter = QComboBox()
+        nrow.addWidget(self.search, 2)
+        hl.addWidget(navrow)
+
+        # --- estado que se maneja desde la barra de comandos (no se muestra en el panel)
+        self.filter = QComboBox(self)
         for label, key in FILTERS:
             self.filter.addItem(label, key)
-        self.filter.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
-        self.filter.setMinimumContentsLength(5)
-        self.filter.setToolTip("Filtrar por tipo")
         self.filter.currentIndexChanged.connect(self._apply_search)
-        nrow.addWidget(self.filter)
-        self.rec = QToolButton()
-        self.rec.setIcon(ic.glyph("branch", 18))
-        self.rec.setText("Subcarpetas")
-        self.rec.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.filter.currentIndexChanged.connect(lambda *_: self.app.sync_commandbar(self))
+        self.filter.hide()
+        self.rec = QToolButton(self)
         self.rec.setCheckable(True)
-        self.rec.setAutoRaise(True)
-        self.rec.setToolTip("Incluir subcarpetas (Ctrl+B)\n"
-                            "Sin texto: muestra TODOS los archivos de esta carpeta y sus subcarpetas.\n"
-                            "Con texto: busca en esta carpeta y todas sus subcarpetas.")
         self.rec.toggled.connect(self._apply_search)
-        nrow.addWidget(self.rec)
-        self.b_grid = tb("grid", "Grilla (Ctrl+1)", lambda: self.set_view("grid"), nrow)
-        self.b_list = tb("list", "Lista (Ctrl+2)", lambda: self.set_view("list"), nrow)
+        self.rec.toggled.connect(lambda *_: self.app.sync_commandbar(self))
+        self.rec.hide()
+        self.b_grid = QToolButton(self)
+        self.b_list = QToolButton(self)
         for b in (self.b_grid, self.b_list):
             b.setCheckable(True)
-        hl.addLayout(nrow)
+            b.hide()
         lay.addWidget(self.header)
 
         self.banner = QLabel()
@@ -323,8 +332,10 @@ class FilePane(QFrame):
 
     def set_active(self, active):
         self.setProperty("active", bool(active))
-        self.style().unpolish(self)
-        self.style().polish(self)
+        for w in (self, self.navrow):
+            w.setProperty("active", bool(active))
+            w.style().unpolish(w)
+            w.style().polish(w)
 
     def view(self):
         return self.grid if self.stack.currentIndex() == 0 else self.list
@@ -334,6 +345,8 @@ class FilePane(QFrame):
         self.stack.setCurrentIndex(0 if mode == "grid" else 1)
         self.b_grid.setChecked(mode == "grid")
         self.b_list.setChecked(mode != "grid")
+        if hasattr(self.app, "sync_commandbar"):
+            self.app.sync_commandbar(self)
         if emit:
             self.app.save_soon()
 
@@ -499,6 +512,8 @@ class FilePane(QFrame):
         if not t:
             return
         self.crumb.set_path(t["path"], t["virtual"]["title"] if t["virtual"] else "")
+        if not self.banner.isVisible():
+            self.search.setPlaceholderText(self._placeholder())
         self.b_back.setEnabled(t["hpos"] > 0 or bool(t["virtual"]))
         self.b_fwd.setEnabled(t["hpos"] < len(t["history"]) - 1)
         self._update_tab()
@@ -680,10 +695,11 @@ class FilePane(QFrame):
         self.banner.setText(f"<b>⤓ {what}</b> en <b>{root}</b> y sus subcarpetas — {count} encontrados{tail}"
                             f"&nbsp;&nbsp;<span style='color:#cfe0ff'>✕ ver solo esta carpeta</span>")
         self.banner.show()
-        self.search.setPlaceholderText(f"Buscar en {root} y subcarpetas…")
+        self.search.setPlaceholderText(f"Buscar en {root} y subcarpetas")
 
     def _placeholder(self):
-        return "Buscar…  #tag  ★3" if self.app.cfg["library_features"] else "Buscar…  (nombre o *comodín*)"
+        name = os.path.basename(self.tab_path().rstrip("\\/")) if self.tabs else ""
+        return f"Buscar en {name}" if name else "Buscar"
 
     # ------------------------------------------------------------------ vistas virtuales (tags, colecciones)
     def show_virtual(self, title, kind, name, new_tab=False):

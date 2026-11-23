@@ -449,6 +449,12 @@ class Config:
         "viewer_fps": 24,
         "viewer_autoplay": True,
         "viewer_loop": True,
+        # 0.4
+        "details_visible": True,
+        "tree_lines_style": "solid",    # solid | dotted
+        "tree_trace": True,             # Tree Path Tracing (como XYplorer)
+        "tree_trace_width": 2,
+        "tree_trace_color": "accent",   # accent | folder
     }
 
     def __init__(self, path):

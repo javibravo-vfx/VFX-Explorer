@@ -26,7 +26,7 @@ TAG_COLORS = [
     ("Celeste", "#0ac5f5"), ("Azul", "#3e63dd"), ("Violeta", "#8e4ec6"), ("Rosa", "#e93d82"),
     ("Gris", "#8b8d98"),
 ]
-ACCENT = "#4c9aff"
+ACCENT = "#4cc2ff"          # acento de Windows 11 (modo oscuro)
 
 
 def cat_color(e):
@@ -197,6 +197,65 @@ class Icons:
             for i, x in enumerate((.18, .36, .54)):
                 p.drawRect(QRectF(s * x, s * (.22 + (i == 2) * .06), s * .12, s * .58))
             path.moveTo(s * .70, s * .26); path.lineTo(s * .84, s * .78)
+        elif kind == "cut":
+            p.drawEllipse(QPointF(s * .32, s * .72), s * .12, s * .12)
+            p.drawEllipse(QPointF(s * .68, s * .72), s * .12, s * .12)
+            path.moveTo(s * .40, s * .63); path.lineTo(s * .68, s * .16)
+            path.moveTo(s * .60, s * .63); path.lineTo(s * .32, s * .16)
+        elif kind == "copy":
+            p.drawRoundedRect(QRectF(s * .34, s * .30, s * .44, s * .52), 2, 2)
+            path.moveTo(s * .24, s * .70); path.lineTo(s * .24, s * .22); path.quadTo(s * .24, s * .16, s * .30, s * .16)
+            path.lineTo(s * .62, s * .16)
+        elif kind == "paste":
+            p.drawRoundedRect(QRectF(s * .22, s * .22, s * .56, s * .62), 2, 2)
+            p.drawRoundedRect(QRectF(s * .38, s * .14, s * .24, s * .14), 1.5, 1.5)
+        elif kind == "rename":
+            p.drawRoundedRect(QRectF(s * .14, s * .32, s * .72, s * .36), 2, 2)
+            path.moveTo(s * .62, s * .22); path.lineTo(s * .62, s * .78)
+            path.moveTo(s * .54, s * .22); path.lineTo(s * .70, s * .22)
+            path.moveTo(s * .54, s * .78); path.lineTo(s * .70, s * .78)
+        elif kind == "trash":
+            path.moveTo(s * .20, s * .28); path.lineTo(s * .80, s * .28)
+            path.moveTo(s * .40, s * .28); path.lineTo(s * .42, s * .18); path.lineTo(s * .58, s * .18)
+            path.lineTo(s * .60, s * .28)
+            path.moveTo(s * .27, s * .28); path.lineTo(s * .32, s * .82); path.lineTo(s * .68, s * .82)
+            path.lineTo(s * .73, s * .28)
+        elif kind == "newfolder":
+            path.moveTo(s * .12, s * .28); path.lineTo(s * .38, s * .28); path.lineTo(s * .46, s * .36)
+            path.lineTo(s * .86, s * .36); path.lineTo(s * .86, s * .50)
+            path.moveTo(s * .50, s * .78); path.lineTo(s * .12, s * .78); path.lineTo(s * .12, s * .28)
+            path.moveTo(s * .72, s * .56); path.lineTo(s * .72, s * .88)
+            path.moveTo(s * .56, s * .72); path.lineTo(s * .88, s * .72)
+        elif kind == "sort":
+            path.moveTo(s * .32, s * .82); path.lineTo(s * .32, s * .18)
+            path.moveTo(s * .18, s * .32); path.lineTo(s * .32, s * .18); path.lineTo(s * .46, s * .32)
+            path.moveTo(s * .68, s * .18); path.lineTo(s * .68, s * .82)
+            path.moveTo(s * .54, s * .68); path.lineTo(s * .68, s * .82); path.lineTo(s * .82, s * .68)
+        elif kind == "filter":
+            path.moveTo(s * .16, s * .22); path.lineTo(s * .84, s * .22); path.lineTo(s * .58, s * .52)
+            path.lineTo(s * .58, s * .80); path.lineTo(s * .42, s * .72); path.lineTo(s * .42, s * .52)
+            path.closeSubpath()
+        elif kind == "more":
+            p.setBrush(QColor(color))
+            for x in (.25, .5, .75):
+                p.drawEllipse(QPointF(s * x, s * .5), s * .06, s * .06)
+        elif kind == "details":
+            p.drawRoundedRect(QRectF(s * .14, s * .2, s * .72, s * .6), 2, 2)
+            path.moveTo(s * .58, s * .2); path.lineTo(s * .58, s * .8)
+        elif kind == "search":
+            p.drawEllipse(QPointF(s * .44, s * .42), s * .22, s * .22)
+            path.moveTo(s * .60, s * .58); path.lineTo(s * .82, s * .80)
+        elif kind == "chevdown":
+            path.moveTo(s * .30, s * .40); path.lineTo(s * .50, s * .60); path.lineTo(s * .70, s * .40)
+        elif kind == "pin":
+            path.moveTo(s * .5, s * .62); path.lineTo(s * .5, s * .88)
+            path.moveTo(s * .3, s * .62); path.lineTo(s * .7, s * .62)
+            path.moveTo(s * .38, s * .62); path.lineTo(s * .40, s * .16); path.lineTo(s * .60, s * .16)
+            path.lineTo(s * .62, s * .62)
+        elif kind == "home":
+            path.moveTo(s * .16, s * .48); path.lineTo(s * .5, s * .18); path.lineTo(s * .84, s * .48)
+            path.moveTo(s * .26, s * .40); path.lineTo(s * .26, s * .82); path.lineTo(s * .74, s * .82)
+            path.lineTo(s * .74, s * .40)
         elif kind == "folder":
             path.moveTo(s * .14, s * .3); path.lineTo(s * .4, s * .3); path.lineTo(s * .48, s * .38)
             path.lineTo(s * .86, s * .38); path.lineTo(s * .86, s * .76); path.lineTo(s * .14, s * .76)
@@ -247,9 +306,10 @@ class GridDelegate(QStyledItemDelegate):
         r = opt.rect.adjusted(3, 3, -3, -3)
         sel = bool(opt.state & QStyle.State_Selected)
         hov = bool(opt.state & QStyle.State_MouseOver)
-        p.setPen(QPen(QColor(ACCENT), 1.5) if sel else Qt.NoPen)
-        p.setBrush(QColor("#34404f") if sel else (QColor("#30333a") if hov else QColor("#26282c")))
-        p.drawRoundedRect(QRectF(r), 6, 6)
+        if sel or hov:
+            p.setPen(QPen(QColor("#4f4f4f"), 1) if sel else Qt.NoPen)
+            p.setBrush(QColor("#333333") if sel else QColor("#262626"))
+            p.drawRoundedRect(QRectF(r).adjusted(0.5, 0.5, -0.5, -0.5), 6, 6)
 
         tag = app.entry_color(e)
         th = QRect(r.x() + 5, r.y() + 5, r.width() - 10, int((r.width() - 10) * 9 / 16))
@@ -260,7 +320,7 @@ class GridDelegate(QStyledItemDelegate):
             p.drawPixmap(th.x() + (th.width() - fp.width()) // 2, th.y() + (th.height() - fp.height()) // 2, fp)
         else:
             p.setPen(Qt.NoPen)
-            p.setBrush(QColor("#17181a"))
+            p.setBrush(QColor("#232323"))
             p.drawRoundedRect(QRectF(th), 4, 4)
             col = QColor(cat_color(e))
             if pm is not None:
@@ -443,6 +503,16 @@ def path_segments(path):
     return segs
 
 
+_FOLDER_PM = None
+
+
+def _folder_pm():
+    global _FOLDER_PM
+    if _FOLDER_PM is None:
+        _FOLDER_PM = Icons().folder("#e8b84a", 16)
+    return _FOLDER_PM
+
+
 class BreadcrumbBar(QWidget):
     navigate = Signal(str)
 
@@ -450,7 +520,7 @@ class BreadcrumbBar(QWidget):
         super().__init__(parent)
         self.path = ""
         self.virtual_title = ""
-        self.setFixedHeight(28)
+        self.setFixedHeight(32)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.stack = QStackedLayout(self)
         self.stack.setContentsMargins(0, 0, 0, 0)
@@ -471,10 +541,10 @@ class BreadcrumbBar(QWidget):
         self.stack.addWidget(self.crumbs)
         self.stack.addWidget(self.edit)
         self.setStyleSheet("""
-            #crumbs { background:#17181a; border:1px solid #34363b; border-radius:4px; }
-            #crumbs QToolButton { border:none; padding:2px 5px; color:#d6d8dc; }
-            #crumbs QToolButton:hover { background:#2c3440; border-radius:3px; }
-            #crumbs QToolButton[arrow="true"] { color:#6f747c; padding:2px 2px; }
+            #crumbs { background:#2d2d2d; border:1px solid #3a3a3a; border-radius:4px; }
+            #crumbs QToolButton { border:none; padding:3px 6px; color:#f3f3f3; border-radius:4px; }
+            #crumbs QToolButton:hover { background:#3d3d3d; }
+            #crumbs QToolButton[arrow="true"] { color:#9d9d9d; padding:3px 2px; }
             #crumbs QToolButton::menu-indicator { image:none; width:0; }
         """)
 
@@ -549,8 +619,12 @@ class BreadcrumbBar(QWidget):
             self.cl.addStretch(1)
             return
         segs = path_segments(self.path)
+        lead = QLabel()
+        lead.setPixmap(_folder_pm())
+        lead.setContentsMargins(4, 0, 2, 0)
+        self.cl.addWidget(lead)
         fm = self.fontMetrics()
-        avail = max(100, self.width() - 40)
+        avail = max(100, self.width() - 64)
         widths = [fm.horizontalAdvance(lbl) + 14 + 16 for lbl, _ in segs]
         start, total = len(segs), 0
         while start > 0 and total + widths[start - 1] < avail:
@@ -769,6 +843,24 @@ class SettingsDialog(QDialog):
         self.tlines = QCheckBox("Líneas del árbol con el color de la carpeta")
         self.tlines.setChecked(bool(cfg["tree_line_colors"]))
         cl.addRow("", self.tlines)
+        self.tstyle = QComboBox()
+        self.tstyle.addItem("Sólidas (como XYplorer)", "solid")
+        self.tstyle.addItem("Punteadas", "dotted")
+        self.tstyle.setCurrentIndex(max(0, self.tstyle.findData(cfg["tree_lines_style"])))
+        cl.addRow("Líneas del árbol:", self.tstyle)
+        self.ttrace = QCheckBox("Tree Path Tracing: marcar el camino hasta la carpeta actual")
+        self.ttrace.setChecked(bool(cfg["tree_trace"]))
+        cl.addRow("", self.ttrace)
+        self.twidth = QSpinBox()
+        self.twidth.setRange(1, 6)
+        self.twidth.setSuffix(" px")
+        self.twidth.setValue(int(cfg["tree_trace_width"] or 2))
+        cl.addRow("Grosor del trazo:", self.twidth)
+        self.tcolor = QComboBox()
+        self.tcolor.addItem("Color de acento", "accent")
+        self.tcolor.addItem("Color de la carpeta actual", "folder")
+        self.tcolor.setCurrentIndex(max(0, self.tcolor.findData(cfg["tree_trace_color"])))
+        cl.addRow("Color del trazo:", self.tcolor)
         from PySide6.QtWidgets import QPlainTextEdit
         self.rules = QPlainTextEdit(cfg["name_rules"] or DEFAULT_NAME_RULES)
         self.rules.setMinimumHeight(220)
@@ -852,6 +944,10 @@ class SettingsDialog(QDialog):
         cfg["library_features"] = self.feats.isChecked()
         cfg["color_mode"] = self.cmode.currentData()
         cfg["tree_line_colors"] = self.tlines.isChecked()
+        cfg["tree_lines_style"] = self.tstyle.currentData()
+        cfg["tree_trace"] = self.ttrace.isChecked()
+        cfg["tree_trace_width"] = self.twidth.value()
+        cfg["tree_trace_color"] = self.tcolor.currentData()
         cfg["name_rules"] = self.rules.toPlainText()
         cfg["viewer_res"] = self.vres.currentData()
         cfg["viewer_mem"] = self.vmem.value()
@@ -865,42 +961,111 @@ class SettingsDialog(QDialog):
 # Tema
 # ----------------------------------------------------------------------------
 
+WIN11_FONT = "Segoe UI Variable Text"
+
+
 def apply_dark(app):
+    """Tema oscuro estilo Windows 11 (Explorador)."""
     app.setStyle("Fusion")
+    from PySide6.QtGui import QFont, QFontDatabase
+    fams = set(QFontDatabase.families())
+    for fam in (WIN11_FONT, "Segoe UI Variable", "Segoe UI", "Inter", "Noto Sans"):
+        if fam in fams:
+            f = QFont(fam, 9)
+            app.setFont(f)
+            break
     p = QPalette()
     c = {
-        QPalette.Window: "#1f2023", QPalette.WindowText: "#e3e3e3", QPalette.Base: "#1b1c1f",
-        QPalette.AlternateBase: "#222327", QPalette.ToolTipBase: "#2b2d31", QPalette.ToolTipText: "#e3e3e3",
-        QPalette.Text: "#e3e3e3", QPalette.Button: "#2a2c30", QPalette.ButtonText: "#e3e3e3",
-        QPalette.BrightText: "#ffffff", QPalette.Highlight: "#2f5f9e", QPalette.HighlightedText: "#ffffff",
-        QPalette.Link: ACCENT, QPalette.PlaceholderText: "#6f747c",
+        QPalette.Window: "#202020", QPalette.WindowText: "#f3f3f3", QPalette.Base: "#191919",
+        QPalette.AlternateBase: "#1d1d1d", QPalette.ToolTipBase: "#2b2b2b", QPalette.ToolTipText: "#f3f3f3",
+        QPalette.Text: "#f3f3f3", QPalette.Button: "#2d2d2d", QPalette.ButtonText: "#f3f3f3",
+        QPalette.BrightText: "#ffffff", QPalette.Highlight: "#383838", QPalette.HighlightedText: "#ffffff",
+        QPalette.Link: ACCENT, QPalette.PlaceholderText: "#8a8a8a", QPalette.Mid: "#3a3a3a",
     }
     for role, col in c.items():
         p.setColor(role, QColor(col))
-    p.setColor(QPalette.Disabled, QPalette.Text, QColor("#666"))
-    p.setColor(QPalette.Disabled, QPalette.ButtonText, QColor("#666"))
+    p.setColor(QPalette.Disabled, QPalette.Text, QColor("#6a6a6a"))
+    p.setColor(QPalette.Disabled, QPalette.ButtonText, QColor("#6a6a6a"))
+    p.setColor(QPalette.Disabled, QPalette.WindowText, QColor("#6a6a6a"))
     app.setPalette(p)
     app.setStyleSheet("""
-        QToolBar { background:#232428; border:none; border-bottom:1px solid #111; padding:3px; spacing:4px; }
-        QLineEdit, QComboBox, QSpinBox { background:#17181a; border:1px solid #34363b; border-radius:4px; padding:3px 6px; }
-        QLineEdit:focus, QComboBox:focus { border-color:#4c9aff; }
-        QTreeView, QListView, QListWidget { border:none; outline:0; }
-        QTreeView::item:selected, QListWidget::item:selected { background:#2f5f9e; }
-        QHeaderView::section { background:#232428; color:#a0a4ab; border:none; border-right:1px solid #18191b; padding:4px 6px; }
-        QSplitter::handle { background:#141517; }
-        QStatusBar { background:#232428; color:#a0a4ab; }
-        QMenu { background:#2a2c30; border:1px solid #3a3c41; }
-        QMenu::item:selected { background:#2f5f9e; }
-        QMenu::separator { height:1px; background:#3a3c41; margin:3px 6px; }
-        QToolButton:checked { background:#2f5f9e; border-radius:4px; }
-        QTabBar::tab { background:#1b1c1f; color:#9aa0a8; padding:4px 10px; border:none; border-right:1px solid #111;
-                       min-width:60px; max-width:220px; }
-        QTabBar::tab:selected { background:#2a2c30; color:#e8e8e8; }
-        QTabBar::tab:hover { background:#25272b; }
-        QScrollBar:vertical { background:#1b1c1f; width:11px; }
-        QScrollBar::handle:vertical { background:#3a3d43; border-radius:5px; min-height:30px; }
-        QScrollBar:horizontal { background:#1b1c1f; height:11px; }
-        QScrollBar::handle:horizontal { background:#3a3d43; border-radius:5px; min-width:30px; }
+        QWidget { color:#f3f3f3; }
+        QToolTip { background:#2b2b2b; color:#f3f3f3; border:1px solid #454545; border-radius:4px; padding:4px 6px; }
+        QToolBar { background:#202020; border:none; padding:4px 6px; spacing:2px; }
+        QToolBar#cmdbar { background:#272727; border-bottom:1px solid #1a1a1a; padding:4px 8px; }
+        QToolBar QToolButton, #cmdbar QToolButton { background:transparent; border:none; border-radius:4px;
+                                                    padding:4px 7px; color:#f3f3f3; }
+        QToolButton:hover { background:#383838; border-radius:4px; }
+        QToolButton:pressed { background:#323232; }
+        QToolButton:checked { background:#3d3d3d; border-radius:4px; }
+        QToolButton::menu-indicator { image:none; width:0; }
+        QToolButton[popupMode="2"] { padding-right:7px; }
+        QLineEdit, QComboBox, QSpinBox, QPlainTextEdit { background:#2d2d2d; border:1px solid #3a3a3a;
+                border-bottom:1px solid #8a8a8a; border-radius:4px; padding:4px 8px; selection-background-color:#0067c0; }
+        QLineEdit:focus, QComboBox:focus, QPlainTextEdit:focus { background:#1f1f1f; border-bottom:2px solid #4cc2ff; }
+        QComboBox::drop-down { border:none; width:20px; }
+        QComboBox QAbstractItemView { background:#2c2c2c; border:1px solid #454545; selection-background-color:#3d3d3d; }
+        QTreeView, QListView, QListWidget, QTreeWidget { background:#191919; border:none; outline:0; }
+        QTreeView::item, QListWidget::item, QTreeWidget::item { padding:2px 2px; border-radius:4px; }
+        QTreeView::item:hover, QListWidget::item:hover, QTreeWidget::item:hover { background:#262626; }
+        QTreeView::item:selected, QListWidget::item:selected, QTreeWidget::item:selected { background:#333333; color:#ffffff; }
+        QTreeView::item:selected:hover, QListWidget::item:selected:hover { background:#3a3a3a; }
+        QHeaderView::section { background:#191919; color:#c5c5c5; border:none; border-right:1px solid #2a2a2a;
+                               padding:5px 8px; }
+        QHeaderView::section:hover { background:#262626; }
+        QSplitter::handle { background:#1a1a1a; }
+        QSplitter::handle:horizontal { width:1px; }
+        QSplitter::handle:vertical { height:1px; }
+        QStatusBar { background:#191919; color:#c5c5c5; border-top:1px solid #262626; }
+        QStatusBar QLabel { color:#c5c5c5; padding:0 6px; }
+        QMenu { background:#2c2c2c; border:1px solid #454545; border-radius:8px; padding:4px; }
+        QMenu::item { padding:6px 28px 6px 12px; border-radius:4px; }
+        QMenu::item:selected { background:#383838; }
+        QMenu::item:disabled { color:#6a6a6a; }
+        QMenu::separator { height:1px; background:#454545; margin:4px 8px; }
+        QMenu::icon { padding-left:8px; }
+        QTabBar { background:transparent; }
+        QTabBar::tab { background:transparent; color:#c5c5c5; padding:7px 14px; border:none;
+                       border-top-left-radius:8px; border-top-right-radius:8px; margin-right:1px;
+                       min-width:70px; max-width:240px; }
+        QTabBar::tab:selected { background:#2b2b2b; color:#ffffff; }
+        QTabBar::tab:hover:!selected { background:#262626; }
+        QPushButton { background:#2d2d2d; border:1px solid #3a3a3a; border-radius:4px; padding:5px 14px; }
+        QPushButton:hover { background:#323232; }
+        QPushButton:default { background:#4cc2ff; color:#000000; border:none; }
+        QCheckBox::indicator { width:16px; height:16px; border-radius:4px; border:1px solid #8a8a8a; background:#2d2d2d; }
+        QCheckBox::indicator:checked { background:#4cc2ff; border-color:#4cc2ff; }
+        QSlider::groove:horizontal { height:4px; background:#5a5a5a; border-radius:2px; }
+        QSlider::sub-page:horizontal { background:#4cc2ff; border-radius:2px; }
+        QSlider::handle:horizontal { background:#4cc2ff; border:4px solid #454545; width:12px; height:12px;
+                                     margin:-8px 0; border-radius:10px; }
+        QScrollBar:vertical { background:transparent; width:10px; margin:2px; }
+        QScrollBar::handle:vertical { background:#5a5a5a; border-radius:3px; min-height:30px; }
+        QScrollBar::handle:vertical:hover { background:#8a8a8a; }
+        QScrollBar:horizontal { background:transparent; height:10px; margin:2px; }
+        QScrollBar::handle:horizontal { background:#5a5a5a; border-radius:3px; min-width:30px; }
         QScrollBar::add-line, QScrollBar::sub-line { height:0; width:0; }
+        QScrollBar::add-page, QScrollBar::sub-page { background:transparent; }
         QProgressDialog { min-width:420px; }
+        QDialog { background:#202020; }
+        QTabWidget::pane { border:1px solid #2f2f2f; border-radius:6px; top:-1px; background:#1f1f1f; }
     """)
+
+
+def win11_titlebar(widget):
+    """Barra de título oscura del sistema (Windows 10 20H1+ / 11) con el mismo color que la ventana."""
+    import sys
+    if not sys.platform.startswith("win"):
+        return
+    try:
+        import ctypes
+        hwnd = int(widget.winId())
+        dwm = ctypes.windll.dwmapi
+        on = ctypes.c_int(1)
+        dwm.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(on), ctypes.sizeof(on))       # modo oscuro
+        color = ctypes.c_int(0x00202020)                                                # COLORREF 0x00BBGGRR
+        dwm.DwmSetWindowAttribute(hwnd, 35, ctypes.byref(color), ctypes.sizeof(color))  # color del caption (Win11)
+        corner = ctypes.c_int(2)
+        dwm.DwmSetWindowAttribute(hwnd, 33, ctypes.byref(corner), ctypes.sizeof(corner))  # esquinas redondeadas
+    except Exception:
+        pass

@@ -1,8 +1,8 @@
 # VFX Explorer
 
-![Version](https://img.shields.io/badge/version-0.3.0-informational) ![Platform](https://img.shields.io/badge/platform-Windows-555) ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white) ![Qt](https://img.shields.io/badge/PySide-6-41CD52?logo=qt&logoColor=white) [![Build](https://github.com/javibravo-vfx/VFX-Explorer/actions/workflows/build.yml/badge.svg)](https://github.com/javibravo-vfx/VFX-Explorer/actions/workflows/build.yml)
+![Version](https://img.shields.io/badge/version-0.4.0-informational) ![Platform](https://img.shields.io/badge/platform-Windows-555) ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white) ![Qt](https://img.shields.io/badge/PySide-6-41CD52?logo=qt&logoColor=white) [![Build](https://github.com/javibravo-vfx/VFX-Explorer/actions/workflows/build.yml/badge.svg)](https://github.com/javibravo-vfx/VFX-Explorer/actions/workflows/build.yml)
 
-Explorador de archivos **liviano y portable** pensado para VFX: secuencias EXR como un solo ítem, thumbnails de EXR, HDR, TX y videos, pestañas, doble panel, **VFX Library con viewer/player**, colores automáticos por proyecto y la navegación de pipeline de [Studio Toolbar](https://github.com/javibravo-vfx/StudioToolbar-max).
+Explorador de archivos **liviano y portable** pensado para VFX, con la cara del **Explorador de Windows 11** y el manejo de carpetas de **XYplorer**: secuencias EXR como un solo ítem, thumbnails de EXR, HDR, TX y videos, pestañas, doble panel, **VFX Library con viewer/player**, colores automáticos por proyecto y la navegación de pipeline de [Studio Toolbar](https://github.com/javibravo-vfx/StudioToolbar-max).
 
 ![VFX Explorer](docs/screenshot.png)
 
@@ -18,6 +18,8 @@ Para thumbnails e info de videos, copiá `ffmpeg.exe` y `ffprobe.exe` en la carp
 
 | | |
 |---|---|
+| **Estilo Windows 11** | Pestañas arriba, fila con ← → ↑ ⟳, barra de dirección y «Buscar en…», barra de comandos (Nuevo, Cortar, Copiar, Pegar, Cambiar nombre, Eliminar, Ordenar, Ver, Filtrar, Subcarpetas, ⋯), panel de Detalles y botones de vista abajo a la derecha. Tema oscuro y barra de título oscura |
+| **Árbol estilo XYplorer** | Líneas finas (sólidas o punteadas), cajitas ⊞/⊟ y **Tree Path Tracing**: una línea de acento marca el camino desde la raíz hasta la carpeta actual. Las líneas pueden tomar el color de cada carpeta. Se configura en ⚙ › Colores (grosor y color del trazo) |
 | **VFX Library** | Tab propio (Ctrl+Shift+L). En el panel izquierdo, «VFX LIBRARY» › ＋ para elegir dónde está tu librería (una o varias carpetas). Arriba hay un viewer y abajo los elementos en grilla: te movés con las flechas y cada uno se reproduce solo, en loop. Reproduce secuencias EXR/JPG/PNG/DPX, videos MOV/MP4 (con ffmpeg) e imágenes / HDRIs. Espacio: play/pausa · `,` `.`: frame a frame. Elegís los fps y el loop/autoplay se recuerdan |
 | **Subcarpetas** | El botón **Subcarpetas** (Ctrl+B): sin texto muestra **todos los archivos** de la carpeta y sus subcarpetas; con texto busca en toda la rama. Una barra azul avisa que estás viendo subcarpetas y cada ítem muestra en qué subcarpeta está (↳ renders) |
 | **Colores automáticos** | Desde el panel CARPETAS: **Por proyecto** (cada proyecto del pipeline con su color, más claro en secuencias y shots), **Por nombre** (reglas como `3D = azul`, `comp = naranja`, editables en ⚙ › Colores) o ambos. El color manual siempre gana. Líneas del árbol estilo XYplorer, con el color de cada carpeta |
@@ -55,6 +57,7 @@ Para thumbnails e info de videos, copiá `ffmpeg.exe` y `ffprobe.exe` en la carp
 | Ctrl+Shift+N | Carpeta nueva |
 | Ctrl+E · Ctrl+0…5 | Tags · rating (si están activos) |
 | Ctrl+L · Ctrl+F | Escribir ruta · buscar |
+| Alt+Shift+P | Panel de detalles |
 | Ctrl+1 / Ctrl+2 | Grilla / lista |
 | F5 | Refrescar |
 

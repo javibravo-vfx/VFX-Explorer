@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
 
 from . import APP_NAME, VERSION
 from .core import (Config, IS_WIN, data_dir, norm_key, fwd, human_size, fmt_time, compress_ranges, find_tool,
-                   same_path, Entry)
+                   same_path, Entry, FILTERS)
 from .library import Library, dir_target
 from .pipeline import Pipeline
 from .imaging import ThumbManager, InfoTask, Signals, init_formats
@@ -224,29 +224,100 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ UI
     def _build(self):
         ic = self.icons
-        tb = QToolBar("Principal")
+        # --- fila superior: pipeline + modo (Explorador / VFX Library)
+        tb = QToolBar("Pipeline")
+        tb.setObjectName("topbar")
         tb.setMovable(False)
-        tb.setIconSize(QSize(18, 18))
+        tb.setIconSize(QSize(16, 16))
         self.addToolBar(tb)
         self.pipebar = PipelineBar(self)
         tb.addWidget(self.pipebar)
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         tb.addWidget(spacer)
-        self.act_dual = tb.addAction(ic.glyph("dual"), "Doble panel (F9)", self.toggle_dual)
+        self.modebar = QTabBar()
+        self.modebar.setObjectName("modebar")
+        self.modebar.setDocumentMode(True)
+        self.modebar.setDrawBase(False)
+        self.modebar.setExpanding(False)
+        self.modebar.addTab(ic.glyph("folder", 16), "Explorador")
+        self.modebar.addTab(ic.glyph("library", 16, "#b98cff"), "VFX Library")
+        self.modebar.setTabToolTip(0, "Explorador de archivos (Ctrl+Shift+E)")
+        self.modebar.setTabToolTip(1, "VFX Library: viewer arriba, elementos abajo (Ctrl+Shift+L)")
+        self.modebar.currentChanged.connect(lambda i: self.set_mode("library" if i == 1 else "explorer"))
+        tb.addWidget(self.modebar)
+        self.addToolBarBreak()
+
+        # --- barra de comandos (como la del Explorador de Windows 11)
+        cb = QToolBar("Comandos")
+        cb.setObjectName("cmdbar")
+        cb.setMovable(False)
+        cb.setIconSize(QSize(16, 16))
+        cb.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.addToolBar(cb)
+        self.cmdbar = cb
+
+        def menu_button(glyph, text, menu, tip=""):
+            b = QToolButton()
+            b.setIcon(ic.glyph(glyph, 16))
+            b.setText(text + "  ")
+            b.setToolTip(tip or text)
+            b.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+            b.setPopupMode(QToolButton.InstantPopup)
+            b.setMenu(menu)
+            cb.addWidget(b)
+            return b
+
+        def act(glyph, tip, slot, text=None):
+            a = cb.addAction(ic.glyph(glyph, 16), text or "", slot)
+            a.setToolTip(tip)
+            w = cb.widgetForAction(a)
+            if w is not None and not text:
+                w.setToolButtonStyle(Qt.ToolButtonIconOnly)
+            return a
+
+        m_new = QMenu(self)
+        m_new.addAction(ic.glyph("newfolder", 16), "Carpeta\tCtrl+Shift+N", lambda: self.op_new_folder(self.active))
+        menu_button("plus", "Nuevo", m_new, "Crear carpeta")
+        cb.addSeparator()
+        act("cut", "Cortar (Ctrl+X)", lambda: self.op_clip(self.active, cut=True))
+        act("copy", "Copiar (Ctrl+C)", lambda: self.op_clip(self.active, cut=False))
+        act("paste", "Pegar (Ctrl+V)", lambda: self.op_paste(self.active))
+        act("rename", "Cambiar nombre (F2) — también secuencias", lambda: self.start_inline_rename(self.active))
+        act("trash", "Eliminar: mandar a la papelera (Supr)", lambda: self.op_trash(self.active))
+        cb.addSeparator()
+
+        self.m_sort = QMenu(self)
+        self.m_sort.aboutToShow.connect(self._fill_sort_menu)
+        menu_button("sort", "Ordenar", self.m_sort)
+        self.m_view = QMenu(self)
+        self.m_view.aboutToShow.connect(self._fill_view_menu)
+        menu_button("grid", "Ver", self.m_view)
+        self.m_filter = QMenu(self)
+        self.m_filter.aboutToShow.connect(self._fill_filter_menu)
+        self.b_filter = menu_button("filter", "Filtrar", self.m_filter, "Mostrar solo un tipo de archivo")
+        self.act_sub = cb.addAction(ic.glyph("branch", 16), "Subcarpetas",
+                                    lambda: self.active.rec.toggle())
+        self.act_sub.setCheckable(True)
+        self.act_sub.setToolTip("Incluir subcarpetas (Ctrl+B)\nSin texto: todos los archivos de la rama.\n"
+                                "Con texto: busca en toda la rama.")
+        cb.addSeparator()
+        self.m_more = QMenu(self)
+        self.m_more.aboutToShow.connect(self._fill_more_menu)
+        more = menu_button("more", "", self.m_more, "Ver más")
+        more.setToolButtonStyle(Qt.ToolButtonIconOnly)
+        sp2 = QWidget()
+        sp2.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        cb.addWidget(sp2)
+        self.act_dual = cb.addAction(ic.glyph("dual", 16), "Doble panel", self.toggle_dual)
         self.act_dual.setCheckable(True)
-        tb.addSeparator()
-        szl = QLabel("Tamaño")
-        szl.setStyleSheet("color:#7d8590; font-size:8pt;")
-        tb.addWidget(szl)
-        self.size_slider = QSlider(Qt.Horizontal)
-        self.size_slider.setRange(96, 320)
-        self.size_slider.setFixedWidth(110)
-        self.size_slider.setValue(int(self.cfg["thumb_size"]))
-        self.size_slider.valueChanged.connect(self._on_thumb_size)
-        tb.addWidget(self.size_slider)
-        tb.addSeparator()
-        tb.addAction(ic.glyph("gear"), "Configuración", self.open_settings)
+        self.act_dual.setToolTip("Doble panel (F9) · F6 cambia de panel")
+        self.act_details = cb.addAction(ic.glyph("details", 16), "Detalles", self.toggle_details)
+        self.act_details.setCheckable(True)
+        self.act_details.setToolTip("Panel de detalles (Alt+Shift+P)")
+        a = cb.addAction(ic.glyph("gear", 16), "", self.open_settings)
+        a.setToolTip("Configuración")
+        cb.widgetForAction(a).setToolButtonStyle(Qt.ToolButtonIconOnly)
 
         # sidebar
         self.favs = self._mk_list(self._favs_menu, lambda it: self.active.navigate(it.data(Qt.UserRole)))
@@ -261,6 +332,9 @@ class MainWindow(QMainWindow):
             self.tree.hideColumn(c)
         self.tree.setHeaderHidden(True)
         self.tree.setIconSize(QSize(18, 18))
+        self.tree.header().setStretchLastSection(False)
+        self.tree.header().setSectionResizeMode(0, self.tree.header().ResizeMode.ResizeToContents)
+        self.tree.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.tree.clicked.connect(lambda ix: self.active.navigate(self.fs.filePath(ix)))
         self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._tree_menu)
@@ -303,7 +377,7 @@ class MainWindow(QMainWindow):
             self.side_boxes[key] = box
             left.addWidget(box)
         left.setSizes([120, 120, 90, 110, 420])
-        left.setMinimumWidth(190)
+        left.setMinimumWidth(200)
         self.left_split = left
 
         # paneles
@@ -347,7 +421,6 @@ class MainWindow(QMainWindow):
         cl = QVBoxLayout(center)
         cl.setContentsMargins(0, 0, 0, 0)
         cl.setSpacing(0)
-        cl.addWidget(self.modebar)
         cl.addWidget(self.center_stack, 1)
 
         # info
@@ -367,6 +440,7 @@ class MainWindow(QMainWindow):
         il.addWidget(self.info)
         il.addStretch(1)
         sa = QScrollArea()
+        self.info_area = sa
         sa.setWidget(iw)
         sa.setWidgetResizable(True)
         sa.setFrameShape(QFrame.NoFrame)
@@ -377,7 +451,7 @@ class MainWindow(QMainWindow):
         main.addWidget(center)
         main.addWidget(sa)
         main.setStretchFactor(1, 1)
-        main.setSizes([250, 960, 300])
+        main.setSizes([280, 940, 300])
         main.setCollapsible(0, False)
         self.main_split = main
         self.setCentralWidget(main)
@@ -386,21 +460,51 @@ class MainWindow(QMainWindow):
         self.statusBar().addWidget(self.status, 1)
         self.status_right = QLabel()
         self.statusBar().addPermanentWidget(self.status_right)
+        self.size_slider = QSlider(Qt.Horizontal)
+        self.size_slider.setRange(96, 320)
+        self.size_slider.setFixedWidth(110)
+        self.size_slider.setToolTip("Tamaño de los íconos")
+        self.size_slider.setValue(int(self.cfg["thumb_size"]))
+        self.size_slider.valueChanged.connect(self._on_thumb_size)
+        self.statusBar().addPermanentWidget(self.size_slider)
+        self.sb_list = QToolButton()
+        self.sb_list.setIcon(ic.glyph("list", 16))
+        self.sb_list.setToolTip("Detalles (Ctrl+2)")
+        self.sb_list.setCheckable(True)
+        self.sb_list.setAutoRaise(True)
+        self.sb_list.clicked.connect(lambda: self.active.set_view("list"))
+        self.sb_grid = QToolButton()
+        self.sb_grid.setIcon(ic.glyph("grid", 16))
+        self.sb_grid.setToolTip("Íconos grandes (Ctrl+1)")
+        self.sb_grid.setCheckable(True)
+        self.sb_grid.setAutoRaise(True)
+        self.sb_grid.clicked.connect(lambda: self.active.set_view("grid"))
+        self.statusBar().addPermanentWidget(self.sb_list)
+        self.statusBar().addPermanentWidget(self.sb_grid)
+        self.statusBar().setSizeGripEnabled(False)
 
         self.setStyleSheet(f"""
-            #pane {{ border-top:2px solid transparent; }}
-            #pane[active="true"] {{ border-top:2px solid {ACCENT}; }}
-            #paneHeader {{ background:#202125; }}
-            #paneFooter {{ color:#8b9099; font-size:8pt; padding:2px 8px; background:#1d1e21; }}
-            #paneBanner {{ background:#1f3a66; color:#e8f0ff; padding:4px 10px; font-size:8.5pt; }}
-            #viewerBar {{ background:#1b1c1f; border-top:1px solid #111; }}
-            #modebar::tab {{ padding:5px 16px; min-width:110px; font-weight:bold; }}
-            #modebar::tab:selected {{ color:#ffffff; border-bottom:2px solid {ACCENT}; }}
+            #pane {{ border:none; }}
+            #paneNav[active="true"] {{ border-bottom:2px solid {ACCENT}; }}
+            #paneHeader {{ background:#202020; }}
+            #paneTabs {{ background:#202020; }}
+            #paneNav {{ background:#2b2b2b; border-bottom:2px solid #232323; }}
+            QToolBar#topbar {{ background:#202020; border:none; }}
+            #paneSearch {{ border-radius:4px; }}
+            #paneFooter {{ color:#9d9d9d; font-size:8pt; padding:3px 10px; background:#191919;
+                           border-top:1px solid #232323; }}
+            #paneBanner {{ background:#0f3a55; color:#e6f6ff; padding:5px 12px; font-size:8.5pt;
+                           border-bottom:1px solid #1a5c86; }}
+            #viewerBar {{ background:#202020; border-top:1px solid #2a2a2a; }}
+            #modebar::tab {{ padding:6px 16px; min-width:110px; border-radius:6px; margin:2px; }}
+            #modebar::tab:selected {{ background:#2d2d2d; color:#ffffff; }}
+            QListWidget, QTreeWidget, QTreeView {{ background:#191919; }}
         """)
         QShortcut(QKeySequence("F9"), self, self.toggle_dual)
         QShortcut(QKeySequence("F6"), self, self.switch_pane)
         QShortcut(QKeySequence("Ctrl+Shift+E"), self, lambda: self.set_mode("explorer"))
         QShortcut(QKeySequence("Ctrl+Shift+L"), self, lambda: self.set_mode("library"))
+        QShortcut(QKeySequence("Alt+Shift+P"), self, self.toggle_details)
         self._reload_sidebar()
         self.apply_features()
 
@@ -445,6 +549,15 @@ class MainWindow(QMainWindow):
         self.set_active(self.paneA)
         if self.cfg["mode"] == "library" and not start_path:
             self.set_mode("library")
+        self.toggle_details(self.cfg.get("details_visible", True))
+        self.sync_commandbar(self.active)
+
+    def showEvent(self, ev):
+        super().showEvent(ev)
+        if not getattr(self, "_titlebar_done", False):
+            self._titlebar_done = True
+            from .widgets import win11_titlebar
+            win11_titlebar(self)
 
     def _save_now(self):
         self.cfg["panes"] = [p.state() for p in self.panes]
@@ -469,6 +582,125 @@ class MainWindow(QMainWindow):
         self.dirsizes.clear()
         self.libpage.shutdown()
         super().closeEvent(ev)
+
+    # ------------------------------------------------------------------ barra de comandos (Windows 11)
+    def accent(self):
+        return ACCENT
+
+    def toggle_details(self, force=None):
+        show = (not self.info_area.isVisible()) if force is None else bool(force)
+        self.info_area.setVisible(show)
+        self.act_details.setChecked(show)
+        self.cfg["details_visible"] = show
+        self.save_soon()
+
+    def sync_commandbar(self, pane=None):
+        """Refleja en la barra de comandos y en la barra de estado el estado del panel activo."""
+        pane = pane or self.active
+        if pane is not getattr(self, "active", None) or not hasattr(self, "act_sub"):
+            return
+        self.act_sub.blockSignals(True)
+        self.act_sub.setChecked(pane.rec.isChecked())
+        self.act_sub.blockSignals(False)
+        cat = pane.filter.currentData()
+        label = next((l for l, k in FILTERS if k == cat), "Filtrar")
+        self.b_filter.setText(("Filtrar" if cat == "all" else label) + "  ")
+        self.sb_grid.setChecked(pane.view_mode == "grid")
+        self.sb_list.setChecked(pane.view_mode != "grid")
+
+    def _fill_sort_menu(self):
+        m = self.m_sort
+        m.clear()
+        pane = self.active
+        hd = pane.list.header()
+        cur, order = hd.sortIndicatorSection(), hd.sortIndicatorOrder()
+        from .models import C_NAME, C_MTIME, C_TYPE, C_SIZE, C_FRAMES, C_RANGE
+        for label, col in (("Nombre", C_NAME), ("Fecha de modificación", C_MTIME), ("Tipo", C_TYPE),
+                           ("Tamaño", C_SIZE), ("Cantidad de frames", C_FRAMES), ("Primer frame", C_RANGE)):
+            a = m.addAction(label, lambda c=col: pane.list.sortByColumn(c, order))
+            a.setCheckable(True)
+            a.setChecked(cur == col)
+        m.addSeparator()
+        for label, o in (("Ascendente", Qt.AscendingOrder), ("Descendente", Qt.DescendingOrder)):
+            a = m.addAction(label, lambda o=o: pane.list.sortByColumn(cur, o))
+            a.setCheckable(True)
+            a.setChecked(order == o)
+
+    def _fill_view_menu(self):
+        m = self.m_view
+        m.clear()
+        pane = self.active
+        ts = int(self.cfg["thumb_size"])
+        for label, size in (("Íconos extra grandes", 320), ("Íconos grandes", 240), ("Íconos medianos", 180),
+                            ("Íconos pequeños", 120)):
+            a = m.addAction(self.icons.glyph("grid", 16), label,
+                            lambda sz=size: (pane.set_view("grid"), self.size_slider.setValue(sz)))
+            a.setCheckable(True)
+            a.setChecked(pane.view_mode == "grid" and abs(ts - size) < 30)
+        a = m.addAction(self.icons.glyph("list", 16), "Detalles\tCtrl+2", lambda: pane.set_view("list"))
+        a.setCheckable(True)
+        a.setChecked(pane.view_mode != "grid")
+        m.addSeparator()
+        a = m.addAction("Panel de detalles\tAlt+Shift+P", self.toggle_details)
+        a.setCheckable(True)
+        a.setChecked(self.info_area.isVisible())
+        a = m.addAction("Doble panel\tF9", self.toggle_dual)
+        a.setCheckable(True)
+        a.setChecked(self.paneB.isVisible())
+        m.addSeparator()
+
+        def toggle_hidden():
+            self.cfg["show_hidden"] = not self.cfg["show_hidden"]
+            self.cfg.save()
+            for p in self.all_panes:
+                p.refresh()
+        a = m.addAction("Elementos ocultos", toggle_hidden)
+        a.setCheckable(True)
+        a.setChecked(bool(self.cfg["show_hidden"]))
+
+        def toggle_sizes():
+            self.cfg["folder_sizes"] = not self.cfg["folder_sizes"]
+            self.cfg.save()
+            if not self.cfg["folder_sizes"]:
+                self.dirsizes.clear()
+            for p in self.all_panes:
+                p.refresh()
+        a = m.addAction("Tamaño de carpetas", toggle_sizes)
+        a.setCheckable(True)
+        a.setChecked(bool(self.cfg["folder_sizes"]))
+
+    def _fill_filter_menu(self):
+        m = self.m_filter
+        m.clear()
+        pane = self.active
+        cur = pane.filter.currentData()
+        for label, key in FILTERS:
+            a = m.addAction(label, lambda k=key: pane.filter.setCurrentIndex(pane.filter.findData(k)))
+            a.setCheckable(True)
+            a.setChecked(cur == key)
+
+    def _fill_more_menu(self):
+        m = self.m_more
+        m.clear()
+        pane = self.active
+        v = pane.view()
+        m.addAction("Seleccionar todo\tCtrl+A", v.selectAll)
+        m.addAction("No seleccionar nada", v.clearSelection)
+
+        def invert():
+            sel = v.selectionModel()
+            from PySide6.QtCore import QItemSelectionModel
+            for r in range(pane.proxy.rowCount()):
+                sel.select(pane.proxy.index(r, 0), QItemSelectionModel.Toggle | QItemSelectionModel.Rows)
+        m.addAction("Invertir selección", invert)
+        m.addSeparator()
+        m.addAction("Copiar ruta  (####)\tCtrl+Shift+C", lambda: self.copy_paths(pane, "hash"))
+        m.addAction("Copiar ruta Nuke\tCtrl+Alt+C", lambda: self.copy_paths(pane, "nuke"))
+        if pane.current_dir():
+            m.addAction("Abrir en el Explorador de Windows", lambda: self.open_default(pane.current_dir()))
+            m.addAction("Agregar a acceso rápido", lambda: self.add_favorites([pane.current_dir()]))
+        m.addSeparator()
+        m.addAction(self.icons.glyph("gear", 16), "Opciones…", self.open_settings)
 
     # ------------------------------------------------------------------ modos: Explorador / VFX Library
     def mode(self):
@@ -590,6 +822,8 @@ class MainWindow(QMainWindow):
     def set_active(self, pane):
         if pane in self.panes:
             self.explorer_active = pane
+        if hasattr(self, "act_sub"):
+            QTimer.singleShot(0, lambda p=pane: self.sync_commandbar(p))
         if pane is not self.active or not pane.property("active"):
             self.active = pane
             for p in self.panes:
@@ -628,6 +862,7 @@ class MainWindow(QMainWindow):
         if pane is not self.active:
             return
         d = pane.current_dir()
+        self.tree.set_trace_path(d or "")
         if d:
             ix = self.fs.index(d)
             if ix.isValid():
