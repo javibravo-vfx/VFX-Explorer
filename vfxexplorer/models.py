@@ -69,6 +69,16 @@ class EntryModel(QAbstractTableModel):
             ix = self.index(r, 0)
             self.dataChanged.emit(ix, ix, [Qt.DecorationRole])
 
+    def dir_size_ready(self, path, size):
+        hit = False
+        for i, e in enumerate(self.entries):
+            if e.kind == "dir" and e.path == path:
+                e.size = size
+                hit = True
+                ix = self.index(i, C_SIZE)
+                self.dataChanged.emit(self.index(i, 0), ix)
+        return hit
+
     def refresh_all(self):
         if self.entries:
             self.dataChanged.emit(self.index(0, 0), self.index(len(self.entries) - 1, len(COLS) - 1))
@@ -87,7 +97,19 @@ class EntryModel(QAbstractTableModel):
     def flags(self, index):
         if not index.isValid():
             return Qt.ItemIsDropEnabled
-        return Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsDragEnabled
+        f = Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsDragEnabled
+        if index.column() == C_NAME:
+            f |= Qt.ItemIsEditable
+        return f
+
+    def setData(self, index, value, role=Qt.EditRole):
+        if role != Qt.EditRole or not index.isValid() or index.column() != C_NAME:
+            return False
+        e = self.entries[index.row()]
+        value = (value or "").strip()
+        if not value or value == e.name:
+            return False
+        return bool(self.app.rename_inline(e, value))
 
     def supportedDragActions(self):
         return Qt.CopyAction
@@ -106,6 +128,8 @@ class EntryModel(QAbstractTableModel):
         lib = self.app.lib
         if role == ROLE_ENTRY:
             return e
+        if role == Qt.EditRole and col == C_NAME:
+            return e.name
         if role == Qt.DisplayRole:
             if col == C_NAME:
                 return e.name
@@ -118,7 +142,7 @@ class EntryModel(QAbstractTableModel):
             if col == C_MISSING:
                 return str(len(e.missing)) if e.kind == "seq" and e.missing else ""
             if col == C_SIZE:
-                return "" if e.kind == "dir" else human_size(e.size)
+                return (human_size(e.size) if e.size else "") if e.kind == "dir" else human_size(e.size)
             if col == C_MTIME:
                 return fmt_time(e.mtime)
             if col == C_RATING:
@@ -151,7 +175,7 @@ class EntryModel(QAbstractTableModel):
                 return natural_key(e.dirpath)
         if role == Qt.DecorationRole and col == C_NAME:
             if e.kind == "dir":
-                return self.app.icons.folder_icon(lib.color(e.key()), 18)
+                return self.app.icons.folder_icon(self.app.entry_color(e), 18)
             return self.app.icons.badge(e)
         if role == Qt.ForegroundRole:
             if col == C_MISSING and e.kind == "seq" and e.missing:
@@ -169,7 +193,7 @@ class EntryModel(QAbstractTableModel):
         if role == Qt.TextAlignmentRole and col in (C_FRAMES, C_MISSING, C_SIZE):
             return int(Qt.AlignRight | Qt.AlignVCenter)
         if role == Qt.ToolTipRole:
-            return entry_tooltip(e, lib)
+            return entry_tooltip(e, lib if self.app.cfg["library_features"] else None)
         return None
 
     def mimeTypes(self):
@@ -254,7 +278,7 @@ class SearchWorker(QThread):
     batch = Signal(int, object)
     progress = Signal(int, int, str)
     finished_search = Signal(int, int, bool)
-    MAX_RESULTS = 5000
+    MAX_RESULTS = 20000
 
     def __init__(self, gen, root, query, cat, show_hidden, meta):
         super().__init__()

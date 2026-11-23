@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (QFrame, QVBoxLayout, QHBoxLayout, QTabBar, QToolB
 from .core import IS_WIN, FILTERS, parse_query, norm_key, same_path
 from .models import (EntryModel, EntryProxy, ScanWorker, SearchWorker, ResolveWorker, ROLE_ENTRY, COLS,
                      C_FOLDER, C_TAGS, C_RATING)
-from .widgets import GridDelegate, BreadcrumbBar
+from .widgets import GridDelegate, BreadcrumbBar, ListNameDelegate
 
 
 class _ViewMixin:
@@ -20,7 +20,9 @@ class _ViewMixin:
         self.pane = pane
         self.setDragEnabled(True)
         self.setAcceptDrops(True)
+        self.viewport().setAcceptDrops(True)
         self.setDragDropMode(QAbstractItemView.DragDrop)
+        self.setEditTriggers(QAbstractItemView.EditKeyPressed)   # F2 = renombrar en el lugar
         self.setDropIndicatorShown(False)
         self.setDefaultDropAction(Qt.CopyAction)
         self.setSelectionMode(QAbstractItemView.ExtendedSelection)
@@ -166,8 +168,9 @@ class FilePane(QFrame):
         self.crumb.navigate.connect(self.navigate)
         nrow.addWidget(self.crumb, 3)
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Buscar…  #tag  ★3")
-        self.search.setToolTip("Nombre o parte · *comodines* · #tag · ★3 (rating mínimo) · Ctrl+F · Esc limpia")
+        self.search.setPlaceholderText(self._placeholder())
+        self.search.setToolTip("Nombre o parte · *comodines* · #tag · ★3 (si los tags están activos)\n"
+                               "Con «Subcarpetas» prendido busca en toda la rama · Ctrl+F · Esc limpia")
         self.search.setClearButtonEnabled(True)
         self.search.setMinimumWidth(110)
         self.search.setMaximumWidth(230)
@@ -183,10 +186,14 @@ class FilePane(QFrame):
         self.filter.currentIndexChanged.connect(self._apply_search)
         nrow.addWidget(self.filter)
         self.rec = QToolButton()
-        self.rec.setText("Sub")
+        self.rec.setIcon(ic.glyph("branch", 18))
+        self.rec.setText("Subcarpetas")
+        self.rec.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.rec.setCheckable(True)
         self.rec.setAutoRaise(True)
-        self.rec.setToolTip("Buscar también en todas las subcarpetas")
+        self.rec.setToolTip("Incluir subcarpetas (Ctrl+B)\n"
+                            "Sin texto: muestra TODOS los archivos de esta carpeta y sus subcarpetas.\n"
+                            "Con texto: busca en esta carpeta y todas sus subcarpetas.")
         self.rec.toggled.connect(self._apply_search)
         nrow.addWidget(self.rec)
         self.b_grid = tb("grid", "Grilla (Ctrl+1)", lambda: self.set_view("grid"), nrow)
@@ -196,12 +203,22 @@ class FilePane(QFrame):
         hl.addLayout(nrow)
         lay.addWidget(self.header)
 
+        self.banner = QLabel()
+        self.banner.setObjectName("paneBanner")
+        self.banner.setTextFormat(Qt.RichText)
+        self.banner.setWordWrap(False)
+        self.banner.setCursor(Qt.PointingHandCursor)
+        self.banner.setToolTip("Click para volver a ver solo esta carpeta")
+        self.banner.mousePressEvent = lambda ev: self.rec.setChecked(False)
+        self.banner.hide()
+        lay.addWidget(self.banner)
+
         # vistas
         self.grid = GridView()
-        self.grid._setup(self)
         self.grid.setViewMode(QListView.IconMode)
         self.grid.setResizeMode(QListView.Adjust)
         self.grid.setMovement(QListView.Static)
+        self.grid._setup(self)   # después de setMovement: Static apaga el drag & drop
         self.grid.setUniformItemSizes(True)
         self.grid.setSpacing(2)
         self.grid.setWrapping(True)
@@ -221,6 +238,7 @@ class FilePane(QFrame):
         self.list.setSortingEnabled(True)
         self.list.setAlternatingRowColors(True)
         self.list.setIconSize(QSize(18, 18))
+        self.list.setItemDelegate(ListNameDelegate(self.list))
         hd = self.list.header()
         hd.setStretchLastSection(True)
         hd.setSectionResizeMode(QHeaderView.Interactive)
@@ -229,6 +247,7 @@ class FilePane(QFrame):
             hd.resizeSection(c, w)
         self.list.sortByColumn(0, Qt.AscendingOrder)
         self.list.setColumnHidden(C_FOLDER, True)
+        hd.moveSection(hd.visualIndex(C_FOLDER), 1)     # "Carpeta" al lado del nombre
         hd.sortIndicatorChanged.connect(lambda c, o: self.proxy.sort(c, o))
 
         for v in (self.grid, self.list):
@@ -250,6 +269,7 @@ class FilePane(QFrame):
 
         self._pane_shortcuts()
         self.set_view("grid", emit=False)
+        self.apply_features()
         for w in (self.search, self.filter, self.rec, self.crumb.edit):
             w.installEventFilter(self)
 
@@ -260,7 +280,6 @@ class FilePane(QFrame):
             QShortcut(QKeySequence(keys), v, fn, context=Qt.WidgetShortcut)
         sc(Qt.Key_Backspace, self.go_up)
         sc(QKeySequence.Delete, lambda: a.op_trash(self))
-        sc("F2", lambda: a.op_rename(self))
         sc("Ctrl+C", lambda: a.op_clip(self, cut=False))
         sc("Ctrl+X", lambda: a.op_clip(self, cut=True))
         sc("Ctrl+V", lambda: a.op_paste(self))
@@ -286,6 +305,7 @@ class FilePane(QFrame):
         sc("Ctrl+F", lambda: (self.search.setFocus(), self.search.selectAll()))
         sc("Ctrl+1", lambda: self.set_view("grid"))
         sc("Ctrl+2", lambda: self.set_view("list"))
+        sc("Ctrl+B", self.rec.toggle)
 
     def eventFilter(self, obj, ev):
         if obj is self.tabbar and ev.type() == QEvent.MouseButtonRelease and ev.button() == Qt.MiddleButton:
@@ -316,6 +336,13 @@ class FilePane(QFrame):
         self.b_list.setChecked(mode != "grid")
         if emit:
             self.app.save_soon()
+
+    def apply_features(self):
+        on = bool(self.app.cfg["library_features"])
+        self.list.setColumnHidden(C_RATING, not on)
+        self.list.setColumnHidden(C_TAGS, not on)
+        if not self.banner.isVisible():
+            self.search.setPlaceholderText(self._placeholder())
 
     def set_thumb_size(self, v):
         self.grid.setIconSize(QSize(v, v))
@@ -519,7 +546,7 @@ class FilePane(QFrame):
 
     # ------------------------------------------------------------------ carga
     def _recursive_active(self):
-        return self.rec.isChecked() and (self.search.text().strip() or self.filter.currentData() != "all")
+        return self.rec.isChecked() and not self.is_virtual()
 
     def _load(self):
         self.app.thumbs.cancel_pending()
@@ -543,10 +570,12 @@ class FilePane(QFrame):
             return
         self.model.set_entries(entries, path, virtual=False)
         self.list.setColumnHidden(C_FOLDER, True)
+        self._set_banner(None)
         self.proxy.set_filter(parse_query(self.search.text()), self.filter.currentData())
         self._sort()
         self._update_status(f"Error: {err}" if err else None)
         self._select_pending()
+        self.app.request_dir_sizes(self, entries)
 
     def _sort(self):
         hd = self.list.header()
@@ -606,6 +635,7 @@ class FilePane(QFrame):
         self.gen += 1
         self.model.set_entries([], self.tab_path(), virtual=True)
         self.list.setColumnHidden(C_FOLDER, False)
+        self._set_banner(0, scanning=0)
         self.proxy.set_filter(parse_query(""), "all")
         w = SearchWorker(self.gen, self.tab_path(), parse_query(self.search.text()), self.filter.currentData(),
                          bool(self.app.cfg["show_hidden"]), self.app.lib.snapshot())
@@ -620,10 +650,12 @@ class FilePane(QFrame):
     def _search_batch(self, gen, entries):
         if gen == self.gen:
             self.model.append_entries(entries)
+            self.app.request_dir_sizes(self, entries)
 
     def _search_progress(self, gen, scanned, d):
         if gen == self.gen:
             self._set_status(f"Buscando… {len(self.model.entries)} resultados · {scanned} carpetas")
+            self._set_banner(len(self.model.entries), scanning=scanned)
 
     def _search_done(self, gen, found, capped):
         if gen != self.gen:
@@ -631,7 +663,27 @@ class FilePane(QFrame):
         self.search_worker = None
         self._sort()
         extra = f" (límite de {SearchWorker.MAX_RESULTS})" if capped else ""
-        self._update_status(f"Subcarpetas: {found} resultados{extra}")
+        self._set_banner(found, capped=capped)
+        self._update_status(f"{'Búsqueda en' if self.search.text().strip() else 'Todo el contenido de'} "
+                            f"subcarpetas: {found}{extra}")
+
+    def _set_banner(self, count, scanning=None, capped=False):
+        """Barra que deja claro que se está viendo el contenido de las subcarpetas."""
+        if count is None:
+            self.banner.hide()
+            self.search.setPlaceholderText(self._placeholder())
+            return
+        root = os.path.basename(self.tab_path().rstrip("\\/")) or self.tab_path()
+        q = self.search.text().strip()
+        what = f"Resultados de «{q}»" if q else "Todos los archivos"
+        tail = f" · buscando… ({scanning} carpetas)" if scanning else (" · límite alcanzado" if capped else "")
+        self.banner.setText(f"<b>⤓ {what}</b> en <b>{root}</b> y sus subcarpetas — {count} encontrados{tail}"
+                            f"&nbsp;&nbsp;<span style='color:#cfe0ff'>✕ ver solo esta carpeta</span>")
+        self.banner.show()
+        self.search.setPlaceholderText(f"Buscar en {root} y subcarpetas…")
+
+    def _placeholder(self):
+        return "Buscar…  #tag  ★3" if self.app.cfg["library_features"] else "Buscar…  (nombre o *comodín*)"
 
     # ------------------------------------------------------------------ vistas virtuales (tags, colecciones)
     def show_virtual(self, title, kind, name, new_tab=False):
@@ -651,6 +703,7 @@ class FilePane(QFrame):
         self.gen += 1
         self.model.set_entries([], "", virtual=True)
         self.list.setColumnHidden(C_FOLDER, False)
+        self._set_banner(None)
         self._show_location()
         self._set_status("Buscando en la librería…")
         w = ResolveWorker(self.gen, refs)

@@ -9,7 +9,8 @@ from PySide6.QtGui import QKeySequence, QShortcut, QDesktopServices, QCursor
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QTreeView,
                                QListWidget, QListWidgetItem, QComboBox, QSlider, QToolBar, QLabel, QMenu,
                                QFileSystemModel, QAbstractItemView, QToolButton, QScrollArea, QFrame,
-                               QMessageBox, QInputDialog, QProgressDialog, QStyledItemDelegate, QSizePolicy, QStyleOptionViewItem)
+                               QMessageBox, QInputDialog, QProgressDialog, QStyledItemDelegate, QSizePolicy, QStyleOptionViewItem,
+                               QTabBar, QStackedWidget)
 
 from . import APP_NAME, VERSION
 from .core import (Config, IS_WIN, data_dir, norm_key, fwd, human_size, fmt_time, compress_ranges, find_tool,
@@ -19,6 +20,10 @@ from .pipeline import Pipeline
 from .imaging import ThumbManager, InfoTask, Signals, init_formats
 from .widgets import Icons, TAG_COLORS, TagDialog, RenameDialog, SettingsDialog, ACCENT
 from .pane import FilePane
+from .colors import ColorEngine, COLOR_MODES, DEFAULT_NAME_RULES
+from .tree import LinedTree
+from .dirsize import DirSizeManager
+from .library_ui import LibraryPage, LibrarySidebar
 from . import fileops
 
 
@@ -101,15 +106,15 @@ class PipelineBar(QWidget):
         else:
             target = pipe.task_dir(p, s, sh, t)
         if target and os.path.isdir(target):
-            self.app.active.navigate(target)
+            self.app.open_in_explorer(target)
 
     def sync(self, path):
         """Pone los combos según la carpeta actual (sin navegar)."""
         if not path or not self.pipe.available():
             return
         info = self.pipe.parse(path)
-        if not info or not same_path(os.path.dirname(self.pipe.project_dir(info["project"])), self.pipe.base()) and \
-                not norm_key(path).startswith(norm_key(self.pipe.project_dir(info["project"]))):
+        if not info or not norm_key(path).startswith(norm_key(self.pipe.project_dir(info["project"]))):
+            self.clear()
             return
         pipe = self.pipe
         if self.proj.findText(info["project"]) < 0:
@@ -125,6 +130,14 @@ class PipelineBar(QWidget):
         sh = self.shot.currentText()
         self._fill(self.task, pipe.tasks(p, s, sh) if sh else [], info["task"])
 
+    def clear(self):
+        """Carpeta fuera del pipeline: combos vacíos (la lista de proyectos queda para elegir)."""
+        self.proj.blockSignals(True)
+        self.proj.setCurrentIndex(-1)
+        self.proj.blockSignals(False)
+        for cb in (self.seq, self.shot, self.task):
+            self._fill(cb, [])
+
     def _fill_menu(self):
         m = self.menu
         m.clear()
@@ -137,13 +150,13 @@ class PipelineBar(QWidget):
             a.setEnabled(ok)
             if path:
                 a.setToolTip(path)
-            a.triggered.connect(lambda c=False, x=path: self.app.active.navigate(x))
+            a.triggered.connect(lambda c=False, x=path: self.app.open_in_explorer(x))
             return a
 
         def add_newtab(label, path):
             if path and os.path.isdir(path):
                 m.addAction("    ↗ " + label + " en pestaña nueva",
-                            lambda x=path: self.app.active.navigate(x, new_tab=True))
+                            lambda x=path: self.app.open_in_explorer(x, new_tab=True))
 
         if not p:
             m.addAction("Elegí un proyecto").setEnabled(False)
@@ -183,6 +196,11 @@ class MainWindow(QMainWindow):
             self.lib.migrate_colors(self.cfg.data.pop("colors"))
             self.lib.save()
         self.pipeline = Pipeline(self.cfg)
+        if self.cfg["name_rules"] is None:
+            self.cfg["name_rules"] = DEFAULT_NAME_RULES
+        self.colors = ColorEngine(self)
+        self.dirsizes = DirSizeManager()
+        self.dirsizes.ready.connect(self._dir_size_ready)
         self.icons = Icons()
         self.thumbs = ThumbManager(self.cfg, self.data_dir)
         self.fs = QFileSystemModel()
@@ -237,7 +255,7 @@ class MainWindow(QMainWindow):
         self.colls = self._mk_list(self._colls_menu, lambda it: self.open_collection(it.data(Qt.UserRole)))
         self.tagl = self._mk_list(self._tags_menu, lambda it: self.open_tag(it.data(Qt.UserRole)))
 
-        self.tree = QTreeView()
+        self.tree = LinedTree(self)
         self.tree.setModel(self.fs)
         for c in (1, 2, 3):
             self.tree.hideColumn(c)
@@ -246,20 +264,46 @@ class MainWindow(QMainWindow):
         self.tree.clicked.connect(lambda ix: self.active.navigate(self.fs.filePath(ix)))
         self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._tree_menu)
-        self.tree.setItemDelegate(_TreeColorDelegate(self, self.tree))
 
+        self.color_mode = QComboBox()
+        for label, key in COLOR_MODES:
+            self.color_mode.addItem(label, key)
+        self.color_mode.setCurrentIndex(max(0, self.color_mode.findData(self.cfg["color_mode"])))
+        self.color_mode.setToolTip("Colores automáticos de carpetas\n"
+                                   "Por proyecto: el proyecto tiene un color, las secuencias uno más claro y los shots más claro.\n"
+                                   "Por nombre: reglas como 3D = azul (se editan en ⚙ › Colores).\n"
+                                   "El color manual (clic derecho › Etiqueta de color) siempre gana.")
+        self.color_mode.setStyleSheet("QComboBox{font-size:8pt; padding:1px 4px;}")
+        self.color_mode.currentIndexChanged.connect(self._color_mode_changed)
+
+        self.libside = LibrarySidebar(self, self._section("VFX LIBRARY"))
         left = QSplitter(Qt.Vertical)
-        for title, w in (("FAVORITOS", self.favs), ("COLECCIONES", self.colls), ("TAGS", self.tagl),
-                         ("CARPETAS", self.tree)):
-            box = QWidget()
-            bl = QVBoxLayout(box)
-            bl.setContentsMargins(0, 0, 0, 0)
-            bl.setSpacing(1)
-            bl.addWidget(self._section(title))
-            bl.addWidget(w)
+        self.side_boxes = {}
+        for key, title, w, extra in (("library", None, self.libside, None),
+                                     ("favs", "FAVORITOS", self.favs, None),
+                                     ("colls", "COLECCIONES", self.colls, None),
+                                     ("tags", "TAGS", self.tagl, None),
+                                     ("tree", "CARPETAS", self.tree, self.color_mode)):
+            if title is None:
+                box = w
+            else:
+                box = QWidget()
+                bl = QVBoxLayout(box)
+                bl.setContentsMargins(0, 0, 0, 0)
+                bl.setSpacing(1)
+                if extra is not None:
+                    h = QHBoxLayout()
+                    h.setContentsMargins(0, 0, 4, 0)
+                    h.addWidget(self._section(title), 1)
+                    h.addWidget(extra)
+                    bl.addLayout(h)
+                else:
+                    bl.addWidget(self._section(title))
+                bl.addWidget(w)
+            self.side_boxes[key] = box
             left.addWidget(box)
-        left.setSizes([130, 110, 130, 420])
-        left.setMinimumWidth(180)
+        left.setSizes([120, 120, 90, 110, 420])
+        left.setMinimumWidth(190)
         self.left_split = left
 
         # paneles
@@ -276,6 +320,35 @@ class MainWindow(QMainWindow):
         self.pane_split.addWidget(self.paneA)
         self.pane_split.addWidget(self.paneB)
         self.paneB.hide()
+
+        self.libpage = LibraryPage(self)
+        self.libpane = self.libpage.pane
+        lp = self.libpane
+        lp.focused.connect(self.set_active)
+        lp.selection_changed.connect(self._sel_changed)
+        lp.location_changed.connect(self._location_changed)
+        lp.status_changed.connect(self._pane_status)
+        self.all_panes = [self.paneA, self.paneB, lp]
+        self.explorer_active = self.paneA
+
+        self.modebar = QTabBar()
+        self.modebar.setDocumentMode(True)
+        self.modebar.setExpanding(False)
+        self.modebar.setObjectName("modebar")
+        self.modebar.addTab(ic.glyph("folder", 16), "Explorador")
+        self.modebar.addTab(ic.glyph("library", 16, "#b98cff"), "VFX Library")
+        self.modebar.setTabToolTip(0, "Explorador de archivos (Ctrl+Shift+E)")
+        self.modebar.setTabToolTip(1, "VFX Library: viewer arriba, elementos abajo (Ctrl+Shift+L)")
+        self.modebar.currentChanged.connect(lambda i: self.set_mode("library" if i == 1 else "explorer"))
+        self.center_stack = QStackedWidget()
+        self.center_stack.addWidget(self.pane_split)
+        self.center_stack.addWidget(self.libpage)
+        center = QWidget()
+        cl = QVBoxLayout(center)
+        cl.setContentsMargins(0, 0, 0, 0)
+        cl.setSpacing(0)
+        cl.addWidget(self.modebar)
+        cl.addWidget(self.center_stack, 1)
 
         # info
         self.preview = QLabel()
@@ -301,7 +374,7 @@ class MainWindow(QMainWindow):
 
         main = QSplitter(Qt.Horizontal)
         main.addWidget(left)
-        main.addWidget(self.pane_split)
+        main.addWidget(center)
         main.addWidget(sa)
         main.setStretchFactor(1, 1)
         main.setSizes([250, 960, 300])
@@ -319,10 +392,17 @@ class MainWindow(QMainWindow):
             #pane[active="true"] {{ border-top:2px solid {ACCENT}; }}
             #paneHeader {{ background:#202125; }}
             #paneFooter {{ color:#8b9099; font-size:8pt; padding:2px 8px; background:#1d1e21; }}
+            #paneBanner {{ background:#1f3a66; color:#e8f0ff; padding:4px 10px; font-size:8.5pt; }}
+            #viewerBar {{ background:#1b1c1f; border-top:1px solid #111; }}
+            #modebar::tab {{ padding:5px 16px; min-width:110px; font-weight:bold; }}
+            #modebar::tab:selected {{ color:#ffffff; border-bottom:2px solid {ACCENT}; }}
         """)
         QShortcut(QKeySequence("F9"), self, self.toggle_dual)
         QShortcut(QKeySequence("F6"), self, self.switch_pane)
+        QShortcut(QKeySequence("Ctrl+Shift+E"), self, lambda: self.set_mode("explorer"))
+        QShortcut(QKeySequence("Ctrl+Shift+L"), self, lambda: self.set_mode("library"))
         self._reload_sidebar()
+        self.apply_features()
 
     def _mk_list(self, menu_fn, click_fn):
         w = QListWidget()
@@ -344,7 +424,7 @@ class MainWindow(QMainWindow):
         else:
             self.resize(1560, 920)
         for k, sp in (("splitter", self.main_split), ("splitter_left", self.left_split),
-                      ("splitter_panes", self.pane_split)):
+                      ("splitter_panes", self.pane_split), ("splitter_library", self.libpage.split)):
             if self.cfg[k]:
                 sp.restoreState(QByteArray.fromBase64(self.cfg[k].encode()))
         states = self.cfg["panes"] or []
@@ -357,10 +437,18 @@ class MainWindow(QMainWindow):
         self.paneB.restore(states[1] if len(states) > 1 else None, fallback)
         if self.cfg["dual"]:
             self.toggle_dual(force=True)
+        roots = self.cfg["library_roots"] or []
+        lst = self.cfg["library_pane"] or None
+        self.libpane.restore(lst, roots[0] if roots and os.path.isdir(roots[0]) else fallback)
+        if not lst:
+            self.libpane.set_view("grid", emit=False)
         self.set_active(self.paneA)
+        if self.cfg["mode"] == "library" and not start_path:
+            self.set_mode("library")
 
     def _save_now(self):
         self.cfg["panes"] = [p.state() for p in self.panes]
+        self.cfg["library_pane"] = self.libpane.state()
         self.cfg["dual"] = self.paneB.isVisible()
         self.cfg.save()
         self.lib.save()
@@ -373,14 +461,135 @@ class MainWindow(QMainWindow):
         self.cfg["splitter"] = bytes(self.main_split.saveState().toBase64()).decode()
         self.cfg["splitter_left"] = bytes(self.left_split.saveState().toBase64()).decode()
         self.cfg["splitter_panes"] = bytes(self.pane_split.saveState().toBase64()).decode()
+        self.cfg["splitter_library"] = bytes(self.libpage.split.saveState().toBase64()).decode()
         self._save_now()
-        for p in self.panes:
+        for p in self.all_panes:
             p._stop_search()
         self.thumbs.cancel_pending()
+        self.dirsizes.clear()
+        self.libpage.shutdown()
         super().closeEvent(ev)
+
+    # ------------------------------------------------------------------ modos: Explorador / VFX Library
+    def mode(self):
+        return "library" if self.center_stack.currentIndex() == 1 else "explorer"
+
+    def set_mode(self, mode):
+        lib = mode == "library"
+        if self.modebar.currentIndex() != (1 if lib else 0):
+            self.modebar.blockSignals(True)
+            self.modebar.setCurrentIndex(1 if lib else 0)
+            self.modebar.blockSignals(False)
+        self.center_stack.setCurrentIndex(1 if lib else 0)
+        self.act_dual.setEnabled(not lib)
+        if lib:
+            self.set_active(self.libpane)
+            self.libpane.view().setFocus()
+            if not self.cfg["library_roots"]:
+                self.libpage.viewer.show_message("Elegí la carpeta de tu librería de VFX con el ＋ de «VFX LIBRARY» "
+                                                 "en el panel de la izquierda (videos, secuencias, imágenes, HDRIs…).")
+        else:
+            self.libpage.viewer.pause()
+            self.set_active(self.explorer_active)
+        self.cfg["mode"] = mode
+        self.save_soon()
+
+    def open_library(self, path):
+        if not path:
+            self.libside.add_root()
+            return
+        self.set_mode("library")
+        self.libpane.navigate(path)
+
+    def open_in_explorer(self, path, new_tab=False):
+        if self.mode() != "explorer":
+            self.set_mode("explorer")
+        self.explorer_active.navigate(path, new_tab=new_tab)
+
+    # ------------------------------------------------------------------ colores / tamaños / opciones
+    def dir_color(self, path):
+        return self.colors.dir_color(path)
+
+    def entry_color(self, e):
+        return self.colors.dir_color(e.path) if e.kind == "dir" else self.lib.color(e.key())
+
+    def _color_mode_changed(self, _):
+        self.cfg["color_mode"] = self.color_mode.currentData()
+        self.colors.reload()
+        self.save_soon()
+        self.refresh_views()
+        self._reload_sidebar()
+
+    def apply_features(self):
+        on = bool(self.cfg["library_features"])
+        self.side_boxes["colls"].setVisible(on)
+        self.side_boxes["tags"].setVisible(on)
+        for p in self.all_panes:
+            p.apply_features()
+
+    def request_dir_sizes(self, pane, entries):
+        if not self.cfg["folder_sizes"]:
+            return
+        for e in entries:
+            if e.kind == "dir":
+                size = self.dirsizes.get(e.path)
+                if size is None:
+                    self.dirsizes.request(e.path)
+                else:
+                    e.size = size
+
+    def _dir_size_ready(self, path, size):
+        for p in self.all_panes:
+            if p.model.dir_size_ready(path, size):
+                p.grid.viewport().update()
+
+    def start_inline_rename(self, pane, view=None):
+        view = view or pane.view()
+        ix = view.currentIndex()
+        if ix.isValid():
+            view.edit(ix.sibling(ix.row(), 0))
+
+    def rename_inline(self, e, text):
+        """Renombrado en el lugar (F2). Para secuencias renombra todos los frames."""
+        try:
+            if e.kind == "seq":
+                pairs = fileops.seq_rename_from_text(e, text)
+            else:
+                pairs = fileops.rename_plan(e, text)
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+            try:
+                fileops.apply_renames(pairs)
+            finally:
+                QApplication.restoreOverrideCursor()
+        except Exception as ex:
+            QMessageBox.warning(self, APP_NAME, f"No se pudo renombrar:\n{ex}")
+            return False
+        if e.kind == "seq":
+            head = fileops.SEQ_TOKEN_RE.match(text)
+            from .core import split_frame
+            sp = split_frame(os.path.basename(pairs[0][1]))
+            nd = Entry(kind="seq", dirpath=e.dirpath, name="", path=pairs[0][1], ext=e.ext,
+                       head=sp[0] if sp else e.head, pad=e.pad)
+            nd.files = [os.path.basename(b) for _, b in pairs]
+            new_name = os.path.basename(pairs[0][1])
+        else:
+            nd = Entry(kind=e.kind, dirpath=e.dirpath, name=os.path.basename(pairs[0][1]), path=pairs[0][1], ext=e.ext)
+            new_name = nd.name
+        self.lib.path_moved(e.key(), nd.key(), nd.ref())
+        self.colors.invalidate()
+        self.save_soon()
+        for p in self.all_panes:
+            if p.current_dir() and same_path(p.current_dir(), e.dirpath) or p.model.virtual:
+                if p is self.active:
+                    p.pending_select = new_name
+                QTimer.singleShot(0, p.refresh)
+        self.status.setText(f"Renombrado: {e.name} → {text}")
+        return True
 
     # ------------------------------------------------------------------ paneles
     def set_active(self, pane):
+        if pane in self.panes:
+            self.explorer_active = pane
         if pane is not self.active or not pane.property("active"):
             self.active = pane
             for p in self.panes:
@@ -390,11 +599,13 @@ class MainWindow(QMainWindow):
             self._pane_status(pane)
 
     def other(self, pane):
-        if not self.paneB.isVisible():
+        if not self.paneB.isVisible() or pane not in self.panes or self.mode() != "explorer":
             return None
         return self.paneB if pane is self.paneA else self.paneA
 
     def toggle_dual(self, force=None):
+        if force is None and self.mode() != "explorer":
+            self.set_mode("explorer")
         show = (not self.paneB.isVisible()) if force is None else force
         self.paneB.setVisible(show)
         self.act_dual.setChecked(show)
@@ -430,22 +641,24 @@ class MainWindow(QMainWindow):
             self.status.setText(pane.status_text)
 
     def _on_thumb_size(self, v):
-        for p in self.panes:
+        for p in self.all_panes:
             p.set_thumb_size(v)
         self.thumbs.scaled.clear()
         self.cfg["thumb_size"] = v
         self.save_soon()
 
     def refresh_views(self):
-        for p in self.panes:
+        self.colors.invalidate()
+        for p in self.all_panes:
             p.model.refresh_all()
             p.grid.viewport().update()
+            p.list.viewport().update()
         self.tree.viewport().update()
 
     def refresh_dirs(self, dirs):
         keys = {norm_key(d) for d in dirs if d}
-        for p in self.panes:
-            if p.isVisible() or p is self.paneA:
+        for p in self.all_panes:
+            if p.isVisible() or p is self.paneA or p is self.libpane:
                 cur = p.current_dir()
                 if p.is_virtual() or (cur and norm_key(cur) in keys) or not keys:
                     p.refresh()
@@ -641,7 +854,7 @@ class MainWindow(QMainWindow):
                 return
         src_pane = None
         ents = None
-        for p in self.panes:
+        for p in self.all_panes:
             sel = p.selected_entries()
             if sel and {norm_key(x) for e in sel for x in e.all_paths()} == {norm_key(x) for x in paths}:
                 ents = sel
@@ -805,9 +1018,12 @@ class MainWindow(QMainWindow):
 
     def set_color(self, targets, color):
         self.lib.set_color(targets, color)
+        self.colors.invalidate()
         self._lib_changed()
 
     def op_rating(self, pane, n):
+        if not self.cfg["library_features"]:
+            return
         ents = pane.selected_entries()
         if ents:
             self.lib.set_rating(self._targets(ents), n)
@@ -815,6 +1031,8 @@ class MainWindow(QMainWindow):
             self.status.setText(f"Rating {'★' * n if n else 'quitado'} · {len(ents)} elemento(s)")
 
     def op_tags(self, pane):
+        if not self.cfg["library_features"]:
+            return
         ents = pane.selected_entries()
         if not ents:
             return
@@ -860,7 +1078,7 @@ class MainWindow(QMainWindow):
         self.favs.clear()
         for p in self.cfg["favorites"]:
             name = os.path.basename(p.rstrip("\\/")) or p
-            it = QListWidgetItem(self.icons.folder_icon(self.lib.color(norm_key(p)), 16), name)
+            it = QListWidgetItem(self.icons.folder_icon(self.dir_color(p), 16), name)
             it.setData(Qt.UserRole, p)
             it.setToolTip(p)
             self.favs.addItem(it)
@@ -884,6 +1102,8 @@ class MainWindow(QMainWindow):
             it.setData(Qt.UserRole, t)
             self.tagl.addItem(it)
         self.tree.viewport().update()
+        if hasattr(self, "libside"):
+            self.libside.reload()
 
     def add_favorites(self, paths):
         favs = list(self.cfg["favorites"])
@@ -1021,8 +1241,9 @@ class MainWindow(QMainWindow):
                 m.addAction("Copiar al otro panel", lambda: self.transfer_to_other(pane, "copy"))
                 m.addAction("Mover al otro panel", lambda: self.transfer_to_other(pane, "move"))
             if len(ents) == 1:
-                m.addAction("Renumerar / renombrar…\tF2" if e.kind == "seq" else "Renombrar…\tF2",
-                            lambda: self.op_rename(pane))
+                m.addAction("Renombrar\tF2", lambda: self.start_inline_rename(pane, view))
+                if e.kind == "seq":
+                    m.addAction("Renumerar secuencia…", lambda: self.op_rename(pane))
             m.addAction("Mandar a la papelera\tSupr", lambda: self.op_trash(pane))
             m.addSeparator()
             cp = m.addMenu("Copiar ruta")
@@ -1035,6 +1256,7 @@ class MainWindow(QMainWindow):
             m.addSeparator()
             targets = self._targets(ents)
             self._color_menu(m, targets)
+        if ents and self.cfg["library_features"]:
             rm = m.addMenu("Rating")
             for n in range(5, 0, -1):
                 rm.addAction("★" * n + f"\tCtrl+{n}", lambda n=n: self.op_rating(pane, n))
@@ -1046,12 +1268,15 @@ class MainWindow(QMainWindow):
             if self.lib.collections:
                 cm.addSeparator()
             cm.addAction("Colección nueva…", lambda: self.add_to_collection(ents))
+        if ents:
             vinfo = pane.virtual_info()
             if vinfo and vinfo["kind"] == "collection":
                 m.addAction("Quitar de la colección", lambda: (
                     self.lib.remove_from_collection(vinfo["name"], [x.key() for x in ents]),
                     self._lib_changed(), pane.refresh()))
             dirs = [x for x in ents if x.kind == "dir"]
+            if dirs and self.mode() == "explorer":
+                m.addAction("Ver en VFX Library", lambda: self.open_library(dirs[0].path))
             if dirs:
                 m.addAction("Agregar a favoritos", lambda: self.add_favorites([d.path for d in dirs]))
             m.addSeparator()
@@ -1060,6 +1285,8 @@ class MainWindow(QMainWindow):
                 m.addAction(f"Pegar ({len(clip_paths)} archivo(s))\tCtrl+V", lambda: self.op_paste(pane))
             m.addAction("Carpeta nueva…\tCtrl+Shift+N", lambda: self.op_new_folder(pane))
             m.addAction("Agregar esta carpeta a favoritos", lambda: self.add_favorites([cur]))
+        if cur and self.mode() == "explorer":
+            m.addAction("Ver en VFX Library", lambda: self.open_library(cur))
         m.addAction("Refrescar\tF5", pane.refresh)
         m.exec(view.viewport().mapToGlobal(pos))
 
@@ -1067,16 +1294,23 @@ class MainWindow(QMainWindow):
     def open_settings(self):
         d = SettingsDialog(self, self)
         if d.exec():
-            thumbs_changed, hidden_changed, pipe_changed = d.apply()
+            ch = d.apply()
             self.thumbs.reload_settings()
-            if thumbs_changed:
+            if ch["thumbs"]:
                 self.thumbs.forget()
-                self.refresh_views()
-            if pipe_changed:
+            if ch["pipeline"]:
                 self.pipeline.reload()
                 self.pipebar.reload()
-            if hidden_changed:
-                for p in self.panes:
+            self.colors.reload()
+            self.color_mode.blockSignals(True)
+            self.color_mode.setCurrentIndex(max(0, self.color_mode.findData(self.cfg["color_mode"])))
+            self.color_mode.blockSignals(False)
+            if not self.cfg["folder_sizes"]:
+                self.dirsizes.clear()
+            self.apply_features()
+            self.refresh_views()
+            if ch["listing"]:
+                for p in self.all_panes:
                     p.refresh()
 
 

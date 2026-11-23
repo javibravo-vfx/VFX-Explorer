@@ -6,6 +6,7 @@ import sys
 
 def selftest():
     """Chequeo rápido para CI: lee imágenes, genera thumbnails y abre la ventana. Exit code 0 = ok."""
+    import time
     import tempfile
     import traceback
     log = []
@@ -38,8 +39,28 @@ def selftest():
         from vfxexplorer.mainwindow import MainWindow
         w = MainWindow(tmp)
         w.show()
-        QTimer.singleShot(1500, app.quit)
+        seq = [e for e in ents if e.kind == "seq"]
+        if seq:
+            w.set_mode("library")
+            w.libpage.viewer.load(seq[0])
+        t0 = time.time()
+        frames = {"n": 0}
+
+        def poll():
+            v = w.libpage.viewer
+            n = v.thread.cached_count() if v.thread else 0
+            frames["n"] = max(frames["n"], n)
+            if ((not seq or n >= 1) and time.time() - t0 > 1.0) or time.time() - t0 > 12:
+                app.quit()
+            else:
+                QTimer.singleShot(200, poll)
+        QTimer.singleShot(200, poll)
         app.exec()
+        if seq:
+            v = w.libpage.viewer
+            got = frames["n"]
+            log.append(f"viewer: {got}/{v.n} frames decodificados")
+            ok = ok and got >= 1
         w.close()
         log.append("ventana ok")
     except Exception:

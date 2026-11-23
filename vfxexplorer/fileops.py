@@ -169,6 +169,52 @@ def rename_plan(e, new_base, start_frame=None, sep=None):
     return pairs
 
 
+SEQ_TOKEN_RE = re.compile(r"^(?P<head>.*?)(?P<tok>#+|@+|%0?(?P<n>\d*)d)(?P<tail>.*)$")
+
+
+def seq_rename_from_text(e, text):
+    """Renombra una secuencia a partir del texto editado (F2), ej. 'plate_v001.####.exr' -> 'sh010_v002.####.exr'.
+    Cambiar la cantidad de # cambia el padding. Si no hay # se toma como nombre base y se conserva el separador."""
+    text = text.strip()
+    if not text:
+        raise ValueError("Nombre vacío")
+    ext = e.ext_real
+    m = SEQ_TOKEN_RE.match(text)
+    if m:
+        head, tok, tail = m.group("head"), m.group("tok"), m.group("tail")
+        if tok.startswith("%"):
+            pad = int(m.group("n") or 0)
+        elif tok.startswith("@"):
+            pad = 0
+        else:
+            pad = len(tok) if len(tok) > 1 or e.pad > 1 else 0
+        if tail and tail.lower() != ext.lower():
+            raise ValueError(f"La extensión tiene que seguir siendo {ext}")
+    else:
+        stem = text[:-len(ext)] if text.lower().endswith(ext.lower()) else text
+        base, sep = split_head(e.head)
+        head, pad = stem + sep, e.pad
+    if any(c in INVALID_CHARS for c in head):
+        raise ValueError("Nombre inválido")
+    if not head.strip(" ._-"):
+        raise ValueError("Falta el nombre")
+    return seq_plan(e, head, pad)
+
+
+def seq_plan(e, new_head, new_pad=None, start_frame=None):
+    pad = e.pad if new_pad is None else new_pad
+    offset = 0 if start_frame is None else int(start_frame) - e.first
+    if e.first + offset < 0:
+        raise ValueError("El primer frame no puede ser negativo")
+    ext = e.ext_real
+    pairs = []
+    for f, name in zip(e.frames, e.files):
+        nf = f + offset
+        num = str(nf).zfill(pad) if pad > 1 else str(nf)
+        pairs.append((os.path.join(e.dirpath, name), os.path.join(e.dirpath, f"{new_head}{num}{ext}")))
+    return pairs
+
+
 def apply_renames(pairs):
     """Renombra en dos fases si hace falta (renumerado que se pisa). Falla antes de tocar nada si hay choques."""
     pairs = [(a, b) for a, b in pairs if a != b]

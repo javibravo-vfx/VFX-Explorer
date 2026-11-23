@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.0
+- **VFX Library**: tab propio con viewer/player arriba y elementos abajo (grilla). Autoplay en loop al moverse con las flechas. Secuencias EXR/JPG/PNG, videos vía ffmpeg e imágenes/HDRIs. Raíces de la librería elegibles desde el panel izquierdo.
+- **Subcarpetas** (Ctrl+B): sin texto muestra todos los archivos de la rama; con texto busca en la rama. Banner y carpeta relativa visibles.
+- **Colores automáticos** de carpetas por proyecto (más claro en secuencias y shots) y/o por nombre (reglas editables), con selector en el panel de carpetas.
+- **Árbol con líneas** estilo XYplorer, coloreadas con el color de cada carpeta.
+- **Tamaño de carpetas** opcional, calculado en segundo plano.
+- **Renombrar en el lugar (F2)**, también secuencias completas (cambia el padding según la cantidad de #). «Renumerar secuencia…» queda en el menú.
+- Tags, rating y colecciones apagados por defecto (se prenden en Configuración).
+- Fix: en la grilla no se podía arrastrar para copiar o mover.
+- Fix: los combos de pipeline quedaban con datos viejos al salir del pipeline.
+
 ## 0.2.0
 - Pestañas por panel (se recuerdan al cerrar) y doble panel (F9 / F6).
 - Breadcrumb clickeable, con menú de subcarpetas en cada tramo.

@@ -434,6 +434,21 @@ class Config:
         "splitter": "",
         "splitter_left": "",
         "splitter_panes": "",
+        "splitter_library": "",
+        # 0.3
+        "library_features": False,     # tags, rating y colecciones
+        "folder_sizes": False,
+        "tree_line_colors": True,
+        "color_mode": "project",
+        "name_rules": None,            # None = reglas por defecto
+        "library_roots": [],
+        "library_pane": {},
+        "mode": "explorer",
+        "viewer_res": 1280,
+        "viewer_mem": 1024,
+        "viewer_fps": 24,
+        "viewer_autoplay": True,
+        "viewer_loop": True,
     }
 
     def __init__(self, path):

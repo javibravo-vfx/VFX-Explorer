@@ -86,6 +86,24 @@ def test_rename_renumber(tmp):
         pass
 
 
+def test_rename_inline(tmp):
+    d = os.path.join(tmp, "inl")
+    for i in (1001, 1002, 1003):
+        touch(os.path.join(d, f"plate_v001.{i}.exr"))
+    e = names(d)["plate_v001.####.exr"]
+    fileops.apply_renames(fileops.seq_rename_from_text(e, "sh020_plate_v002_#####.exr"))
+    assert sorted(os.listdir(d)) == ["sh020_plate_v002_01001.exr", "sh020_plate_v002_01002.exr",
+                                     "sh020_plate_v002_01003.exr"]
+    e = names(d)["sh020_plate_v002_#####.exr"]
+    fileops.apply_renames(fileops.seq_rename_from_text(e, "final"))
+    assert "final_01001.exr" in os.listdir(d)
+    try:
+        fileops.seq_rename_from_text(names(d)["final_#####.exr"], "x.####.jpg")
+        raise AssertionError("debía fallar: cambio de extensión")
+    except ValueError:
+        pass
+
+
 def run_worker(op, sources, dest, overwrite=False):
     w = fileops.FileOpWorker(op, sources, dest, overwrite)
     res = {}

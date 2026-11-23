@@ -172,6 +172,31 @@ class Icons:
         elif kind == "plus":
             path.moveTo(s * .5, s * .22); path.lineTo(s * .5, s * .78)
             path.moveTo(s * .22, s * .5); path.lineTo(s * .78, s * .5)
+        elif kind == "branch":
+            path.moveTo(s * .25, s * .18); path.lineTo(s * .25, s * .82)
+            path.moveTo(s * .25, s * .40); path.lineTo(s * .55, s * .40)
+            path.moveTo(s * .25, s * .70); path.lineTo(s * .55, s * .70)
+            p.drawEllipse(QPointF(s * .68, s * .40), s * .09, s * .09)
+            p.drawEllipse(QPointF(s * .68, s * .70), s * .09, s * .09)
+        elif kind == "play":
+            p.setBrush(QColor(color))
+            path.moveTo(s * .3, s * .2); path.lineTo(s * .8, s * .5); path.lineTo(s * .3, s * .8); path.closeSubpath()
+        elif kind == "pause":
+            p.setBrush(QColor(color))
+            p.drawRect(QRectF(s * .28, s * .22, s * .14, s * .56)); p.drawRect(QRectF(s * .58, s * .22, s * .14, s * .56))
+        elif kind == "prev":
+            path.moveTo(s * .25, s * .22); path.lineTo(s * .25, s * .78)
+            path.moveTo(s * .75, s * .22); path.lineTo(s * .38, s * .5); path.lineTo(s * .75, s * .78)
+        elif kind == "next":
+            path.moveTo(s * .75, s * .22); path.lineTo(s * .75, s * .78)
+            path.moveTo(s * .25, s * .22); path.lineTo(s * .62, s * .5); path.lineTo(s * .25, s * .78)
+        elif kind == "loop":
+            p.drawArc(QRectF(s * .16, s * .26, s * .68, s * .48), 30 * 16, 300 * 16)
+            path.moveTo(s * .70, s * .16); path.lineTo(s * .80, s * .30); path.lineTo(s * .64, s * .36)
+        elif kind == "library":
+            for i, x in enumerate((.18, .36, .54)):
+                p.drawRect(QRectF(s * x, s * (.22 + (i == 2) * .06), s * .12, s * .58))
+            path.moveTo(s * .70, s * .26); path.lineTo(s * .84, s * .78)
         elif kind == "folder":
             path.moveTo(s * .14, s * .3); path.lineTo(s * .4, s * .3); path.lineTo(s * .48, s * .38)
             path.lineTo(s * .86, s * .38); path.lineTo(s * .86, s * .76); path.lineTo(s * .14, s * .76)
@@ -226,7 +251,7 @@ class GridDelegate(QStyledItemDelegate):
         p.setBrush(QColor("#34404f") if sel else (QColor("#30333a") if hov else QColor("#26282c")))
         p.drawRoundedRect(QRectF(r), 6, 6)
 
-        tag = lib.color(key)
+        tag = app.entry_color(e)
         th = QRect(r.x() + 5, r.y() + 5, r.width() - 10, int((r.width() - 10) * 9 / 16))
         pm = app.thumbs.get(e, th.width(), th.height())
         if e.kind == "dir" and pm is None:
@@ -298,7 +323,8 @@ class GridDelegate(QStyledItemDelegate):
         f2.setPointSizeF(7.8)
         p.setFont(f2)
         fm2 = QFontMetrics(f2)
-        rating = lib.rating(key)
+        feats = bool(app.cfg["library_features"])
+        rating = lib.rating(key) if feats else 0
         stars = "★" * rating
         sw = fm2.horizontalAdvance(stars) + 4 if rating else 0
         if rating:
@@ -309,23 +335,81 @@ class GridDelegate(QStyledItemDelegate):
         elif e.kind == "dir":
             from .core import fmt_time
             meta = fmt_time(e.mtime)
+            if e.size:
+                meta = f"{human_size(e.size)}  ·  {meta}"
         else:
             meta = human_size(e.size)
-        model = index.model().sourceModel() if hasattr(index.model(), "sourceModel") else None
-        if model is not None and model.virtual:
-            folder = model.folder_text(e) if model.root else os.path.basename(e.dirpath.rstrip("\\/"))
-            meta = folder + "  ·  " + meta
         p.setPen(QColor("#9aa0a8"))
         mr2 = mr.adjusted(0, 0, -sw, 0)
         p.drawText(mr2, Qt.AlignLeft | Qt.AlignVCenter, fm2.elidedText(meta, Qt.ElideMiddle, mr2.width()))
-        # línea 3: tags
-        tags = lib.tags(key)
-        if tags:
-            tg = QRect(tr.x(), mr.bottom() + 1, tr.width(), 14)
-            p.setPen(QColor("#8fb3ff"))
-            p.drawText(tg, Qt.AlignLeft | Qt.AlignVCenter,
-                       fm2.elidedText("  ".join("#" + t for t in tags), Qt.ElideRight, tg.width()))
+        # línea 3: subcarpeta (en búsquedas / vista de subcarpetas) o tags
+        model = index.model().sourceModel() if hasattr(index.model(), "sourceModel") else None
+        tg = QRect(tr.x(), mr.bottom() + 1, tr.width(), 14)
+        if model is not None and model.virtual:
+            folder = model.folder_text(e) if model.root else e.dirpath
+            folder = "(esta carpeta)" if folder == "." else "↳ " + folder
+            p.setPen(QColor(ACCENT))
+            p.drawText(tg, Qt.AlignLeft | Qt.AlignVCenter, fm2.elidedText(folder, Qt.ElideLeft, tg.width()))
+        elif feats:
+            tags = lib.tags(key)
+            if tags:
+                p.setPen(QColor("#8fb3ff"))
+                p.drawText(tg, Qt.AlignLeft | Qt.AlignVCenter,
+                           fm2.elidedText("  ".join("#" + t for t in tags), Qt.ElideRight, tg.width()))
         p.restore()
+
+    # --- renombrar en el lugar (F2)
+    def name_rect(self, rect):
+        ts = self.view.iconSize().width()
+        r = rect.adjusted(3, 3, -3, -3)
+        th_h = int((r.width() - 10) * 9 / 16)
+        return QRect(r.x() + 3, r.y() + 5 + th_h + 2, r.width() - 6, 20)
+
+    def createEditor(self, parent, option, index):
+        return make_name_editor(parent)
+
+    def updateEditorGeometry(self, editor, option, index):
+        editor.setGeometry(self.name_rect(option.rect))
+
+    def setEditorData(self, editor, index):
+        set_name_editor_data(editor, index.data(ROLE_ENTRY))
+
+    def setModelData(self, editor, model, index):
+        model.setData(index, editor.text(), Qt.EditRole)
+
+
+def make_name_editor(parent):
+    ed = QLineEdit(parent)
+    ed.setStyleSheet("QLineEdit{background:#0f1012;border:1px solid #4c9aff;border-radius:3px;padding:1px 4px;}")
+    return ed
+
+
+def set_name_editor_data(editor, e):
+    """Pone el nombre y selecciona solo la parte "base" (sin frame ni extensión)."""
+    if e is None:
+        return
+    editor.setText(e.name)
+    if e.kind == "seq":
+        base, _ = split_head(e.head)
+        n = len(base)
+    elif e.kind == "file":
+        n = len(os.path.splitext(e.name)[0])
+    else:
+        n = len(e.name)
+    QTimer.singleShot(0, lambda: editor.setSelection(0, n))
+
+
+class ListNameDelegate(QStyledItemDelegate):
+    """Delegate de la lista: solo personaliza la edición del nombre."""
+
+    def createEditor(self, parent, option, index):
+        return make_name_editor(parent)
+
+    def setEditorData(self, editor, index):
+        set_name_editor_data(editor, index.data(ROLE_ENTRY))
+
+    def setModelData(self, editor, model, index):
+        model.setData(index, editor.text(), Qt.EditRole)
 
 
 # ----------------------------------------------------------------------------
@@ -639,6 +723,12 @@ class SettingsDialog(QDialog):
         self.hidden = QCheckBox("Mostrar archivos y carpetas ocultos")
         self.hidden.setChecked(bool(cfg["show_hidden"]))
         lay.addRow("", self.hidden)
+        self.fsizes = QCheckBox("Calcular el tamaño de las carpetas (en segundo plano)")
+        self.fsizes.setChecked(bool(cfg["folder_sizes"]))
+        lay.addRow("", self.fsizes)
+        self.feats = QCheckBox("Tags, rating y colecciones")
+        self.feats.setChecked(bool(cfg["library_features"]))
+        lay.addRow("", self.feats)
         clr = QPushButton(f"Borrar caché de thumbnails ({human_size(app.thumbs.disk_usage())})")
         clr.clicked.connect(lambda: (app.thumbs.clear_disk(), clr.setText("Caché borrada"), app.refresh_views()))
         lay.addRow("", clr)
@@ -663,6 +753,57 @@ class SettingsDialog(QDialog):
         pl.addRow("", _hint("Estructura: {raíz}\\{prefijo}{PROYECTO}\\{SEQ}\\{SHOT}\\3D\\{TASK}\\…  "
                             "Las secuencias son carpetas que empiezan con un número; los shots empiezan con PROYECTO_."))
         tabs.addTab(pw, "Pipeline")
+
+        # --- Colores
+        from .colors import COLOR_MODES, DEFAULT_NAME_RULES
+        cw = QWidget()
+        cl = QFormLayout(cw)
+        self.cmode = QComboBox()
+        for label, key in COLOR_MODES:
+            self.cmode.addItem(label, key)
+        self.cmode.setCurrentIndex(max(0, self.cmode.findData(cfg["color_mode"])))
+        cl.addRow("Colores automáticos:", self.cmode)
+        cl.addRow("", _hint("Por proyecto: cada proyecto del pipeline tiene un color (o el que le pongas a mano) y "
+                            "se aclara en secuencias y shots. Por nombre: las reglas de abajo. "
+                            "El color manual siempre gana. También se cambia desde el panel CARPETAS."))
+        self.tlines = QCheckBox("Líneas del árbol con el color de la carpeta")
+        self.tlines.setChecked(bool(cfg["tree_line_colors"]))
+        cl.addRow("", self.tlines)
+        from PySide6.QtWidgets import QPlainTextEdit
+        self.rules = QPlainTextEdit(cfg["name_rules"] or DEFAULT_NAME_RULES)
+        self.rules.setMinimumHeight(220)
+        self.rules.setStyleSheet("font-family:Consolas,monospace; font-size:9pt;")
+        cl.addRow("Reglas por nombre:", self.rules)
+        rb = QPushButton("Restaurar reglas por defecto")
+        rb.clicked.connect(lambda: self.rules.setPlainText(DEFAULT_NAME_RULES))
+        cl.addRow("", rb)
+        tabs.addTab(cw, "Colores")
+
+        # --- VFX Library
+        lw = QWidget()
+        ll = QFormLayout(lw)
+        self.vres = QComboBox()
+        for v in ("960", "1280", "1920", "2560"):
+            self.vres.addItem(f"{v} px", int(v))
+        self.vres.setCurrentIndex(max(0, self.vres.findData(int(cfg["viewer_res"] or 1280))))
+        ll.addRow("Resolución del viewer:", self.vres)
+        self.vmem = QSpinBox()
+        self.vmem.setRange(128, 32768)
+        self.vmem.setSingleStep(256)
+        self.vmem.setSuffix(" MB")
+        self.vmem.setValue(int(cfg["viewer_mem"] or 1024))
+        ll.addRow("Memoria para frames:", self.vmem)
+        ll.addRow("", _hint("Cuántos frames decodificados se guardan para que el loop corra fluido. "
+                            "1280 px ≈ 2,7 MB por frame → 1024 MB ≈ 370 frames."))
+        self.vauto = QCheckBox("Reproducir automáticamente al seleccionar")
+        self.vauto.setChecked(bool(cfg["viewer_autoplay"]))
+        ll.addRow("", self.vauto)
+        self.vloop = QCheckBox("Loop por defecto")
+        self.vloop.setChecked(bool(cfg["viewer_loop"]))
+        ll.addRow("", self.vloop)
+        ll.addRow("", _hint("Las carpetas de la librería se agregan con el ＋ de «VFX LIBRARY» en el panel izquierdo. "
+                            "Los videos se reproducen con el ffmpeg configurado en General."))
+        tabs.addTab(lw, "VFX Library")
 
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         bb.accepted.connect(self.accept)
@@ -706,7 +847,18 @@ class SettingsDialog(QDialog):
         cfg.save()
         new_t = (cfg["colorspace"], cfg["use_chromaticities"], cfg["ffmpeg"], cfg["sidecar_previews"])
         new_p = (cfg["pipeline_use_stm"], cfg["pipeline_root"], cfg["pipeline_prefix"], cfg["pipeline_seq_exclude"])
-        return old_t != new_t, hidden_changed, old_p != new_p
+        listing_changed = hidden_changed or cfg["folder_sizes"] != self.fsizes.isChecked()
+        cfg["folder_sizes"] = self.fsizes.isChecked()
+        cfg["library_features"] = self.feats.isChecked()
+        cfg["color_mode"] = self.cmode.currentData()
+        cfg["tree_line_colors"] = self.tlines.isChecked()
+        cfg["name_rules"] = self.rules.toPlainText()
+        cfg["viewer_res"] = self.vres.currentData()
+        cfg["viewer_mem"] = self.vmem.value()
+        cfg["viewer_autoplay"] = self.vauto.isChecked()
+        cfg["viewer_loop"] = self.vloop.isChecked()
+        cfg.save()
+        return {"thumbs": old_t != new_t, "listing": listing_changed, "pipeline": old_p != new_p}
 
 
 # ----------------------------------------------------------------------------
