@@ -95,6 +95,20 @@ class Pipeline:
     def shot_dir(self, project, seq, shot):
         return os.path.join(self.seq_dir(project, seq), shot) if project and seq and shot else ""
 
+    # departamento = carpeta al nivel de 3D dentro del shot (3D, Comp, DMP, 2D…)
+    def dept_filter(self):
+        return [d.strip().lower() for d in (self.cfg["pipeline_depts"] or "").split(",") if d.strip()]
+
+    def depts(self, project, seq, shot):
+        dirs = _listdirs(self.shot_dir(project, seq, shot))
+        only = self.dept_filter()
+        if only:
+            dirs = [d for d in dirs if d.lower() in only]
+        return dirs
+
+    def dept_dir(self, project, seq, shot, dept):
+        return os.path.join(self.shot_dir(project, seq, shot), dept) if shot and dept else ""
+
     def three_d_dir(self, project, seq, shot):
         sd = self.shot_dir(project, seq, shot)
         if not sd:
@@ -104,31 +118,37 @@ class Pipeline:
                 return os.path.join(sd, d)
         return os.path.join(sd, "3D")
 
-    def tasks(self, project, seq, shot):
-        return _listdirs(self.three_d_dir(project, seq, shot))
+    def tasks(self, project, seq, shot, dept=None):
+        base = self.dept_dir(project, seq, shot, dept) if dept else self.three_d_dir(project, seq, shot)
+        return _listdirs(base)
 
-    def task_dir(self, project, seq, shot, task):
-        return os.path.join(self.three_d_dir(project, seq, shot), task) if task and shot else ""
+    def task_dir(self, project, seq, shot, task, dept=None):
+        if not (task and shot):
+            return ""
+        base = self.dept_dir(project, seq, shot, dept) if dept else self.three_d_dir(project, seq, shot)
+        return os.path.join(base, task)
 
     def shot_subdirs(self, project, seq, shot):
         return _listdirs(self.shot_dir(project, seq, shot))
 
-    def task_subdirs(self, project, seq, shot, task):
-        return _listdirs(self.task_dir(project, seq, shot, task))
+    def task_subdirs(self, project, seq, shot, task, dept=None):
+        return _listdirs(self.task_dir(project, seq, shot, task, dept))
 
     # ---------------- parseo ----------------
     def parse(self, path):
-        """...\\VFX-XXX\\seq\\shot\\3D\\task\\... -> dict(project, seq, shot, task) o None."""
+        """...\\VFX-XXX\\seq\\shot\\{depto}\\task\\... -> dict(project, seq, shot, dept, task) o None."""
         parts = [p for p in str(path).replace("/", "\\").split("\\") if p]
         pre = self.prefix
         idx = next((i for i, p in enumerate(parts) if p.startswith(pre) and len(p) > len(pre)), None)
         if idx is None:
             return None
-        out = {"project": parts[idx][len(pre):], "seq": "", "shot": "", "task": ""}
+        out = {"project": parts[idx][len(pre):], "seq": "", "shot": "", "dept": "", "task": ""}
         if len(parts) > idx + 1:
             out["seq"] = parts[idx + 1]
         if len(parts) > idx + 2:
             out["shot"] = parts[idx + 2]
-        if len(parts) > idx + 4 and parts[idx + 3].lower() == "3d":
+        if len(parts) > idx + 3:
+            out["dept"] = parts[idx + 3]
+        if len(parts) > idx + 4:
             out["task"] = parts[idx + 4]
         return out

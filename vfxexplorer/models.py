@@ -5,7 +5,7 @@ import os
 import time
 
 from PySide6.QtCore import Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, QMimeData, QUrl, QThread, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QFont
 
 from .core import (scan_dir, entry_matches, resolve_refs, natural_key, human_size, fmt_time, fwd,
                    compress_ranges, Query)
@@ -40,14 +40,57 @@ class EntryModel(QAbstractTableModel):
         self.root = ""
         self.virtual = False
         self.key_rows = {}
+        self.group_mode = "none"
 
     def set_entries(self, entries, root, virtual=False):
         self.beginResetModel()
-        self.entries = list(entries)
+        self.entries = [e for e in entries if e.kind != "header"]
         self.root = root
         self.virtual = virtual
+        if self.group_mode != "none":
+            self._build_groups()
         self._reindex()
         self.endResetModel()
+
+    def items(self):
+        return [e for e in self.entries if e.kind != "header"]
+
+    # ---------------- grupos (encabezados por carpeta o por tipo)
+    TYPE_GROUPS = [("dir", "Carpetas"), ("seq", "Secuencias"), ("video", "Videos"), ("image", "Imágenes"),
+                   ("model", "Escenas / modelos 3D"), ("other", "Otros")]
+
+    def regroup(self, mode):
+        self.beginResetModel()
+        self.group_mode = mode
+        self.entries = self.items()
+        if mode != "none":
+            self._build_groups()
+        self._reindex()
+        self.endResetModel()
+
+    def _build_groups(self):
+        groups = {}
+        order = {k: i for i, (k, _) in enumerate(self.TYPE_GROUPS)}
+        labels = dict(self.TYPE_GROUPS)
+        for e in self.entries:
+            if self.group_mode == "type":
+                c = e.cat
+                key = (order.get(c, 99),)
+                label = labels.get(c, "Otros")
+            else:
+                rel = self.folder_text(e) if self.root else e.dirpath
+                key = tuple(natural_key(rel if rel != "." else ""))
+                label = "(esta carpeta)" if rel == "." else rel
+            e._g = key
+            g = groups.setdefault(key, [label, 0, 0])
+            g[1] += 1
+            g[2] += e.size or 0
+        from .core import Entry
+        for key, (label, n, size) in groups.items():
+            h = Entry(kind="header", dirpath="", name=label, path="", size=size)
+            h._g = key
+            h.count = n
+            self.entries.append(h)
 
     def append_entries(self, entries):
         if not entries:
@@ -97,6 +140,8 @@ class EntryModel(QAbstractTableModel):
     def flags(self, index):
         if not index.isValid():
             return Qt.ItemIsDropEnabled
+        if self.entries[index.row()].kind == "header":
+            return Qt.ItemIsEnabled
         f = Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsDragEnabled
         if index.column() == C_NAME:
             f |= Qt.ItemIsEditable
@@ -128,6 +173,16 @@ class EntryModel(QAbstractTableModel):
         lib = self.app.lib
         if role == ROLE_ENTRY:
             return e
+        if e.kind == "header":
+            if role == Qt.DisplayRole:
+                return f"{e.name}   ({getattr(e, 'count', 0)} · {human_size(e.size)})" if col == C_NAME else ""
+            if role == Qt.ForegroundRole:
+                return QColor(self.app.accent())
+            if role == Qt.FontRole:
+                f = QFont()
+                f.setBold(True)
+                return f
+            return None
         if role == Qt.EditRole and col == C_NAME:
             return e.name
         if role == Qt.DisplayRole:
@@ -227,11 +282,26 @@ class EntryProxy(QSortFilterProxyModel):
 
     def set_filter(self, query, cat):
         self.query, self.cat = query, cat
+        self.refresh_groups()
+
+    def refresh_groups(self):
+        m = self.sourceModel()
+        self._ok_groups = set()
+        if m is not None and m.group_mode != "none":
+            for e in m.entries:
+                if e.kind != "header" and self._accept(e):
+                    self._ok_groups.add(getattr(e, "_g", None))
         self.invalidateFilter()
 
     def filterAcceptsRow(self, row, parent):
         m = self.sourceModel()
         e = m.entries[row]
+        if e.kind == "header":
+            return getattr(e, "_g", None) in getattr(self, "_ok_groups", set())
+        return self._accept(e)
+
+    def _accept(self, e):
+        m = self.sourceModel()
         if m.virtual:
             if self.query.empty and self.cat == "all":
                 return True
@@ -245,6 +315,13 @@ class EntryProxy(QSortFilterProxyModel):
     def lessThan(self, left, right):
         m = self.sourceModel()
         a, b = m.entries[left.row()], m.entries[right.row()]
+        asc = self.sortOrder() == Qt.AscendingOrder
+        if m.group_mode != "none":
+            ga, gb = getattr(a, "_g", ()), getattr(b, "_g", ())
+            if ga != gb:
+                return (ga < gb) == asc          # los grupos siempre en el mismo orden
+            if (a.kind == "header") != (b.kind == "header"):
+                return (a.kind == "header") == asc
         if (a.kind == "dir") != (b.kind == "dir"):
             return (a.kind == "dir") == (self.sortOrder() == Qt.AscendingOrder)
         va, vb = left.data(ROLE_SORT), right.data(ROLE_SORT)

@@ -150,6 +150,8 @@ class Entry:
 
     @property
     def cat(self):
+        if self.kind == "header":
+            return "header"
         if self.kind == "dir":
             return "dir"
         if self.kind == "seq":
@@ -455,6 +457,11 @@ class Config:
         "tree_trace": True,             # Tree Path Tracing (como XYplorer)
         "tree_trace_width": 2,
         "tree_trace_color": "accent",   # accent | folder
+        # 0.5
+        "pipeline_location": "sidebar", # sidebar | top | hidden
+        "pipeline_depts": "",           # vacío = todas las carpetas del shot (3D, Comp, DMP…)
+        "group_mode": "auto",           # auto | none | folder | type
+        "scrub_thumbs": True,
     }
 
     def __init__(self, path):

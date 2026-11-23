@@ -24,161 +24,8 @@ from .colors import ColorEngine, COLOR_MODES, DEFAULT_NAME_RULES
 from .tree import LinedTree
 from .dirsize import DirSizeManager
 from .library_ui import LibraryPage, LibrarySidebar
+from .pipebar import PipelineBar
 from . import fileops
-
-
-# ----------------------------------------------------------------------------
-# Barra de pipeline (misma lógica que Studio Toolbar)
-# ----------------------------------------------------------------------------
-
-class PipelineBar(QWidget):
-    def __init__(self, app):
-        super().__init__()
-        self.app = app
-        self.pipe = app.pipeline
-        lay = QHBoxLayout(self)
-        lay.setContentsMargins(4, 0, 4, 0)
-        lay.setSpacing(4)
-        lbl = QLabel("PIPELINE")
-        lbl.setStyleSheet("color:#b98cff; font-weight:bold; font-size:8pt; letter-spacing:1px;")
-        lay.addWidget(lbl)
-        self.proj, self.seq, self.shot, self.task = (QComboBox() for _ in range(4))
-        for cb, ph, w in ((self.proj, "Proyecto", 100), (self.seq, "Secuencia", 90),
-                          (self.shot, "Shot", 190), (self.task, "Task", 130)):
-            cb.setPlaceholderText(ph)
-            cb.setMinimumWidth(w)
-            cb.setSizeAdjustPolicy(QComboBox.AdjustToContents)
-            cb.setToolTip(ph)
-            lay.addWidget(cb)
-        self.proj.activated.connect(lambda _: self._pick("proj"))
-        self.seq.activated.connect(lambda _: self._pick("seq"))
-        self.shot.activated.connect(lambda _: self._pick("shot"))
-        self.task.activated.connect(lambda _: self._pick("task"))
-        self.folder = QToolButton()
-        self.folder.setIcon(app.icons.glyph("folder", 18))
-        self.folder.setToolTip("Ir a carpetas del shot / task")
-        self.folder.setPopupMode(QToolButton.InstantPopup)
-        self.folder.setAutoRaise(True)
-        self.menu = QMenu(self.folder)
-        self.menu.aboutToShow.connect(self._fill_menu)
-        self.folder.setMenu(self.menu)
-        lay.addWidget(self.folder)
-        self.reload()
-
-    def _vals(self):
-        return self.proj.currentText(), self.seq.currentText(), self.shot.currentText(), self.task.currentText()
-
-    def _fill(self, cb, items, current=None):
-        cb.blockSignals(True)
-        cb.clear()
-        cb.addItems(items)
-        cb.setCurrentIndex(cb.findText(current) if current in items else -1)
-        cb.blockSignals(False)
-
-    def reload(self):
-        ok = self.pipe.available()
-        for cb in (self.proj, self.seq, self.shot, self.task):
-            cb.setEnabled(ok)
-        self.folder.setEnabled(ok)
-        if not ok:
-            self.setToolTip(f"No se encontró la raíz del pipeline: {self.pipe.base()} (ver Configuración › Pipeline)")
-            return
-        self.setToolTip(f"Raíz: {self.pipe.base()}  ·  config: {self.pipe.source}")
-        cur = self.proj.currentText()
-        self._fill(self.proj, self.pipe.projects(), cur)
-
-    def _pick(self, level):
-        p, s, sh, t = self._vals()
-        pipe = self.pipe
-        if level == "proj":
-            self._fill(self.seq, pipe.sequences(p))
-            self._fill(self.shot, [])
-            self._fill(self.task, [])
-            target = pipe.project_dir(p)
-        elif level == "seq":
-            self._fill(self.shot, pipe.shots(p, s))
-            self._fill(self.task, [])
-            target = pipe.seq_dir(p, s)
-        elif level == "shot":
-            tasks = pipe.tasks(p, s, sh)
-            self._fill(self.task, tasks)
-            target = pipe.shot_dir(p, s, sh)
-        else:
-            target = pipe.task_dir(p, s, sh, t)
-        if target and os.path.isdir(target):
-            self.app.open_in_explorer(target)
-
-    def sync(self, path):
-        """Pone los combos según la carpeta actual (sin navegar)."""
-        if not path or not self.pipe.available():
-            return
-        info = self.pipe.parse(path)
-        if not info or not norm_key(path).startswith(norm_key(self.pipe.project_dir(info["project"]))):
-            self.clear()
-            return
-        pipe = self.pipe
-        if self.proj.findText(info["project"]) < 0:
-            self._fill(self.proj, pipe.projects(), info["project"])
-        else:
-            self.proj.blockSignals(True)
-            self.proj.setCurrentText(info["project"])
-            self.proj.blockSignals(False)
-        p = info["project"]
-        self._fill(self.seq, pipe.sequences(p), info["seq"])
-        s = self.seq.currentText()
-        self._fill(self.shot, pipe.shots(p, s) if s else [], info["shot"])
-        sh = self.shot.currentText()
-        self._fill(self.task, pipe.tasks(p, s, sh) if sh else [], info["task"])
-
-    def clear(self):
-        """Carpeta fuera del pipeline: combos vacíos (la lista de proyectos queda para elegir)."""
-        self.proj.blockSignals(True)
-        self.proj.setCurrentIndex(-1)
-        self.proj.blockSignals(False)
-        for cb in (self.seq, self.shot, self.task):
-            self._fill(cb, [])
-
-    def _fill_menu(self):
-        m = self.menu
-        m.clear()
-        p, s, sh, t = self._vals()
-        pipe = self.pipe
-
-        def add(label, path, indent=0):
-            a = m.addAction(("    " * indent) + label)
-            ok = bool(path) and os.path.isdir(path)
-            a.setEnabled(ok)
-            if path:
-                a.setToolTip(path)
-            a.triggered.connect(lambda c=False, x=path: self.app.open_in_explorer(x))
-            return a
-
-        def add_newtab(label, path):
-            if path and os.path.isdir(path):
-                m.addAction("    ↗ " + label + " en pestaña nueva",
-                            lambda x=path: self.app.open_in_explorer(x, new_tab=True))
-
-        if not p:
-            m.addAction("Elegí un proyecto").setEnabled(False)
-            return
-        add(f"Proyecto  {p}", pipe.project_dir(p))
-        if s:
-            add(f"Secuencia  {s}", pipe.seq_dir(p, s))
-        if sh:
-            m.addSeparator()
-            add(f"Shot  {sh}", pipe.shot_dir(p, s, sh))
-            for d in pipe.shot_subdirs(p, s, sh):
-                add(d, os.path.join(pipe.shot_dir(p, s, sh), d), 1)
-        if t:
-            m.addSeparator()
-            td = pipe.task_dir(p, s, sh, t)
-            add(f"Task  {t}", td)
-            subs = pipe.subfolders()
-            existing = pipe.task_subdirs(p, s, sh, t)
-            for d in subs + [x for x in existing if x not in subs]:
-                add(d, os.path.join(td, d), 1)
-            add_newtab(t, td)
-        m.setToolTipsVisible(True)
 
 
 # ----------------------------------------------------------------------------
@@ -224,17 +71,16 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ UI
     def _build(self):
         ic = self.icons
-        # --- fila superior: pipeline + modo (Explorador / VFX Library)
+        # --- fila superior opcional: pipeline horizontal
         tb = QToolBar("Pipeline")
         tb.setObjectName("topbar")
         tb.setMovable(False)
         tb.setIconSize(QSize(16, 16))
         self.addToolBar(tb)
-        self.pipebar = PipelineBar(self)
-        tb.addWidget(self.pipebar)
-        spacer = QWidget()
-        spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        tb.addWidget(spacer)
+        self.topbar = tb
+        self.pipebar_top = PipelineBar(self, vertical=False)
+        tb.addWidget(self.pipebar_top)
+        self.addToolBarBreak()
         self.modebar = QTabBar()
         self.modebar.setObjectName("modebar")
         self.modebar.setDocumentMode(True)
@@ -245,8 +91,6 @@ class MainWindow(QMainWindow):
         self.modebar.setTabToolTip(0, "Explorador de archivos (Ctrl+Shift+E)")
         self.modebar.setTabToolTip(1, "VFX Library: viewer arriba, elementos abajo (Ctrl+Shift+L)")
         self.modebar.currentChanged.connect(lambda i: self.set_mode("library" if i == 1 else "explorer"))
-        tb.addWidget(self.modebar)
-        self.addToolBarBreak()
 
         # --- barra de comandos (como la del Explorador de Windows 11)
         cb = QToolBar("Comandos")
@@ -276,6 +120,8 @@ class MainWindow(QMainWindow):
                 w.setToolButtonStyle(Qt.ToolButtonIconOnly)
             return a
 
+        cb.addWidget(self.modebar)
+        cb.addSeparator()
         m_new = QMenu(self)
         m_new.addAction(ic.glyph("newfolder", 16), "Carpeta\tCtrl+Shift+N", lambda: self.op_new_folder(self.active))
         menu_button("plus", "Nuevo", m_new, "Crear carpeta")
@@ -320,7 +166,7 @@ class MainWindow(QMainWindow):
         cb.widgetForAction(a).setToolButtonStyle(Qt.ToolButtonIconOnly)
 
         # sidebar
-        self.favs = self._mk_list(self._favs_menu, lambda it: self.active.navigate(it.data(Qt.UserRole)))
+        self.favs = self._mk_list(self._favs_menu, lambda it: self.open_in_explorer(it.data(Qt.UserRole)))
         self.favs.setDragDropMode(QAbstractItemView.InternalMove)
         self.favs.model().rowsMoved.connect(self._favs_reordered)
         self.colls = self._mk_list(self._colls_menu, lambda it: self.open_collection(it.data(Qt.UserRole)))
@@ -335,7 +181,7 @@ class MainWindow(QMainWindow):
         self.tree.header().setStretchLastSection(False)
         self.tree.header().setSectionResizeMode(0, self.tree.header().ResizeMode.ResizeToContents)
         self.tree.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.tree.clicked.connect(lambda ix: self.active.navigate(self.fs.filePath(ix)))
+        self.tree.clicked.connect(lambda ix: self.open_in_explorer(self.fs.filePath(ix)))
         self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._tree_menu)
 
@@ -351,9 +197,12 @@ class MainWindow(QMainWindow):
         self.color_mode.currentIndexChanged.connect(self._color_mode_changed)
 
         self.libside = LibrarySidebar(self, self._section("VFX LIBRARY"))
+        self.pipebar_side = PipelineBar(self, vertical=True)
+        self.pipebars = [self.pipebar_top, self.pipebar_side]
         left = QSplitter(Qt.Vertical)
         self.side_boxes = {}
-        for key, title, w, extra in (("library", None, self.libside, None),
+        for key, title, w, extra in (("pipeline", "PIPELINE", self.pipebar_side, None),
+                                     ("library", None, self.libside, None),
                                      ("favs", "FAVORITOS", self.favs, None),
                                      ("colls", "COLECCIONES", self.colls, None),
                                      ("tags", "TAGS", self.tagl, None),
@@ -376,7 +225,7 @@ class MainWindow(QMainWindow):
                 bl.addWidget(w)
             self.side_boxes[key] = box
             left.addWidget(box)
-        left.setSizes([120, 120, 90, 110, 420])
+        left.setSizes([170, 110, 110, 80, 100, 400])
         left.setMinimumWidth(200)
         self.left_split = left
 
@@ -398,6 +247,7 @@ class MainWindow(QMainWindow):
         self.libpage = LibraryPage(self)
         self.libpane = self.libpage.pane
         lp = self.libpane
+        lp.root_lock = lambda: [r for r in (self.cfg["library_roots"] or []) if os.path.isdir(r)]
         lp.focused.connect(self.set_active)
         lp.selection_changed.connect(self._sel_changed)
         lp.location_changed.connect(self._location_changed)
@@ -507,6 +357,7 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Alt+Shift+P"), self, self.toggle_details)
         self._reload_sidebar()
         self.apply_features()
+        self.apply_pipeline_location()
 
     def _mk_list(self, menu_fn, click_fn):
         w = QListWidget()
@@ -541,9 +392,12 @@ class MainWindow(QMainWindow):
         self.paneB.restore(states[1] if len(states) > 1 else None, fallback)
         if self.cfg["dual"]:
             self.toggle_dual(force=True)
-        roots = self.cfg["library_roots"] or []
+        roots = self.libpane.root_lock()
         lst = self.cfg["library_pane"] or None
-        self.libpane.restore(lst, roots[0] if roots and os.path.isdir(roots[0]) else fallback)
+        if lst:
+            lst = dict(lst, tabs=[t for t in lst.get("tabs", []) if self.libpane.allowed(t.get("path", ""))])
+        if roots:
+            self.libpane.restore(lst, roots[0])
         if not lst:
             self.libpane.set_view("grid", emit=False)
         self.set_active(self.paneA)
@@ -625,6 +479,13 @@ class MainWindow(QMainWindow):
             a = m.addAction(label, lambda o=o: pane.list.sortByColumn(cur, o))
             a.setCheckable(True)
             a.setChecked(order == o)
+        m.addSeparator()
+        g = m.addMenu("Agrupar por")
+        for label, key in (("Automático (carpeta en Subcarpetas)", "auto"), ("(Ninguno)", "none"),
+                           ("Carpeta", "folder"), ("Tipo", "type")):
+            a = g.addAction(label, lambda k=key: pane.set_group(k))
+            a.setCheckable(True)
+            a.setChecked(pane.group_mode == key)
 
     def _fill_view_menu(self):
         m = self.m_view
@@ -730,8 +591,22 @@ class MainWindow(QMainWindow):
         if not path:
             self.libside.add_root()
             return
+        if not self.libpane.allowed(path):
+            self.add_library_root(path)
         self.set_mode("library")
-        self.libpane.navigate(path)
+        if not self.libpane.tabs:
+            self.libpane.add_tab(path)
+        else:
+            self.libpane.navigate(path)
+
+    def add_library_root(self, path):
+        roots = [r for r in (self.cfg["library_roots"] or []) if r]
+        path = os.path.normpath(path)
+        if path not in roots:
+            roots.append(path)
+        self.cfg["library_roots"] = roots
+        self.cfg.save()
+        self.libside.reload()
 
     def open_in_explorer(self, path, new_tab=False):
         if self.mode() != "explorer":
@@ -751,6 +626,11 @@ class MainWindow(QMainWindow):
         self.save_soon()
         self.refresh_views()
         self._reload_sidebar()
+
+    def apply_pipeline_location(self):
+        loc = self.cfg["pipeline_location"] or "sidebar"
+        self.topbar.setVisible(loc == "top")
+        self.side_boxes["pipeline"].setVisible(loc == "sidebar")
 
     def apply_features(self):
         on = bool(self.cfg["library_features"])
@@ -868,7 +748,8 @@ class MainWindow(QMainWindow):
             if ix.isValid():
                 self.tree.setCurrentIndex(ix)
                 self.tree.scrollTo(ix)
-            self.pipebar.sync(d)
+            for pb in self.pipebars:
+                pb.sync(d)
             self.setWindowTitle(f"{os.path.basename(d.rstrip(chr(92) + '/')) or d} — {APP_NAME} {VERSION}")
 
     def _pane_status(self, pane):
@@ -1366,10 +1247,11 @@ class MainWindow(QMainWindow):
             return
         p = it.data(Qt.UserRole)
         m = QMenu(self)
-        m.addAction("Abrir", lambda: self.active.navigate(p))
-        m.addAction("Abrir en pestaña nueva", lambda: self.active.navigate(p, new_tab=True))
+        m.addAction("Abrir", lambda: self.open_in_explorer(p))
+        m.addAction("Abrir en pestaña nueva", lambda: self.open_in_explorer(p, new_tab=True))
         if self.paneB.isVisible():
-            m.addAction("Abrir en el otro panel", lambda: self.other(self.active).navigate(p))
+            m.addAction("Abrir en el otro panel", lambda: (self.set_mode("explorer"),
+                                                           self.other(self.explorer_active).navigate(p)))
         self._color_menu(m, [dir_target(p)])
         m.addSeparator()
 
@@ -1429,10 +1311,11 @@ class MainWindow(QMainWindow):
             return
         p = self.fs.filePath(ix)
         m = QMenu(self)
-        m.addAction("Abrir", lambda: self.active.navigate(p))
-        m.addAction("Abrir en pestaña nueva", lambda: self.active.navigate(p, new_tab=True))
+        m.addAction("Abrir", lambda: self.open_in_explorer(p))
+        m.addAction("Abrir en pestaña nueva", lambda: self.open_in_explorer(p, new_tab=True))
         if self.paneB.isVisible():
-            m.addAction("Abrir en el otro panel", lambda: self.other(self.active).navigate(p))
+            m.addAction("Abrir en el otro panel", lambda: (self.set_mode("explorer"),
+                                                           self.other(self.explorer_active).navigate(p)))
         m.addAction("Agregar a favoritos", lambda: self.add_favorites([p]))
         self._color_menu(m, [dir_target(p)])
         m.addAction("Abrir en el Explorador", lambda: self.open_default(p))
@@ -1511,7 +1394,10 @@ class MainWindow(QMainWindow):
                     self._lib_changed(), pane.refresh()))
             dirs = [x for x in ents if x.kind == "dir"]
             if dirs and self.mode() == "explorer":
-                m.addAction("Ver en VFX Library", lambda: self.open_library(dirs[0].path))
+                if self.libpane.allowed(dirs[0].path):
+                    m.addAction("Ver en VFX Library", lambda: self.open_library(dirs[0].path))
+                else:
+                    m.addAction("Agregar a la VFX Library", lambda: self.open_library(dirs[0].path))
             if dirs:
                 m.addAction("Agregar a favoritos", lambda: self.add_favorites([d.path for d in dirs]))
             m.addSeparator()
@@ -1521,7 +1407,8 @@ class MainWindow(QMainWindow):
             m.addAction("Carpeta nueva…\tCtrl+Shift+N", lambda: self.op_new_folder(pane))
             m.addAction("Agregar esta carpeta a favoritos", lambda: self.add_favorites([cur]))
         if cur and self.mode() == "explorer":
-            m.addAction("Ver en VFX Library", lambda: self.open_library(cur))
+            m.addAction("Ver en VFX Library" if self.libpane.allowed(cur) else "Agregar esta carpeta a la VFX Library",
+                        lambda: self.open_library(cur))
         m.addAction("Refrescar\tF5", pane.refresh)
         m.exec(view.viewport().mapToGlobal(pos))
 
@@ -1535,7 +1422,8 @@ class MainWindow(QMainWindow):
                 self.thumbs.forget()
             if ch["pipeline"]:
                 self.pipeline.reload()
-                self.pipebar.reload()
+                for pb in self.pipebars:
+                    pb.reload()
             self.colors.reload()
             self.color_mode.blockSignals(True)
             self.color_mode.setCurrentIndex(max(0, self.color_mode.findData(self.cfg["color_mode"])))
@@ -1543,6 +1431,7 @@ class MainWindow(QMainWindow):
             if not self.cfg["folder_sizes"]:
                 self.dirsizes.clear()
             self.apply_features()
+            self.apply_pipeline_location()
             self.refresh_views()
             if ch["listing"]:
                 for p in self.all_panes:

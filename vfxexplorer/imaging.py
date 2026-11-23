@@ -147,13 +147,68 @@ def _is_float(typedesc):
     return str(typedesc) in ("float", "half", "double")
 
 
+DATA_HINTS = ("depth", "z", "normal", "position", "pos", "pworld", "nworld", "uv", "motion", "vector", "velocity",
+              "crypto", "id", "mask", "ao", "occlusion", "fresnel", "facing", "pref", "zdepth", "n", "p")
+
+
+def exr_layers(path):
+    """Capas de un EXR para el selector del viewer: [(etiqueta, [canales] | None, es_dato)]."""
+    if not HAS_OIIO:
+        return []
+    inp = oiio.ImageInput.open(path)
+    if not inp:
+        return []
+    try:
+        names = list(inp.spec().channelnames)
+    finally:
+        inp.close()
+    if len(names) <= 1:
+        return []
+    groups = OrderedDict()
+    for n in names:
+        pre = n.rsplit(".", 1)[0] if "." in n else ""
+        groups.setdefault(pre, []).append(n)
+    out = [("Beauty / RGB", None, False)]
+    order = {"r": 0, "g": 1, "b": 2, "a": 3, "x": 0, "y": 1, "z": 2, "w": 3, "u": 0, "v": 1}
+    alpha = None
+    for pre, chans in groups.items():
+        suf = {c.rsplit(".", 1)[-1].lower(): c for c in chans}
+        if "a" in suf and alpha is None:
+            alpha = suf["a"]
+        if all(k in suf for k in ("r", "g", "b")):
+            sel = [suf["r"], suf["g"], suf["b"]]
+        else:
+            sel = sorted(chans, key=lambda c: order.get(c.rsplit(".", 1)[-1].lower(), 9))[:3]
+        low = pre.lower().split(".")[-1] if pre else ""
+        is_data = (len(sel) == 1 and "a" not in suf) or any(low == h or low.startswith(h) for h in DATA_HINTS) \
+            or all(c.rsplit(".", 1)[-1].lower() in "xyzuvw" for c in sel)
+        label = pre or "(sin capa)"
+        if pre == "" and sel[:3] == [suf.get("r"), suf.get("g"), suf.get("b")]:
+            continue        # ya está como Beauty
+        tag = "".join(c.rsplit(".", 1)[-1] for c in sel) if all(len(c.rsplit(".", 1)[-1]) == 1 for c in sel) else ""
+        out.append((f"{label}  [{tag}]" if tag else label, sel, is_data))
+        if pre == "":
+            # canales sueltos sin capa (Z, Y…) además del grupo
+            for c in chans:
+                if c.lower() not in ("r", "g", "b", "a") and len(chans) > 1:
+                    out.append((c, [c], True))
+    if alpha:
+        out.append(("Alpha", [alpha], True))
+    return out
+
+
 def oiio_thumb(path, settings, maxdim=THUMB_RES):
     inp = oiio.ImageInput.open(path)
     if not inp:
         return QImage()
     try:
         spec = inp.spec()
-        idx = pick_channels(list(spec.channelnames))
+        names = list(spec.channelnames)
+        wanted = settings.get("channels")
+        idx = [names.index(c) for c in wanted if c in names] if wanted else []
+        if not idx:
+            idx = pick_channels(names)
+            wanted = None
         chroma = spec.getattribute("chromaticities")
         is_float = _is_float(spec.format)
         cs_attr = (spec.get_string_attribute("oiio:ColorSpace") or "").lower()
@@ -200,6 +255,17 @@ def oiio_thumb(path, settings, maxdim=THUMB_RES):
         inp.close()
 
     ext = os.path.splitext(path)[1].lower()
+    if wanted and settings.get("data"):
+        # capa de datos (depth, normales, alpha…): sin conversión de color, normalizada si se sale de 0-1
+        arr = np.nan_to_num(arr.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+        lo, hi = float(np.percentile(arr, 1)), float(np.percentile(arr, 99))
+        if lo < -0.001 or hi > 1.001:
+            arr = (arr - lo) / max(1e-6, hi - lo)
+        if arr.shape[2] == 1:
+            arr = np.repeat(arr, 3, axis=2)
+        elif arr.shape[2] == 2:
+            arr = np.dstack([arr[..., 0], arr[..., 1], np.zeros_like(arr[..., 0])])
+        return to_qimage(arr[..., :3], None, "srgb", premult=False, maxdim=maxdim)
     if ext in (".exr", ".sxr", ".mxr"):
         cs = (detect_cs_from_chroma(chroma) if settings["chroma"] else None) or settings["cs"]
     elif is_float:
@@ -243,11 +309,32 @@ def qt_thumb(path, maxdim=THUMB_RES):
     return img
 
 
-def video_thumb(path, ffmpeg, maxdim=THUMB_RES):
+_DUR = {}
+_DUR_LOCK = threading.Lock()
+
+
+def video_duration(path, ffprobe):
+    with _DUR_LOCK:
+        if path in _DUR:
+            return _DUR[path]
+    dur = 0.0
+    if ffprobe:
+        try:
+            r = subprocess.run([ffprobe, "-v", "error", "-show_entries", "format=duration", "-of",
+                                "default=nw=1:nk=1", path], capture_output=True, timeout=15, creationflags=NO_WINDOW)
+            dur = float(r.stdout.decode().strip() or 0)
+        except Exception:
+            dur = 0.0
+    with _DUR_LOCK:
+        _DUR[path] = dur
+    return dur
+
+
+def video_thumb(path, ffmpeg, maxdim=THUMB_RES, at=None):
     if not ffmpeg:
         return QImage()
     vf = f"scale=w={maxdim}:h={maxdim}:force_original_aspect_ratio=decrease"
-    for ss in ("1", "0"):
+    for ss in ((f"{at:.3f}", "0") if at is not None else ("1", "0")):
         cmd = [ffmpeg, "-v", "error", "-ss", ss, "-i", path, "-frames:v", "1", "-vf", vf,
                "-f", "image2pipe", "-vcodec", "png", "-"]
         try:
@@ -387,6 +474,36 @@ class ThumbTask(QRunnable):
         self.signals.done.emit(self.key, img)
 
 
+class VideoScrubTask(QRunnable):
+    """Frame k de steps de un video (para el scrub de la grilla)."""
+
+    def __init__(self, key, path, k, steps, settings, cache_dir, signals):
+        super().__init__()
+        self.key, self.path, self.k, self.steps = key, path, k, steps
+        self.settings, self.cache_dir, self.signals = settings, cache_dir, signals
+
+    def run(self):
+        img = QImage()
+        try:
+            st = os.stat(self.path)
+            sig = f"{self.path}|{st.st_mtime}|{st.st_size}|scrub{self.k}/{self.steps}|v1"
+            ck = os.path.join(self.cache_dir, hashlib.sha1(sig.encode("utf-8", "replace")).hexdigest() + ".jpg")
+            if os.path.isfile(ck):
+                img = QImage(ck)
+            if img.isNull():
+                ffprobe = find_tool(self.settings.get("ffmpeg_cfg", ""), "ffprobe") if not self.settings.get("ffprobe") \
+                    else self.settings["ffprobe"]
+                dur = video_duration(self.path, ffprobe)
+                if dur > 0:
+                    t = (self.k + 0.5) / self.steps * dur
+                    img = video_thumb(self.path, self.settings["ffmpeg"], THUMB_RES, at=t)
+                    if not img.isNull():
+                        img.convertToFormat(QImage.Format_RGB32).save(ck, "JPG", 85)
+        except Exception:
+            img = QImage()
+        self.signals.done.emit(self.key, img)
+
+
 class ThumbManager(QObject):
     ready = Signal(str)
 
@@ -411,6 +528,7 @@ class ThumbManager(QObject):
             "chroma": bool(self.cfg["use_chromaticities"]),
             "ffmpeg": find_tool(self.cfg["ffmpeg"], "ffmpeg"),
             "sidecar": bool(self.cfg["sidecar_previews"]),
+            "ffprobe": find_tool(self.cfg["ffmpeg"], "ffprobe"),
         }
         self.pool.setMaxThreadCount(max(1, int(self.cfg["threads"])))
 
@@ -449,6 +567,39 @@ class ThumbManager(QObject):
                 self.scaled[sk] = s
             return s
         return pm
+
+    SCRUB_STEPS_SEQ = 48
+    SCRUB_STEPS_VIDEO = 24
+
+    def get_scrub(self, e, frac, w, h):
+        """Thumbnail del frame que corresponde a la posición del mouse. Devuelve (pixmap|None, etiqueta)."""
+        frac = min(1.0, max(0.0, frac))
+        if e.kind == "seq" and len(e.files) > 1:
+            n = len(e.files)
+            steps = min(n, self.SCRUB_STEPS_SEQ)
+            idx = int(round(round(frac * (steps - 1)) * (n - 1) / max(1, steps - 1)))
+            from .core import Entry
+            fe = Entry(kind="file", dirpath=e.dirpath, name=e.files[idx], path=os.path.join(e.dirpath, e.files[idx]),
+                       ext=e.ext)
+            return self.get(fe, w, h), str(e.frames[idx])
+        if e.cat == "video" and self.settings["ffmpeg"]:
+            steps = self.SCRUB_STEPS_VIDEO
+            k = int(round(frac * (steps - 1)))
+            key = f"{e.path}#scrub{k}"
+            pm = self.cache.get(key)
+            if pm is None:
+                if key not in self.pending and key not in self.failed:
+                    self.pending.add(key)
+                    self.pool.start(VideoScrubTask(key, e.path, k, steps, dict(self.settings), self.cache_dir,
+                                                   self.signals))
+                return None, f"{int(frac * 100)}%"
+            sk = (key, w, h)
+            s = self.scaled.get(sk)
+            if s is None:
+                s = pm.scaled(w, h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                self.scaled[sk] = s
+            return s, f"{int(frac * 100)}%"
+        return None, ""
 
     def has_failed(self, e):
         return self.key_for(e) in self.failed

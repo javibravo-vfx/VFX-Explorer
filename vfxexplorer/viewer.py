@@ -332,6 +332,15 @@ class Viewer(QWidget):
         self.lbl.setMinimumWidth(130)
         self.lbl.setStyleSheet("color:#c9ccd1; font-family:Consolas,monospace;")
         bl.addWidget(self.lbl)
+        self.layer_cb = QComboBox()
+        self.layer_cb.setToolTip("Capa / AOV del EXR (beauty, alpha, depth, normales…)")
+        self.layer_cb.setMinimumContentsLength(14)
+        self.layer_cb.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.layer_cb.activated.connect(self._layer_changed)
+        self.layer_cb.hide()
+        bl.addWidget(self.layer_cb)
+        self._layers = []
+        self._layer_pref = "Beauty / RGB"
         self.fps_cb = QComboBox()
         self.fps_cb.addItems(FPS_CHOICES)
         self.fps_cb.setCurrentText(self._fps_text(self.fps))
@@ -383,6 +392,8 @@ class Viewer(QWidget):
         self.timer.setInterval(max(5, int(round(1000.0 / max(1.0, self.fps)))))
 
     def show_message(self, text):
+        if hasattr(self, "layer_cb") and self.entry is None:
+            self.layer_cb.hide()
         self.canvas.image = None
         self.canvas.message = text
         self.canvas.title = ""
@@ -406,7 +417,33 @@ class Viewer(QWidget):
             t.finished.connect(lambda t=t: self._old_threads.remove(t) if t in self._old_threads else None)
             self.thread = None
 
-    def load(self, e):
+    def _layer_changed(self, i):
+        if 0 <= i < len(self._layers):
+            self._layer_pref = self._layers[i][0].split("  [")[0]
+            playing = self.playing
+            cur = self.cur
+            self.load(self.entry, keep_layers=True, start=cur)
+            if not playing:
+                self.pause()
+
+    def _fill_layers(self, e):
+        path = e.thumb_source() if e.kind == "seq" else e.path
+        try:
+            self._layers = imaging.exr_layers(path) if e.ext == ".exr" else []
+        except Exception:
+            self._layers = []
+        self.layer_cb.blockSignals(True)
+        self.layer_cb.clear()
+        sel = 0
+        for i, (label, chans, data) in enumerate(self._layers):
+            self.layer_cb.addItem(label)
+            if label.split("  [")[0] == self._layer_pref:
+                sel = i
+        self.layer_cb.setCurrentIndex(sel)
+        self.layer_cb.blockSignals(False)
+        self.layer_cb.setVisible(len(self._layers) > 1)
+
+    def load(self, e, keep_layers=False, start=0):
         self.stop()
         self.entry = e
         self.cur = 0
@@ -417,6 +454,12 @@ class Viewer(QWidget):
         cfg = self.app.cfg
         maxdim = int(cfg["viewer_res"] or 1280)
         settings = dict(self.app.thumbs.settings)
+        if not keep_layers:
+            self._fill_layers(e)
+        li = self.layer_cb.currentIndex()
+        if self._layers and 0 <= li < len(self._layers) and self._layers[li][1]:
+            settings["channels"] = self._layers[li][1]
+            settings["data"] = self._layers[li][2]
         src = None
         if e.kind == "seq":
             src = SeqSource(e, settings, maxdim)
@@ -470,6 +513,9 @@ class Viewer(QWidget):
         self.thread.frame_ready.connect(self._frame_ready)
         self.thread.length_changed.connect(self._length_changed)
         self.thread.failed.connect(lambda msg: self.show_message(f"{e.name}\n\n{msg}"))
+        if start:
+            self.cur = min(start, self.n - 1)
+            self.thread.playhead = self.cur
         self.thread.start()
         self._update_label()
         if self.n > 1 and self.b_auto.isChecked():

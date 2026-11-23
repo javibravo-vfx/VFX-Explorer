@@ -292,12 +292,48 @@ class GridDelegate(QStyledItemDelegate):
         self.app, self.view = app, view
 
     def sizeHint(self, option, index):
+        e = index.data(ROLE_ENTRY)
+        if e is not None and e.kind == "header":
+            return QSize(max(200, self.view.viewport().width() - 10), 34)
         ts = self.view.iconSize().width()
         return QSize(ts + 16, int(ts * 9 / 16) + 16 + self.TEXT_H)
+
+    def paint_header(self, p, opt, e):
+        r = opt.rect.adjusted(6, 6, -6, -2)
+        p.save()
+        p.setRenderHint(QPainter.Antialiasing)
+        f = QFont(opt.font)
+        f.setPointSizeF(9.5)
+        f.setBold(True)
+        p.setFont(f)
+        fm = QFontMetrics(f)
+        fp = self.app.icons.folder(None if e.name.startswith("(") else "#e8b84a", 16) \
+            if self.view.model().sourceModel().group_mode == "folder" else None
+        x = r.x()
+        if fp is not None:
+            p.drawPixmap(x, r.center().y() - 8, fp)
+            x += 22
+        p.setPen(QColor("#f3f3f3"))
+        label = fm.elidedText(e.name, Qt.ElideLeft, r.width() - 200)
+        p.drawText(QRect(x, r.y(), r.width(), r.height()), Qt.AlignLeft | Qt.AlignVCenter, label)
+        x += fm.horizontalAdvance(label) + 10
+        f2 = QFont(opt.font)
+        f2.setPointSizeF(8.2)
+        p.setFont(f2)
+        p.setPen(QColor("#9d9d9d"))
+        meta = f"{getattr(e, 'count', 0)} · {human_size(e.size)}"
+        p.drawText(QRect(x, r.y(), 200, r.height()), Qt.AlignLeft | Qt.AlignVCenter, meta)
+        x += QFontMetrics(f2).horizontalAdvance(meta) + 12
+        p.setPen(QPen(QColor("#333333"), 1))
+        p.drawLine(x, r.center().y(), r.right(), r.center().y())
+        p.restore()
 
     def paint(self, p, opt, index):
         e = index.data(ROLE_ENTRY)
         if e is None:
+            return
+        if e.kind == "header":
+            self.paint_header(p, opt, e)
             return
         app, lib = self.app, self.app.lib
         key = e.key()
@@ -314,6 +350,12 @@ class GridDelegate(QStyledItemDelegate):
         tag = app.entry_color(e)
         th = QRect(r.x() + 5, r.y() + 5, r.width() - 10, int((r.width() - 10) * 9 / 16))
         pm = app.thumbs.get(e, th.width(), th.height())
+        scrub = getattr(self.view, "scrub", None)
+        scrub_label = None
+        if scrub and scrub[0] == index:
+            spm, scrub_label = app.thumbs.get_scrub(e, scrub[1], th.width(), th.height())
+            if spm is not None:
+                pm = spm
         if e.kind == "dir" and pm is None:
             s = int(min(th.height(), th.width()) * .95)
             fp = app.icons.folder(tag, max(16, s))
@@ -355,6 +397,20 @@ class GridDelegate(QStyledItemDelegate):
                 p.drawRoundedRect(QRectF(br), 3, 3)
                 p.setPen(QColor("#111"))
                 p.drawText(br, Qt.AlignCenter, label)
+            if scrub_label is not None:
+                frac = min(1.0, max(0.0, scrub[1]))
+                p.setPen(Qt.NoPen)
+                p.setBrush(QColor(0, 0, 0, 140))
+                p.drawRect(QRectF(th.x(), th.bottom() - 3, th.width(), 3))
+                p.setBrush(QColor(ACCENT))
+                p.drawRect(QRectF(th.x(), th.bottom() - 3, th.width() * frac, 3))
+                if scrub_label:
+                    lw = fm.horizontalAdvance(scrub_label) + 10
+                    lr = QRect(th.right() - lw - 4, th.bottom() - fm.height() - 9, lw, fm.height() + 2)
+                    p.setBrush(QColor(0, 0, 0, 170))
+                    p.drawRoundedRect(QRectF(lr), 3, 3)
+                    p.setPen(QColor("#ffffff"))
+                    p.drawText(lr, Qt.AlignCenter, scrub_label)
             if e.kind == "seq" and e.missing:
                 warn = f"faltan {len(e.missing)}"
                 bw2 = fm.horizontalAdvance(warn) + 10
@@ -405,7 +461,7 @@ class GridDelegate(QStyledItemDelegate):
         # línea 3: subcarpeta (en búsquedas / vista de subcarpetas) o tags
         model = index.model().sourceModel() if hasattr(index.model(), "sourceModel") else None
         tg = QRect(tr.x(), mr.bottom() + 1, tr.width(), 14)
-        if model is not None and model.virtual:
+        if model is not None and model.virtual and model.group_mode != "folder":
             folder = model.folder_text(e) if model.root else e.dirpath
             folder = "(esta carpeta)" if folder == "." else "↳ " + folder
             p.setPen(QColor(ACCENT))
@@ -554,9 +610,10 @@ class BreadcrumbBar(QWidget):
             return True
         return False
 
-    def set_path(self, path, virtual_title=""):
+    def set_path(self, path, virtual_title="", root=None):
         self.path = path or ""
         self.virtual_title = virtual_title
+        self.root = root
         self._rebuild()
 
     def start_edit(self):
@@ -619,6 +676,13 @@ class BreadcrumbBar(QWidget):
             self.cl.addStretch(1)
             return
         segs = path_segments(self.path)
+        root = getattr(self, "root", None)
+        if root:
+            from .core import same_path
+            for i, (_, sp) in enumerate(segs):
+                if same_path(sp, root):
+                    segs = segs[i:]
+                    break
         lead = QLabel()
         lead.setPixmap(_folder_pm())
         lead.setContentsMargins(4, 0, 2, 0)
@@ -824,8 +888,17 @@ class SettingsDialog(QDialog):
         pl.addRow("Raíz (unidad o UNC):", self.p_root)
         pl.addRow("Prefijo de proyecto:", self.p_prefix)
         pl.addRow("No son secuencias:", self.p_excl)
-        pl.addRow("", _hint("Estructura: {raíz}\\{prefijo}{PROYECTO}\\{SEQ}\\{SHOT}\\3D\\{TASK}\\…  "
-                            "Las secuencias son carpetas que empiezan con un número; los shots empiezan con PROYECTO_."))
+        pl.addRow("", _hint("Estructura: {raíz}\\{prefijo}{PROYECTO}\\{SEQ}\\{SHOT}\\{DEPTO}\\{TASK}\\…  "
+                            "Las secuencias son carpetas que empiezan con un número; los shots empiezan con PROYECTO_. "
+                            "Depto = carpetas al nivel de 3D (3D, Comp, DMP, 2D…)."))
+        self.p_depts = QLineEdit(cfg["pipeline_depts"] or "")
+        self.p_depts.setPlaceholderText("vacío = todas las carpetas del shot   (ej: 3D, Comp, DMP)")
+        pl.addRow("Departamentos:", self.p_depts)
+        self.p_loc = QComboBox()
+        for label, key in (("Panel izquierdo", "sidebar"), ("Barra superior", "top"), ("Oculta", "hidden")):
+            self.p_loc.addItem(label, key)
+        self.p_loc.setCurrentIndex(max(0, self.p_loc.findData(cfg["pipeline_location"] or "sidebar")))
+        pl.addRow("Mostrar los dropdowns en:", self.p_loc)
         tabs.addTab(pw, "Pipeline")
 
         # --- Colores
@@ -923,7 +996,8 @@ class SettingsDialog(QDialog):
         """Guarda. Devuelve (cambió_thumbs, cambió_listado, cambió_pipeline)."""
         cfg = self.app.cfg
         old_t = (cfg["colorspace"], cfg["use_chromaticities"], cfg["ffmpeg"], cfg["sidecar_previews"])
-        old_p = (cfg["pipeline_use_stm"], cfg["pipeline_root"], cfg["pipeline_prefix"], cfg["pipeline_seq_exclude"])
+        old_p = (cfg["pipeline_use_stm"], cfg["pipeline_root"], cfg["pipeline_prefix"], cfg["pipeline_seq_exclude"],
+                 cfg["pipeline_depts"])
         cfg["player"] = self.player.text().strip().strip('"')
         cfg["ffmpeg"] = self.ffmpeg.text().strip().strip('"')
         cfg["colorspace"] = self.cs.currentData()
@@ -938,7 +1012,10 @@ class SettingsDialog(QDialog):
         cfg["pipeline_seq_exclude"] = self.p_excl.text().strip()
         cfg.save()
         new_t = (cfg["colorspace"], cfg["use_chromaticities"], cfg["ffmpeg"], cfg["sidecar_previews"])
-        new_p = (cfg["pipeline_use_stm"], cfg["pipeline_root"], cfg["pipeline_prefix"], cfg["pipeline_seq_exclude"])
+        cfg["pipeline_depts"] = self.p_depts.text().strip()
+        cfg["pipeline_location"] = self.p_loc.currentData()
+        new_p = (cfg["pipeline_use_stm"], cfg["pipeline_root"], cfg["pipeline_prefix"], cfg["pipeline_seq_exclude"],
+                 cfg["pipeline_depts"])
         listing_changed = hidden_changed or cfg["folder_sizes"] != self.fsizes.isChecked()
         cfg["folder_sizes"] = self.fsizes.isChecked()
         cfg["library_features"] = self.feats.isChecked()

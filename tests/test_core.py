@@ -151,13 +151,18 @@ def test_pipeline(tmp):
     class C(dict):
         def __getitem__(self, k):
             return self.get(k)
-    p = Pipeline(C(pipeline_use_stm=False, pipeline_root=root, pipeline_prefix="VFX-", pipeline_seq_exclude="AUDIO"))
+    p = Pipeline(C(pipeline_use_stm=False, pipeline_root=root, pipeline_prefix="VFX-", pipeline_seq_exclude="AUDIO",
+                   pipeline_depts=""))
     assert p.projects() == ["MOR"]
     assert p.sequences("MOR") == ["101", "102"]
     assert p.shots("MOR", "101") == ["MOR_1001A_930"]
-    assert p.tasks("MOR", "101", "MOR_1001A_930") == ["8_lighting"]
+    os.makedirs(os.path.join(root, "VFX-MOR", "101", "MOR_1001A_930", "Comp", "v001"))
+    os.makedirs(os.path.join(root, "VFX-MOR", "101", "MOR_1001A_930", "DMP"))
+    assert p.depts("MOR", "101", "MOR_1001A_930") == ["3D", "Comp", "DMP"]
+    assert p.tasks("MOR", "101", "MOR_1001A_930", "3D") == ["8_lighting"]
+    assert p.tasks("MOR", "101", "MOR_1001A_930", "Comp") == ["v001"]
     info = p.parse(sd)
-    assert info == {"project": "MOR", "seq": "101", "shot": "MOR_1001A_930", "task": "8_lighting"}, info
+    assert info == {"project": "MOR", "seq": "101", "shot": "MOR_1001A_930", "dept": "3D", "task": "8_lighting"}, info
 
 
 if __name__ == "__main__":
