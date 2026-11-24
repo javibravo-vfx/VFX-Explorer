@@ -126,7 +126,59 @@ class GridView(_ViewMixin, QListView):
 
 
 class ListView(_ViewMixin, QTreeView):
-    pass
+    """Vista Detalles con numeración de filas a la izquierda, como XYplorer (se dibuja en el área de ramas)."""
+
+    def setup_numbers(self, pane):
+        self._numpane = pane
+        self._nums = None
+        m = self.model()
+        for sig in (m.layoutChanged, m.modelReset, m.rowsInserted, m.rowsRemoved):
+            sig.connect(self._invalidate_nums)
+        self.apply_numbers()
+
+    def numbers_on(self):
+        return bool(self._numpane.app.cfg["list_row_numbers"])
+
+    def apply_numbers(self):
+        on = self.numbers_on()
+        self.setRootIsDecorated(on)
+        self._invalidate_nums()
+
+    def _invalidate_nums(self, *a):
+        self._nums = None
+        if self.numbers_on():
+            n = max(1, self.model().rowCount())
+            ind = max(30, self.fontMetrics().horizontalAdvance(str(n)) + 18)
+            if ind != self.indentation():
+                self.setIndentation(ind)
+            self.header().setStyleSheet(f"QHeaderView::section:first {{ padding-left:{ind + 8}px; }}")
+        else:
+            self.header().setStyleSheet("")
+        self.viewport().update()
+
+    def _row_numbers(self):
+        if self._nums is None:
+            nums, k, m = {}, 0, self.model()
+            for r in range(m.rowCount()):
+                e = m.index(r, 0).data(ROLE_ENTRY)
+                if e is not None and e.kind != "header":
+                    k += 1
+                    nums[r] = k
+            self._nums = nums
+        return self._nums
+
+    def drawBranches(self, p, rect, index):
+        if not self.numbers_on() or index.parent().isValid():
+            return
+        n = self._row_numbers().get(index.row())
+        if not n:
+            return
+        p.save()
+        p.setPen(QColor("#7d7d7d"))
+        p.drawText(rect.adjusted(0, 0, -8, 0), Qt.AlignRight | Qt.AlignVCenter, str(n))
+        p.setPen(QColor("#2c2c2c"))
+        p.drawLine(rect.right(), rect.top(), rect.right(), rect.bottom())
+        p.restore()
 
 
 class WinTabBar(QTabBar):
@@ -322,6 +374,7 @@ class FilePane(QFrame):
         self.tabbar.plus.setToolTip("New tab (Ctrl+T)")
         self.tabbar.plus.clicked.connect(self.new_tab)
         self.tabsrow = tabsrow
+        tabsrow.installEventFilter(self)
         self.corner = QHBoxLayout()        # acá va el selector de modo (Carpetas / VFX Library)
         self.corner.setContentsMargins(0, 0, 0, 0)
         trow.addLayout(self.corner)
@@ -343,7 +396,18 @@ class FilePane(QFrame):
         self.crumb.setMinimumWidth(140)
         self.crumb.navigate.connect(self.navigate)
         nrow.addWidget(self.crumb, 7)
-        nrow.addSpacing(4)
+        self.sort_menu = QMenu(self)
+        self.sort_menu.aboutToShow.connect(lambda: (self.app.set_active(self), self.app._fill_sort_menu(self.sort_menu)))
+        self.b_sort = QToolButton()
+        self.b_sort.setIcon(ic.glyph("sort", 18, "#4cc2ff"))
+        self.b_sort.setIconSize(QSize(18, 18))
+        self.b_sort.setToolTip("Sort and group")
+        self.b_sort.setMenu(self.sort_menu)
+        self.b_sort.setPopupMode(QToolButton.InstantPopup)
+        self.b_sort.setFixedSize(38, 34)
+        self.b_sort.setStyleSheet("QToolButton{border:none;border-radius:4px;} QToolButton:hover{background:#3a3a3a;}"
+                                  "QToolButton::menu-indicator{image:none;width:0px;}")
+        nrow.addWidget(self.b_sort)
         self.search = QLineEdit()
         self.search.setObjectName("paneSearch")
         self.search.setToolTip("Name or part · *wildcards* · (with tags on: #tag, ★3)\n"
@@ -368,6 +432,7 @@ class FilePane(QFrame):
         self.filter.currentIndexChanged.connect(lambda *_: self.app.sync_commandbar(self))
         self.filter.hide()
         self.rec = QToolButton(self)
+        self.rec_level = 2                 # con Subcarpetas: 1 = un nivel · 2 = toda la rama (como Found)
         self.rec.setCheckable(True)
         self.rec.toggled.connect(self._apply_search)
         self.rec.toggled.connect(lambda *_: self.app.sync_commandbar(self))
@@ -416,6 +481,7 @@ class FilePane(QFrame):
         self.list.setAlternatingRowColors(True)
         self.list.setIconSize(QSize(18, 18))
         self.list.setItemDelegate(ListNameDelegate(self.list))
+        self.list.setup_numbers(self)
         hd = self.list.header()
         hd.setStretchLastSection(True)
         hd.setSectionResizeMode(QHeaderView.Interactive)
@@ -489,7 +555,7 @@ class FilePane(QFrame):
         sc("Ctrl+F", lambda: (self.search.setFocus(), self.search.selectAll()))
         sc("Ctrl+1", lambda: self.set_view("grid"))
         sc("Ctrl+2", lambda: self.set_view("list"))
-        sc("Ctrl+B", self.rec.toggle)
+        sc("Ctrl+B", lambda: self.set_rec_level({0: 1, 1: 2, 2: 0}[self.rec_value()]))
 
     def _tab_drop_target(self, ev):
         i = self.tabbar.tabAt(ev.position().toPoint())
@@ -498,7 +564,23 @@ class FilePane(QFrame):
         p = self.tabs[i]["path"]
         return p if os.path.isdir(p) else None
 
+    def _window_drag(self, ev):
+        """El espacio vacío de la fila de pestañas mueve la ventana (doble click: maximizar)."""
+        win = self.window()
+        if ev.type() == QEvent.MouseButtonDblClick:
+            win.showNormal() if win.isMaximized() else win.showMaximized()
+            return True
+        if ev.button() == Qt.LeftButton and win.windowHandle() is not None:
+            win.windowHandle().startSystemMove()
+            return True
+        return False
+
     def eventFilter(self, obj, ev):
+        if ev.type() in (QEvent.MouseButtonPress, QEvent.MouseButtonDblClick) and (
+                obj is self.tabsrow or (obj is self.tabbar and self.tabbar.tabAt(ev.position().toPoint()) < 0)):
+            self.focused.emit(self)
+            if self._window_drag(ev):
+                return True
         if obj is self.tabbar and ev.type() in (QEvent.DragEnter, QEvent.DragMove):
             if ev.mimeData().hasUrls():
                 ev.accept()
@@ -615,13 +697,19 @@ class FilePane(QFrame):
             hd = self.list.header()
             if hd.sortIndicatorSection() != col or hd.sortIndicatorOrder() != order:
                 self.list.sortByColumn(col, order)
+            if "details" in st and hasattr(self.app, "info_area") and self.app.active is self \
+                    and st["details"] != self.app.info_area.isVisible():
+                self.app.toggle_details(st["details"], remember=False)
         finally:
             self._applying_view = False
 
     def _view_state(self):
         hd = self.list.header()
-        return {"view": self.view_mode, "sort": hd.sortIndicatorSection(),
-                "order": 1 if hd.sortIndicatorOrder() == Qt.DescendingOrder else 0, "group": self.group_mode}
+        st = {"view": self.view_mode, "sort": hd.sortIndicatorSection(),
+              "order": 1 if hd.sortIndicatorOrder() == Qt.DescendingOrder else 0, "group": self.group_mode}
+        if hasattr(self.app, "info_area"):
+            st["details"] = self.app.info_area.isVisible()
+        return st
 
     def _save_folder_view(self):
         if self._applying_view or not hasattr(self.app, "cfg"):
@@ -795,7 +883,7 @@ class FilePane(QFrame):
                 return ic.glyph("pc", 16, "#4cc2ff")
             if v["kind"] in ("tag", "rating"):
                 return ic.glyph("search", 16, "#c9ccd1")
-            return ic.glyph("library", 16, "#b98cff")
+            return ic.glyph("library", 16, "#4cc2ff")
         p = t["path"]
         if os.path.dirname(p.rstrip("\\/")) in ("", p.rstrip("\\/")) or len(p.rstrip("\\/")) <= 2:
             return ic.drive_icon("network" if is_network_path(p) else "local", 16)
@@ -980,6 +1068,19 @@ class FilePane(QFrame):
             self._load()
 
     # ------------------------------------------------------------------ carga
+    def rec_value(self):
+        return self.rec_level if self.rec.isChecked() else 0
+
+    def set_rec_level(self, v):
+        """Subcarpetas: 0 = apagado · 1 = esta carpeta y sus subcarpetas directas · 2 = toda la rama."""
+        v = int(v)
+        if v and v != self.rec_level:
+            self.rec_level = v
+            if self.rec.isChecked():
+                self._apply_search()
+        self.rec.setChecked(bool(v))
+        self.app.sync_commandbar(self)
+
     def _recursive_active(self):
         return (self.rec.isChecked() or bool(self.pill_kw)) and not self.is_virtual()
 
@@ -1090,8 +1191,9 @@ class FilePane(QFrame):
         self._apply_columns(folder_default=True)
         self._set_banner(0, scanning=0)
         self.proxy.set_filter(parse_query(""), "all")
+        depth = 1 if (self.rec.isChecked() and self.rec_level == 1) else None
         w = SearchWorker(self.gen, self.tab_path(), self._query(), self.filter.currentData(),
-                         bool(self.app.cfg["show_hidden"]), self.app.lib.snapshot())
+                         bool(self.app.cfg["show_hidden"]), self.app.lib.snapshot(), max_depth=depth)
         w.batch.connect(self._search_batch)
         w.progress.connect(self._search_progress)
         w.finished_search.connect(self._search_done)
@@ -1153,7 +1255,8 @@ class FilePane(QFrame):
         if self.pill_labels:
             what = " · ".join(self.pill_labels) + (f" + «{q}»" if q else "")
         tail = f" · searching… ({scanning} folders)" if scanning else (" · limit reached" if capped else "")
-        self.banner.setText(f"<b>⤓ {what}</b> in <b>{root}</b> and its subfolders — {count} found{tail}"
+        lvl = " (1 level)" if (self.rec.isChecked() and self.rec_level == 1) else ""
+        self.banner.setText(f"<b>⤓ {what}</b> in <b>{root}</b> and its subfolders{lvl} — {count} found{tail}"
                             f"&nbsp;&nbsp;<span style='color:#cfe0ff'>✕ show only this folder</span>")
         self.banner.show()
         self.search.setPlaceholderText(f"Search {root} and subfolders")

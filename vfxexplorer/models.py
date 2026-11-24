@@ -385,16 +385,17 @@ class SearchWorker(QThread):
     finished_search = Signal(int, int, bool)
     MAX_RESULTS = 20000
 
-    def __init__(self, gen, root, query, cat, show_hidden, meta):
+    def __init__(self, gen, root, query, cat, show_hidden, meta, max_depth=None):
         super().__init__()
         self.gen, self.root, self.query, self.cat = gen, root, query, cat
         self.show_hidden, self.meta = show_hidden, meta
+        self.max_depth = max_depth          # None = toda la rama · 1 = solo las subcarpetas directas
         self.cancelled = False
 
     def run(self):
-        stack, found, scanned, last = [self.root], 0, 0, 0.0
+        stack, found, scanned, last = [(self.root, 0)], 0, 0, 0.0
         while stack and not self.cancelled:
-            d = stack.pop()
+            d, depth = stack.pop()
             try:
                 entries = scan_dir(d, self.show_hidden)
             except OSError:
@@ -406,7 +407,8 @@ class SearchWorker(QThread):
                     subdirs.append(e.path)
                 if entry_matches(e, self.query, self.cat, recursive=True, meta=self.meta.get):
                     hits.append(e)
-            stack.extend(sorted(subdirs, key=natural_key, reverse=True))
+            if self.max_depth is None or depth < self.max_depth:
+                stack.extend((x, depth + 1) for x in sorted(subdirs, key=natural_key, reverse=True))
             if hits:
                 found += len(hits)
                 self.batch.emit(self.gen, hits)

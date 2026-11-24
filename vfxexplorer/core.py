@@ -633,9 +633,9 @@ class Config:
         "viewer_loop": True,
         # 0.4
         "details_visible": True,
-        "tree_lines_style": "solid",    # solid | dotted
+        "tree_lines_style": "chevron",  # chevron (XYplorer: › + línea del camino) | solid | dotted
         "tree_trace": True,             # Tree Path Tracing (como XYplorer)
-        "tree_trace_width": 2,
+        "tree_trace_width": 1,
         "tree_trace_color": "accent",   # accent | folder
         # 0.5
         "pipeline_location": "center",  # center | sidebar | hidden
@@ -645,17 +645,18 @@ class Config:
         # 0.6
         "folder_color": "yellow",       # yellow (Windows) | blue
         "splitter_left2": "",
-        "cfg_version": 8,
+        "cfg_version": 9,
         "pipeline_task_depts": None,    # None = "3D": departamentos que tienen tasks
         "pipeline_stages": None,        # None = "1_projects, 2_review, 3_publish"
         # 0.7
         "lib_favorites": [],            # acceso rápido de la VFX Library
         "quick_tags": None,             # None = pastillas por defecto (DEFAULT_QUICK_TAGS)
-        "lib_tree_line_color": "#8d6fd1",
+        "lib_tree_line_color": "#4cc2ff",
         "splitter_left3": "",
         "hidden_sys": [],
         "hidden_drives": [],
-        "list_cols": {},                # columnas de Detalles tildadas/destildadas
+        "list_cols": {},
+        "list_row_numbers": True,        # numeración de filas en Detalles (como XYplorer)                # columnas de Detalles tildadas/destildadas
         "folder_views": {},             # vista/orden/agrupado recordados por carpeta
         "folder_view_default": None,
         "show_hidden_quick": False,
@@ -675,6 +676,12 @@ class Config:
             if int(saved.get("cfg_version", 0)) < 8:
                 self._import_studio_toolbar()
                 self.data["cfg_version"] = 8
+            if int(saved.get("cfg_version", 0)) < 9:            # 0.12: árbol como XYplorer, acento celeste
+                self.data["tree_lines_style"] = "chevron"
+                self.data["tree_trace_width"] = 1
+                if self.data.get("lib_tree_line_color") == "#8d6fd1":
+                    self.data["lib_tree_line_color"] = "#4cc2ff"
+                self.data["cfg_version"] = 9
         except Exception:
             pass
 

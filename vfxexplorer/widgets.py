@@ -300,11 +300,21 @@ class Icons:
             p.drawArc(QRectF(s * .2, s * .2, s * .6, s * .6), 40 * 16, 290 * 16)
             path.moveTo(s * .80, s * .18); path.lineTo(s * .80, s * .40); path.lineTo(s * .58, s * .40)
         elif kind == "gear":
-            p.drawEllipse(QPointF(s / 2, s / 2), s * .16, s * .16)
+            c = s / 2
+            ro, ri = s * .42, s * .31
+            pts = []
             for i in range(8):
-                a = i * math.pi / 4
-                p.drawLine(QPointF(s / 2 + math.cos(a) * s * .26, s / 2 + math.sin(a) * s * .26),
-                           QPointF(s / 2 + math.cos(a) * s * .38, s / 2 + math.sin(a) * s * .38))
+                a = math.radians(i * 45)
+                for da, r in ((-15, ri), (-9, ro), (9, ro), (15, ri)):
+                    t = a + math.radians(da)
+                    pts.append(QPointF(c + math.cos(t) * r, c + math.sin(t) * r))
+            gear = QPainterPath()
+            gear.moveTo(pts[0])
+            for q in pts[1:]:
+                gear.lineTo(q)
+            gear.closeSubpath()
+            p.drawPath(gear)
+            p.drawEllipse(QPointF(c, c), s * .13, s * .13)
         elif kind == "dual":
             p.drawRoundedRect(QRectF(s * .12, s * .2, s * .76, s * .6), 2, 2)
             path.moveTo(s * .5, s * .2); path.lineTo(s * .5, s * .8)
@@ -465,7 +475,7 @@ def wrap_name(text, fm, width, max_lines=2):
 
 
 class GridDelegate(QStyledItemDelegate):
-    TEXT_H = 64
+    TEXT_H = 74
 
     def __init__(self, app, view):
         super().__init__(view)
@@ -476,7 +486,7 @@ class GridDelegate(QStyledItemDelegate):
         if e is not None and e.kind == "header":
             return QSize(max(200, self.view.viewport().width() - 10), 34)
         if e is not None and e.kind == "drive":
-            return QSize(380, 92)
+            return QSize(262, 66)
         ts = self.view.iconSize().width()
         return QSize(ts + 16, int(ts * 9 / 16) + 16 + self.TEXT_H)
 
@@ -484,38 +494,39 @@ class GridDelegate(QStyledItemDelegate):
         """Tarjeta de disco como la de «Este equipo» de Windows 11: ícono, nombre, barra de uso y libre/total."""
         p.save()
         p.setRenderHint(QPainter.Antialiasing)
-        r = opt.rect.adjusted(4, 4, -4, -4)
+        r = opt.rect.adjusted(3, 3, -3, -3)
         sel = bool(opt.state & QStyle.State_Selected)
         hov = bool(opt.state & QStyle.State_MouseOver)
         if sel or hov:
             p.setPen(QPen(QColor("#5a5a5a"), 1) if sel else Qt.NoPen)
             p.setBrush(QColor("#333333") if sel else QColor("#262626"))
             p.drawRoundedRect(QRectF(r).adjusted(0.5, 0.5, -0.5, -0.5), 4, 4)
-        ic = self.app.icons.drive(getattr(e, "drive_kind", "local"), 56)
-        p.drawPixmap(r.x() + 6, r.y() + (r.height() - 56) // 2, ic)
-        x = r.x() + 74
-        w = r.right() - x - 8
+        ic = self.app.icons.drive(getattr(e, "drive_kind", "local"), 44)
+        p.drawPixmap(r.x() + 4, r.y() + (r.height() - 44) // 2, ic)
+        x = r.x() + 56
+        w = r.right() - x - 6
         f = QFont(opt.font)
-        f.setPointSizeF(9.5)
+        f.setPointSizeF(9.3)
         p.setFont(f)
         fm = QFontMetrics(f)
         p.setPen(QColor("#f3f3f3"))
-        p.drawText(QRect(x, r.y() + 10, w, fm.height()), Qt.AlignLeft | Qt.AlignVCenter,
+        p.drawText(QRect(x, r.y() + 3, w, fm.height()), Qt.AlignLeft | Qt.AlignVCenter,
                    fm.elidedText(e.name, Qt.ElideMiddle, w))
         total, free = e.size or 0, getattr(e, "free", 0) or 0
         used = (total - free) / total if total else 0
-        bar = QRectF(x, r.y() + 14 + fm.height(), w, 14)
+        bar = QRectF(x, r.y() + 6 + fm.height(), w, 11)
         p.setPen(Qt.NoPen)
         p.setBrush(QColor("#e6e6e6"))
         p.drawRect(bar)
         p.setBrush(QColor("#da3b3b") if used > 0.9 else QColor("#2a8de8"))
         p.drawRect(QRectF(bar.x(), bar.y(), bar.width() * used, bar.height()))
         f2 = QFont(opt.font)
-        f2.setPointSizeF(8.6)
+        f2.setPointSizeF(8.4)
         p.setFont(f2)
         p.setPen(QColor("#c5c5c5"))
         txt = f"{human_size(free)} free of {human_size(total)}" if total else "no access"
-        p.drawText(QRect(x, int(bar.bottom()) + 4, w, 18), Qt.AlignLeft | Qt.AlignVCenter, txt)
+        p.drawText(QRect(x, int(bar.bottom()) + 2, w, 16), Qt.AlignLeft | Qt.AlignVCenter,
+                   QFontMetrics(f2).elidedText(txt, Qt.ElideRight, w))
         p.restore()
 
     def paint_header(self, p, opt, e):
@@ -651,7 +662,7 @@ class GridDelegate(QStyledItemDelegate):
 
         # nombre: centrado, hasta 2 líneas (como el Explorador de Windows)
         f = QFont(opt.font)
-        f.setPointSizeF(9.0)
+        f.setPointSizeF(10.0)
         p.setFont(f)
         fm = QFontMetrics(f)
         p.setPen(QColor("#e8e8e8"))
@@ -662,9 +673,9 @@ class GridDelegate(QStyledItemDelegate):
             y += lh
         tr = QRect(r.x() + 6, y - lh, r.width() - 12, lh)
         # meta + rating
-        mr = QRect(tr.x(), tr.bottom() + 1, tr.width(), 14)
+        mr = QRect(tr.x(), tr.bottom() + 1, tr.width(), 16)
         f2 = QFont(opt.font)
-        f2.setPointSizeF(7.8)
+        f2.setPointSizeF(8.8)
         p.setFont(f2)
         fm2 = QFontMetrics(f2)
         feats = bool(app.cfg["library_features"])
@@ -688,7 +699,7 @@ class GridDelegate(QStyledItemDelegate):
         p.drawText(mr2, Qt.AlignHCenter | Qt.AlignVCenter, fm2.elidedText(meta, Qt.ElideMiddle, mr2.width()))
         # línea 3: subcarpeta (en búsquedas / vista de subcarpetas) o tags
         model = index.model().sourceModel() if hasattr(index.model(), "sourceModel") else None
-        tg = QRect(tr.x(), mr.bottom() + 1, tr.width(), 14)
+        tg = QRect(tr.x(), mr.bottom() + 1, tr.width(), 16)
         if model is not None and model.virtual and model.group_mode != "folder":
             folder = model.folder_text(e) if model.root else e.dirpath
             folder = "(this folder)" if folder == "." else "↳ " + folder
@@ -1172,7 +1183,8 @@ class SettingsDialog(QDialog):
         self.tlines.setChecked(bool(cfg["tree_line_colors"]))
         cl.addRow("", self.tlines)
         self.tstyle = QComboBox()
-        self.tstyle.addItem("Solid (like XYplorer)", "solid")
+        self.tstyle.addItem("Chevrons + path line (like XYplorer)", "chevron")
+        self.tstyle.addItem("Solid lines with ⊞ boxes", "solid")
         self.tstyle.addItem("Dotted", "dotted")
         self.tstyle.setCurrentIndex(max(0, self.tstyle.findData(cfg["tree_lines_style"])))
         cl.addRow("Tree lines:", self.tstyle)
@@ -1190,8 +1202,8 @@ class SettingsDialog(QDialog):
         self.tcolor.setCurrentIndex(max(0, self.tcolor.findData(cfg["tree_trace_color"])))
         cl.addRow("Trace color:", self.tcolor)
         self.lcolor = QComboBox()
-        for label, hexc in (("Violet", "#8d6fd1"), ("Pink", "#d16fa8"), ("Green", "#3ecf8e"),
-                            ("Orange", "#ff9f43"), ("Light blue", "#4cc2ff"), ("Gray (like Folders)", "#5f6368")):
+        for label, hexc in (("Light blue", "#4cc2ff"), ("Violet", "#8d6fd1"), ("Pink", "#d16fa8"), ("Green", "#3ecf8e"),
+                            ("Orange", "#ff9f43"), ("Gray (like Folders)", "#5f6368")):
             self.lcolor.addItem(app.icons.swatch(hexc), label, hexc)
         i = self.lcolor.findData(cfg["lib_tree_line_color"])
         if i < 0:
@@ -1409,7 +1421,7 @@ def win11_titlebar(widget):
         dwm = ctypes.windll.dwmapi
         on = ctypes.c_int(1)
         dwm.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(on), ctypes.sizeof(on))       # modo oscuro
-        color = ctypes.c_int(0x00202020)                                                # COLORREF 0x00BBGGRR
+        color = ctypes.c_int(0x00191919)                                                # COLORREF 0x00BBGGRR
         dwm.DwmSetWindowAttribute(hwnd, 35, ctypes.byref(color), ctypes.sizeof(color))  # color del caption (Win11)
         corner = ctypes.c_int(2)
         dwm.DwmSetWindowAttribute(hwnd, 33, ctypes.byref(corner), ctypes.sizeof(corner))  # esquinas redondeadas

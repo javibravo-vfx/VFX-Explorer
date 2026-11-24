@@ -61,7 +61,7 @@ class PipelineBar(QWidget):
             lay.setContentsMargins(4, 0, 4, 0)
             lay.setSpacing(4)
             lbl = QLabel("PIPELINE")
-            lbl.setStyleSheet("color:#b98cff; font-weight:bold; font-size:8pt; letter-spacing:1px;")
+            lbl.setStyleSheet("color:#4cc2ff; font-weight:bold; font-size:8pt; letter-spacing:1px;")
             lay.addWidget(lbl)
             lay.addSpacing(6)
             stretch = {"proj": 3, "seq": 2, "shot": 4, "dept": 2, "task": 3}

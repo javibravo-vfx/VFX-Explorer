@@ -16,13 +16,12 @@ QToolButton#pill {
     padding:2px 11px; font-size:8.5pt; min-height:18px;
 }
 QToolButton#pill:hover { background:#353535; border-color:#4a4a4a; }
-QToolButton#pill:checked { background:#4a3477; color:#ffffff; border-color:#b98cff; }
+QToolButton#pill:checked { background:#0f3a55; color:#ffffff; border-color:#4cc2ff; }
 QToolButton#pillAdd, QToolButton#pillClear {
-    background:transparent; color:#9d9d9d; border:1px dashed #3d3d3d; border-radius:11px;
-    padding:2px 8px; font-size:8.5pt; min-height:18px;
+    background:transparent; color:#9d9d9d; border:none; border-radius:11px;
+    padding:2px 8px; font-size:9pt; min-height:18px;
 }
-QToolButton#pillAdd:hover, QToolButton#pillClear:hover { color:#ffffff; border-color:#6a6a6a; }
-QToolButton#pillClear { border-style:solid; }
+QToolButton#pillAdd:hover, QToolButton#pillClear:hover { color:#ffffff; background:#2d2d2d; }
 """
 
 
@@ -37,7 +36,7 @@ class QuickTagBar(QWidget):
         lay.setContentsMargins(4, 0, 4, 0)
         lay.setSpacing(6)
         lbl = QLabel("TAGS")
-        lbl.setStyleSheet("color:#b98cff; font-weight:bold; font-size:8pt; letter-spacing:1px;")
+        lbl.setStyleSheet("color:#4cc2ff; font-weight:bold; font-size:8pt; letter-spacing:1px;")
         lbl.setToolTip("Quick tags: filter the whole branch of the current library folder.\n"
                        "They match the file name, its folder names or its tags.\n"
                        "Several on = any of them. Right-click to edit.")

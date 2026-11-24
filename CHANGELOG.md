@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.12.0
+- **Tree like XYplorer**: › / ⌄ chevrons and a single thin path line to the current folder (no gray lines or ⊞ boxes). The old style is still in ⚙ › Colors.
+- **Row numbers** in Details (View › Row numbers).
+- **Subfolders switch** like Found, at the bottom of the center pane: off · 1 level · the whole branch (Ctrl+B steps through).
+- **Pipeline bar spans the center pane**, aligned with it (dividers at both edges), and follows the splitters. New and View shrink to icons when the left pane is narrow; **Sort** moved between the address bar and the search box.
+- **Active file-type filter** shows its name highlighted (e.g. «Sequences»).
+- **This PC** tiles like Windows: narrower, more drives per row.
+- **Quick access**: Documents added. Dragging a folder over the VFX LIBRARY tab no longer switches Quick access (the tree only switches after hovering a moment, and comes back after the drop).
+- Dragging from the VFX Library to a File Explorer folder **copies without asking**.
+- The **Details pane** is remembered per folder too.
+- Light-blue accent for the pipeline, the VFX Library and Dual pane / Details; gear icon for Settings; darker title and tab bar; the empty space of the tab bar moves the window (double click maximizes).
+- Bigger type in the grid; cleaner ＋ next to the quick tags.
+
 ## 0.11.0
 - **ffmpeg included** in `bin\` (LGPL build): videos play and get thumbnails/info without downloading anything. The CI selftest now checks video.
 - **Grid names centered** and wrapped on up to two lines, like Windows.

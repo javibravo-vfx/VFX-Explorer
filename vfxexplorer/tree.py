@@ -7,7 +7,7 @@
 
 import os
 
-from PySide6.QtCore import Qt, QSize, QRect, QPersistentModelIndex, QTimer
+from PySide6.QtCore import Qt, QSize, QRect, QPersistentModelIndex, QTimer, QPointF
 from PySide6.QtGui import QPainter, QPen, QColor, QCursor
 from PySide6.QtWidgets import QTreeView, QTreeWidget, QTreeWidgetItem, QStyledItemDelegate, QStyleOptionViewItem
 
@@ -183,7 +183,9 @@ class _LinedMixin:
         x0 = rect.right() - ind * (depth + 1) + 1
         cy = rect.center().y()
         top, bot = rect.top(), rect.bottom() + 1
-        dotted = self._cfg("tree_lines_style", "solid") == "dotted"
+        style = self._cfg("tree_lines_style", "chevron")
+        dotted = style == "dotted"
+        chev = style == "chevron"          # como XYplorer: chevrons › y solo la línea del camino
         p.save()
         p.setRenderHint(QPainter.Antialiasing, False)
 
@@ -198,14 +200,16 @@ class _LinedMixin:
 
         has_kids = model.hasChildren(index)
         stub = col_x(depth) - (5 if has_kids else -4)   # hasta la cajita, o hasta el ícono si no hay cajita
+        if chev:
+            stub = col_x(depth) - (6 if has_kids else -6)
 
         # 1) líneas normales
-        for lvl, anc in enumerate(chain[1:], start=1):
+        for lvl, anc in enumerate([] if chev else chain[1:], start=1):
             if has_next(anc):
                 x = col_x(lvl - 1)
                 p.setPen(pen(self._line_color(anc.parent())))
                 p.drawLine(x, top, x, bot)
-        if depth > 0:
+        if depth > 0 and not chev:
             x = col_x(depth - 1)
             p.setPen(pen(self._line_color(index.parent())))
             p.drawLine(x, top, x, bot if has_next(index) else cy)
@@ -215,7 +219,7 @@ class _LinedMixin:
         tr = self._trace
         tracing = bool(self._cfg("tree_trace", True)) and len(tr) > 1
         if tracing:
-            tw = max(1, int(self._cfg("tree_trace_width", 2)))
+            tw = 1 if chev else max(1, int(self._cfg("tree_trace_width", 2)))
             p.setPen(QPen(self._trace_color(), tw, Qt.SolidLine, Qt.FlatCap))
             path = [QPersistentModelIndex(c) for c in chain] + [QPersistentModelIndex(index)]
             for k in range(len(tr) - 1):
@@ -224,7 +228,7 @@ class _LinedMixin:
                 x = col_x(k)
                 if len(path) == k + 1:          # la fila ES trace[k]: la serpiente baja desde su cajita
                     if self.isExpanded(index):
-                        p.drawLine(x, cy + 5, x, bot)
+                        p.drawLine(x, cy + (7 if chev else 5), x, bot)
                     break
                 mine, nxt = path[k + 1], tr[k + 1]
                 if mine == nxt:
@@ -236,8 +240,19 @@ class _LinedMixin:
                     p.drawLine(x, top, x, bot)
                 break
 
+        # 3) chevron › / ⌄ (estilo XYplorer)
+        if has_kids and chev:
+            x = col_x(depth)
+            on_path = tracing and QPersistentModelIndex(index) in tr
+            p.setRenderHint(QPainter.Antialiasing, True)
+            p.setPen(QPen(self._trace_color() if on_path else QColor("#c5c5c5"), 1.3, Qt.SolidLine, Qt.RoundCap,
+                          Qt.RoundJoin))
+            if self.isExpanded(index):
+                p.drawPolyline([QPointF(x - 4, cy - 2), QPointF(x, cy + 2), QPointF(x + 4, cy - 2)])
+            else:
+                p.drawPolyline([QPointF(x - 2, cy - 4), QPointF(x + 2, cy), QPointF(x - 2, cy + 4)])
         # 3) cajita ⊞/⊟
-        if has_kids:
+        elif has_kids:
             x = col_x(depth)
             box = QRect(x - 4, cy - 4, 9, 9)
             pix = QPersistentModelIndex(index)
@@ -346,4 +361,4 @@ class LibTree(_LinedMixin, QTreeWidget):
         return QColor(self._cfg("lib_tree_line_color", "#8d6fd1"))
 
     def _trace_color(self):
-        return QColor(self._cfg("lib_tree_line_color", "#8d6fd1")).lighter(150)
+        return QColor(self._cfg("lib_tree_line_color", "#4cc2ff"))
