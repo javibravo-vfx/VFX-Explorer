@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (QSizePolicy, QFrame, QVBoxLayout, QHBoxLayout, QT
                                QCheckBox, QListView, QTreeView, QStackedWidget, QAbstractItemView, QHeaderView,
                                QLabel, QMenu, QWidget)
 
-from .core import IS_WIN, FILTERS, parse_query, norm_key, same_path, THISPC
+from .core import IS_WIN, FILTERS, parse_query, norm_key, same_path, THISPC, IMAGE_EXTS
 from .fileops import is_subpath, is_network_path
 from .models import (EntryModel, EntryProxy, ScanWorker, SearchWorker, ResolveWorker, DrivesWorker, ROLE_ENTRY, COLS,
                      C_NAME, C_FOLDER, C_TAGS, C_RATING)
@@ -438,6 +438,7 @@ class FilePane(QFrame):
         self.workers = set()
         self.search_worker = None
         self.pending_select = None
+        self.pending_edit = False            # New folder: queda con el nombre en edición
         self.tabs = []
         self.ti = -1
         self.view_mode = "grid"
@@ -656,6 +657,7 @@ class FilePane(QFrame):
             QShortcut(QKeySequence(keys), v, fn, context=Qt.WidgetShortcut)
         sc(Qt.Key_Backspace, self.go_up)
         sc(QKeySequence.Delete, lambda: a.op_trash(self))
+        sc("Shift+Del", lambda: a.op_trash(self, permanent=True))
         sc("Ctrl+C", lambda: a.op_clip(self, cut=False))
         sc("Ctrl+X", lambda: a.op_clip(self, cut=True))
         sc("Ctrl+V", lambda: a.op_paste(self))
@@ -805,6 +807,7 @@ class FilePane(QFrame):
     VIEW_DEFAULT = {"view": "list", "sort": 0, "order": 0, "group": "auto"}      # como Windows: Detalles
     THISPC_DEFAULT = {"view": "grid", "sort": 0, "order": 0, "group": "auto"}             # Íconos grandes
     PICTURES_DEFAULT = {"view": "grid", "size": 240, "sort": 0, "order": 0, "group": "auto"}   # Íconos grandes
+    DOWNLOADS_DEFAULT = {"view": "list", "sort": 6, "order": 1, "group": "date"}          # agrupado por fecha
 
     def _fv_key(self):
         t = self.tab()
@@ -823,13 +826,28 @@ class FilePane(QFrame):
             return
         st = (self.app.cfg["folder_views"] or {}).get(k)
         if not st:
-            pics = self.app._sys_path("pictures") if hasattr(self.app, "_sys_path") else ""
+            sp = getattr(self.app, "_sys_path", None)
+            pics = sp("pictures") if sp else ""
+            downs = sp("downloads") if sp else ""
             if k == THISPC:
                 st = self.THISPC_DEFAULT
             elif pics and norm_key(pics) == k:
                 st = self.PICTURES_DEFAULT
+            elif downs and norm_key(downs) == k:
+                st = self.DOWNLOADS_DEFAULT
             else:
                 st = self.app.cfg["folder_view_default"] or self.VIEW_DEFAULT
+        self._apply_state(st)
+
+    def _auto_image_view(self, entries):
+        """Carpeta sin vista guardada con secuencias o imágenes → Íconos grandes directamente."""
+        k = self._fv_key()
+        if not k or k == THISPC or (self.app.cfg["folder_views"] or {}).get(k):
+            return
+        if any(e.kind == "seq" or (e.kind == "file" and e.ext in IMAGE_EXTS) for e in entries):
+            self._apply_state(self.PICTURES_DEFAULT, details=False)
+
+    def _apply_state(self, st, details=True):
         self._applying_view = True
         try:
             if st.get("view", "grid") != self.view_mode:
@@ -847,7 +865,7 @@ class FilePane(QFrame):
             hd = self.list.header()
             if hd.sortIndicatorSection() != col or hd.sortIndicatorOrder() != order:
                 self.list.sortByColumn(col, order)
-            if "details" in st and hasattr(self.app, "info_area") and self.app.active is self \
+            if details and "details" in st and hasattr(self.app, "info_area") and self.app.active is self \
                     and st["details"] != self.app.info_area.isVisible():
                 self.app.toggle_details(st["details"], remember=False)
         finally:
@@ -1291,6 +1309,7 @@ class FilePane(QFrame):
     def _scan_done(self, gen, path, entries, err):
         if gen != self.gen:
             return
+        self._auto_image_view(entries)
         self.model.group_mode = self.effective_group(virtual=False)
         self.model.set_entries(entries, path, virtual=False)
         self._apply_columns(folder_default=False)
@@ -1326,6 +1345,11 @@ class FilePane(QFrame):
         if first is not None:
             sel.setCurrentIndex(first, QItemSelectionModel.NoUpdate)
             v.scrollTo(first)
+            if self.pending_edit:
+                pix = QPersistentModelIndex(first.sibling(first.row(), 0))
+                v.setFocus()
+                QTimer.singleShot(0, lambda: pix.isValid() and v.edit(self.proxy.index(pix.row(), 0)))
+        self.pending_edit = False
 
     # ------------------------------------------------------------------ búsqueda
     def _on_search_text(self, _):

@@ -156,6 +156,15 @@ class Icons:
             tri = QPainterPath()
             tri.moveTo(26, 22); tri.lineTo(42, 32); tri.lineTo(26, 42); tri.closeSubpath()
             p.fillPath(tri, QColor("#ffffff"))
+        elif kind == "onedrive":
+            p.setBrush(QColor("#2b88d8"))
+            cl = QPainterPath()
+            cl.setFillRule(Qt.WindingFill)
+            cl.addEllipse(QPointF(24, 36), 13, 12)
+            cl.addEllipse(QPointF(37, 28), 15, 15)
+            cl.addEllipse(QPointF(48, 39), 10, 9)
+            cl.addRoundedRect(QRectF(11, 36, 47, 12), 6, 6)
+            p.drawPath(cl.simplified())
         elif kind == "documents":
             p.setBrush(QColor("#5b8def"))
             p.drawRoundedRect(QRectF(14, 6, 36, 52), 4, 4)
@@ -441,37 +450,36 @@ class Icons:
         return self._c[key]
 
     def app_icon(self):
-        """Ícono de la app: carpetas amarillas apiladas con un play celeste (igual que assets/icon.ico)."""
+        """Ícono de la app: tres carpetas apiladas amarillo-anaranjadas y un círculo celeste (= assets/icon.ico)."""
         icon = QIcon()
         for S in (16, 24, 32, 48, 64, 128, 256):
-            pm = QPixmap(S, S)
-            pm.fill(Qt.transparent)
-            p = QPainter(pm)
-            p.setRenderHint(QPainter.Antialiasing)
-            p.setPen(Qt.NoPen)
-            k = S / 1024.0
-            for (x, y), back, front in (((120, 150), "#b0801e", "#d6a02c"), ((210, 250), "#c49224", "#eab636"),
-                                        ((300, 350), "#d6a42c", "#f6c84a")):
-                w, h, r = 620 * k, 470 * k, 60 * k
-                X, Y = x * k, y * k
-                p.setBrush(QColor(back))
-                p.drawRoundedRect(QRectF(X, Y, w * .38, h * .16 + r), r, r)
-                p.drawRoundedRect(QRectF(X, Y + h * .16, w, h * .84), r, r)
-                p.setBrush(QColor(front))
-                p.drawRoundedRect(QRectF(X, Y + h * .30, w, h * .70), r, r)
-            p.setBrush(QColor("#4cc2ff"))
-            p.drawEllipse(QPointF(790 * k, 800 * k), 170 * k, 170 * k)
-            tri = QPainterPath()
-            tri.moveTo(735 * k, 715 * k); tri.lineTo(885 * k, 800 * k); tri.lineTo(735 * k, 885 * k); tri.closeSubpath()
-            p.fillPath(tri, QColor("#ffffff"))
-            p.end()
-            icon.addPixmap(pm)
+            icon.addPixmap(app_icon_pixmap(S))
         return icon
 
 
 # ----------------------------------------------------------------------------
 # Delegate de la grilla
 # ----------------------------------------------------------------------------
+
+APP_ICON_FOLDERS = ("#e8890c", "#f5a524", "#ffc14d")     # de atrás hacia adelante
+APP_ICON_DOT = "#4cc2ff"
+
+
+def app_icon_pixmap(S):
+    pm = QPixmap(S, S)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+    p.setPen(Qt.NoPen)
+    k = S / 64.0
+    for i, col in enumerate(APP_ICON_FOLDERS):
+        p.setBrush(QColor(col))
+        p.drawRoundedRect(QRectF((8 + i * 7) * k, (22 - i * 7) * k, 36 * k, 30 * k), 5 * k, 5 * k)
+    p.setBrush(QColor(APP_ICON_DOT))
+    p.drawEllipse(QPointF(46 * k, 46 * k), 9 * k, 9 * k)
+    p.end()
+    return pm
+
 
 def wrap_name(text, fm, width, max_lines=2):
     """Parte el nombre en hasta 2 líneas como el Explorador: corta en espacios, _ . - si puede, si no por letra;

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.15.0
+- App icon: back to the stacked-folders design, now yellow-orange with a light-blue dot.
+- Folders with image sequences or images open in Large icons (until you choose another view).
+- Downloads is grouped by date (newest first) by default.
+- OneDrive in Quick access, hidden by default (show it with the eye).
+- Del sends to the Recycle Bin right away; Shift+Del deletes permanently and asks first.
+- New folder creates «New folder» and leaves its name ready to edit, like Windows.
+
 ## 0.14.2
 - Tab close × back to a normal size.
 - The Details pane keeps the width you chose whatever you select (text files and long names no longer widen it).

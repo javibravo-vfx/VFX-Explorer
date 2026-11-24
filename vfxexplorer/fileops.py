@@ -121,16 +121,41 @@ def trash(paths):
     return errors
 
 
+def delete_permanently(paths):
+    """Borra sin pasar por la papelera (Shift+Del). Devuelve lista de errores."""
+    import shutil
+    errors = []
+    for p in paths:
+        try:
+            if os.path.isdir(p) and not os.path.islink(p):
+                shutil.rmtree(p)
+            elif os.path.lexists(p):
+                os.remove(p)
+        except Exception as ex:
+            errors.append(f"Could not delete {p}: {ex}")
+    return errors
+
+
+def unique_name(parent, base="New folder"):
+    """«New folder», «New folder (2)»… como Windows."""
+    name, n = base, 2
+    while os.path.exists(os.path.join(parent, name)):
+        name = f"{base} ({n})"
+        n += 1
+    return name
+
+
 class TrashWorker(QThread):
     done = Signal(list)
 
-    def __init__(self, paths):
+    def __init__(self, paths, permanent=False):
         super().__init__()
         self.paths = paths
+        self.permanent = permanent
 
     def run(self):
         try:
-            self.done.emit(trash(self.paths))
+            self.done.emit(delete_permanently(self.paths) if self.permanent else trash(self.paths))
         except Exception as ex:
             self.done.emit([str(ex)])
 

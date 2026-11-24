@@ -935,10 +935,17 @@ class MainWindow(QMainWindow):
             self.add_favorites([d], lib=lib)
 
     SYS_FOLDERS = (("desktop", "Desktop"), ("documents", "Documents"), ("downloads", "Downloads"), ("pictures", "Pictures"),
-                   ("videos", "Videos"))
+                   ("videos", "Videos"), ("onedrive", "OneDrive"))
 
     def _sys_path(self, kind):
         from PySide6.QtCore import QStandardPaths as SP
+        if kind == "onedrive":
+            for v in ("OneDrive", "OneDriveConsumer", "OneDriveCommercial"):
+                p = os.environ.get(v)
+                if p and os.path.isdir(p):
+                    return os.path.normpath(p)
+            p = os.path.join(os.path.expanduser("~"), "OneDrive")
+            return p if os.path.isdir(p) else ""
         loc = {"desktop": SP.DesktopLocation, "documents": SP.DocumentsLocation, "downloads": SP.DownloadLocation,
                "pictures": SP.PicturesLocation, "videos": SP.MoviesLocation}[kind]
         p = SP.writableLocation(loc)
@@ -2047,7 +2054,9 @@ class MainWindow(QMainWindow):
         dlg.canceled.connect(lambda: setattr(w, "cancelled", True))
         w.start()
 
-    def op_trash(self, pane):
+    def op_trash(self, pane, permanent=False):
+        """Del: a la papelera directo, sin preguntar. Shift+Del: borrar para siempre, preguntando.
+        En discos de red Windows no tiene papelera: ahí Del también pregunta."""
         ents = pane.selected_entries()
         if not ents or self.op_worker is not None:
             return
@@ -2055,23 +2064,30 @@ class MainWindow(QMainWindow):
         net = any(fileops.is_network_path(p) for p in paths[:1])
         n_files = len(paths)
         desc = ents[0].name if len(ents) == 1 else f"{len(ents)} items"
-        text = f"Send to the Recycle Bin: {desc}?" + (f"\n({n_files} files)" if n_files > 1 else "")
-        if net:
-            text += ("\n\n⚠ It's on a network drive: Windows deletes it PERMANENTLY "
-                     "(unless the NAS recycle bin is enabled for that shared folder).")
-        ans = self._ask("Send to Recycle Bin", text,
-                        [("Delete" if net else "Send to Recycle Bin", QMessageBox.DestructiveRole),
-                         ("Cancel", QMessageBox.RejectRole)], default="Cancel")
-        if ans in (None, "Cancel"):
-            return
-        w = fileops.TrashWorker(paths)
+        if permanent:
+            text = f"Permanently delete {desc}?" + (f"\n({n_files} files)" if n_files > 1 else "") + \
+                   "\n\nThis can't be undone."
+            ans = self._ask("Delete permanently", text, [("Delete", QMessageBox.DestructiveRole),
+                                                         ("Cancel", QMessageBox.RejectRole)], default="Cancel")
+            if ans in (None, "Cancel"):
+                return
+        elif net:
+            text = (f"Delete {desc}?" + (f"\n({n_files} files)" if n_files > 1 else "") +
+                    "\n\n⚠ It's on a network drive: Windows deletes it PERMANENTLY "
+                    "(unless the NAS recycle bin is enabled for that shared folder).")
+            ans = self._ask("Delete", text, [("Delete", QMessageBox.DestructiveRole),
+                                             ("Cancel", QMessageBox.RejectRole)], default="Cancel")
+            if ans in (None, "Cancel"):
+                return
+        w = fileops.TrashWorker(paths, permanent=permanent)
         self.op_worker = w
         self.status.setText("Deleting…")
 
         def fin(errors):
             self.op_worker = None
             self.refresh_dirs({e.dirpath for e in ents})
-            self.status.setText(f"{desc}: sent to the Recycle Bin" if not errors else "Delete error")
+            done = "deleted" if (permanent or net) else "sent to the Recycle Bin"
+            self.status.setText(f"{desc}: {done}" if not errors else "Delete error")
             if errors:
                 QMessageBox.warning(self, APP_NAME, "\n".join(errors[:10]))
         w.done.connect(fin)
@@ -2117,15 +2133,15 @@ class MainWindow(QMainWindow):
         d = pane.current_dir()
         if not d:
             return
-        name, ok = QInputDialog.getText(self, "New folder", "Name:", text="New folder")
-        if not ok or not name.strip():
-            return
+        # como Windows: crea «New folder» y queda con el nombre en edición
+        name = fileops.unique_name(d, "New folder")
         try:
             fileops.new_folder(d, name)
         except Exception as ex:
             QMessageBox.warning(self, APP_NAME, str(ex))
             return
-        pane.pending_select = name.strip()
+        pane.pending_select = name
+        pane.pending_edit = True
         pane.refresh()
 
     # ------------------------------------------------------------------ librería: color / rating / tags / colecciones
@@ -2664,7 +2680,8 @@ class MainWindow(QMainWindow):
                 m.addAction("Rename\tF2", lambda: self.start_inline_rename(pane, view))
                 if e.kind == "seq":
                     m.addAction("Renumber sequence…", lambda: self.op_rename(pane))
-            m.addAction("Send to Recycle Bin\tDel", lambda: self.op_trash(pane))
+            m.addAction("Delete\tDel", lambda: self.op_trash(pane))
+            m.addAction("Delete permanently\tShift+Del", lambda: self.op_trash(pane, permanent=True))
             m.addSeparator()
             cp = m.addMenu("Copy path")
             cp.addAction("Path  (plate.####.exr)\tCtrl+Shift+C", lambda: self.copy_paths(pane, "hash"))
@@ -2706,7 +2723,7 @@ class MainWindow(QMainWindow):
         if cur:
             if clip_paths:
                 m.addAction(f"Paste ({len(clip_paths)} file(s))\tCtrl+V", lambda: self.op_paste(pane))
-            m.addAction("New folder…\tCtrl+Shift+N", lambda: self.op_new_folder(pane))
+            m.addAction("New folder\tCtrl+Shift+N", lambda: self.op_new_folder(pane))
             m.addAction("Pin this folder to Quick access", lambda: self.add_favorites([cur]))
         if cur and self.mode() == "explorer":
             m.addAction("View in VFX Library" if self.libpane.allowed(cur) else "Add this folder to the VFX Library",

@@ -700,7 +700,7 @@ class Config:
         # 0.6
         "folder_color": "yellow",       # yellow (Windows) | blue
         "splitter_left2": "",
-        "cfg_version": 9,
+        "cfg_version": 10,
         "pipeline_task_depts": None,    # None = "3D": departamentos que tienen tasks
         "pipeline_stages": None,        # None = "1_projects, 2_review, 3_publish"
         # 0.7
@@ -708,7 +708,7 @@ class Config:
         "quick_tags": None,             # None = pastillas por defecto (DEFAULT_QUICK_TAGS)
         "lib_tree_line_color": "#4cc2ff",
         "splitter_left3": "",
-        "hidden_sys": [],
+        "hidden_sys": ["onedrive"],
         "hidden_drives": [],
         "list_cols": {},
         "system_icons": True,           # ícono original de programas/documentos (no en imágenes, video, audio)
@@ -741,6 +741,12 @@ class Config:
                 if self.data.get("lib_tree_line_color") == "#8d6fd1":
                     self.data["lib_tree_line_color"] = "#4cc2ff"
                 self.data["cfg_version"] = 9
+            if int(saved.get("cfg_version", 0)) < 10:           # 0.15: OneDrive en Quick access, oculto
+                hs = list(self.data.get("hidden_sys") or [])
+                if "onedrive" not in hs:
+                    hs.append("onedrive")
+                self.data["hidden_sys"] = hs
+                self.data["cfg_version"] = 10
         except Exception:
             pass
 
