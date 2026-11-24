@@ -462,7 +462,7 @@ class Icons:
 # ----------------------------------------------------------------------------
 
 APP_ICON_FOLDERS = ("#e8890c", "#f5a524", "#ffc14d")     # de atrás hacia adelante
-APP_ICON_MARKER = "#2fb4ff"
+APP_ICON_MARKER = "#00b8d0"
 
 
 def app_icon_pixmap(S):
@@ -476,17 +476,24 @@ def app_icon_pixmap(S):
     for i, col in enumerate(APP_ICON_FOLDERS):
         p.setBrush(QColor(col))
         p.drawRoundedRect(QRectF((8 + i * 7) * k, (22 - i * 7) * k, 36 * k, 30 * k), 5 * k, 5 * k)
-    # tracking marker: aro + dos cuadrantes opuestos llenos (como los de set)
-    cx, cy, r = 40 * k, 23 * k, 10.5 * k
+    # tracking marker: cuatro esquinas tipo visor + cruz al centro
     col = QColor(APP_ICON_MARKER)
-    pen_w = max(1.0, 2.4 * k)
-    box = QRectF(cx - r, cy - r, 2 * r, 2 * r)
-    p.setBrush(col)
-    p.drawPie(box, 90 * 16, 90 * 16)       # arriba-izquierda
-    p.drawPie(box, 270 * 16, 90 * 16)      # abajo-derecha
+    w = max(1.0, 2.5 * k)
+    pen = QPen(col, w, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+    p.setPen(pen)
     p.setBrush(Qt.NoBrush)
-    p.setPen(QPen(col, pen_w))
-    p.drawEllipse(QRectF(cx - r + pen_w / 2, cy - r + pen_w / 2, 2 * r - pen_w, 2 * r - pen_w))
+    x0, x1, y0, y1 = 28.2 * k, 52.4 * k, 13.9 * k, 32.4 * k
+    ax, ay = 7.0 * k, 5.8 * k
+    for x, y, dx, dy in ((x0, y0, 1, 1), (x1, y0, -1, 1), (x0, y1, 1, -1), (x1, y1, -1, -1)):
+        path = QPainterPath()
+        path.moveTo(x + dx * ax, y)
+        path.lineTo(x, y)
+        path.lineTo(x, y + dy * ay)
+        p.drawPath(path)
+    p.setPen(QPen(col, max(1.0, 1.7 * k), Qt.SolidLine, Qt.RoundCap))
+    cx, cy, c = 40.3 * k, 23.2 * k, 3.3 * k
+    p.drawLine(QPointF(cx - c, cy), QPointF(cx + c, cy))
+    p.drawLine(QPointF(cx, cy - c), QPointF(cx, cy + c))
     p.end()
     return pm
 

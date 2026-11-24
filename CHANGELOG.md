@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.15.2
+- App icon: the marker is now viewfinder corners with a center cross, in cyan.
+
 ## 0.15.1
 - App icon: light-blue tracking marker on the front folder, drawn per size (16–256 px) in the .ico and the window icon.
 
