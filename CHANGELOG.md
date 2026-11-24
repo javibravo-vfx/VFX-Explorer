@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.15.1
+- App icon: light-blue tracking marker on the front folder, drawn per size (16–256 px) in the .ico and the window icon.
+
 ## 0.15.0
 - App icon: back to the stacked-folders design, now yellow-orange with a light-blue dot.
 - Folders with image sequences or images open in Large icons (until you choose another view).

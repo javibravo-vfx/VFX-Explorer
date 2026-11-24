@@ -450,7 +450,7 @@ class Icons:
         return self._c[key]
 
     def app_icon(self):
-        """Ícono de la app: tres carpetas apiladas amarillo-anaranjadas y un círculo celeste (= assets/icon.ico)."""
+        """Ícono de la app: tres carpetas apiladas amarillo-anaranjadas con un tracking marker celeste (= assets/icon.ico)."""
         icon = QIcon()
         for S in (16, 24, 32, 48, 64, 128, 256):
             icon.addPixmap(app_icon_pixmap(S))
@@ -462,10 +462,11 @@ class Icons:
 # ----------------------------------------------------------------------------
 
 APP_ICON_FOLDERS = ("#e8890c", "#f5a524", "#ffc14d")     # de atrás hacia adelante
-APP_ICON_DOT = "#4cc2ff"
+APP_ICON_MARKER = "#2fb4ff"
 
 
 def app_icon_pixmap(S):
+    """Tres carpetas apiladas amarillo-anaranjadas con un tracking marker celeste sobre la de adelante."""
     pm = QPixmap(S, S)
     pm.fill(Qt.transparent)
     p = QPainter(pm)
@@ -475,8 +476,17 @@ def app_icon_pixmap(S):
     for i, col in enumerate(APP_ICON_FOLDERS):
         p.setBrush(QColor(col))
         p.drawRoundedRect(QRectF((8 + i * 7) * k, (22 - i * 7) * k, 36 * k, 30 * k), 5 * k, 5 * k)
-    p.setBrush(QColor(APP_ICON_DOT))
-    p.drawEllipse(QPointF(46 * k, 46 * k), 9 * k, 9 * k)
+    # tracking marker: aro + dos cuadrantes opuestos llenos (como los de set)
+    cx, cy, r = 40 * k, 23 * k, 10.5 * k
+    col = QColor(APP_ICON_MARKER)
+    pen_w = max(1.0, 2.4 * k)
+    box = QRectF(cx - r, cy - r, 2 * r, 2 * r)
+    p.setBrush(col)
+    p.drawPie(box, 90 * 16, 90 * 16)       # arriba-izquierda
+    p.drawPie(box, 270 * 16, 90 * 16)      # abajo-derecha
+    p.setBrush(Qt.NoBrush)
+    p.setPen(QPen(col, pen_w))
+    p.drawEllipse(QRectF(cx - r + pen_w / 2, cy - r + pen_w / 2, 2 * r - pen_w, 2 * r - pen_w))
     p.end()
     return pm
 
