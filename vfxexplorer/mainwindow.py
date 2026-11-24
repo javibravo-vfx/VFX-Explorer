@@ -178,6 +178,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"{APP_NAME} {VERSION}")
         self.setWindowIcon(self.icons.app_icon())
         self._ready = False             # hasta terminar de abrir no se guardan vistas por carpeta
+        self._sys_view_defaults()
         self._build()
         self._restore(start_path)
         self._ready = True
@@ -945,6 +946,20 @@ class MainWindow(QMainWindow):
 
     SYS_FOLDERS = (("desktop", "Desktop"), ("documents", "Documents"), ("downloads", "Downloads"), ("pictures", "Pictures"),
                    ("videos", "Videos"), ("onedrive", "OneDrive"))
+
+    def _sys_view_defaults(self):
+        """0.17: Downloads (agrupado por fecha) y Videos (íconos grandes) arrancan con su vista de fábrica,
+        aunque ya se hubiera guardado otra antes."""
+        if int(self.cfg["sys_view_defaults"] or 0) >= 1:
+            return
+        fv = dict(self.cfg["folder_views"] or {})
+        for kind in ("downloads", "videos"):
+            p = self._sys_path(kind)
+            if p:
+                fv.pop(norm_key(p), None)
+        self.cfg["folder_views"] = fv
+        self.cfg["sys_view_defaults"] = 1
+        self.cfg.save()
 
     def _sys_path(self, kind):
         from PySide6.QtCore import QStandardPaths as SP

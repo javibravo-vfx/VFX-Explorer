@@ -706,6 +706,8 @@ class Config:
         "cfg_version": 10,
         "pipeline_task_depts": None,    # None = "3D": departamentos que tienen tasks
         "pipeline_stages": None,        # None = "1_projects, 2_review, 3_publish"
+        "pipeline_templates": {},       # ＋ del pipeline: tasks de 3D, DMP, Comp (vacío = TEMPLATE_DEFAULTS)
+        "sys_view_defaults": 0,         # vistas por defecto de Downloads / Videos ya aplicadas
         # 0.7
         "lib_favorites": [],            # acceso rápido de la VFX Library
         "quick_tags": None,             # None = pastillas por defecto (DEFAULT_QUICK_TAGS)

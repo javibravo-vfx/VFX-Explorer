@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.17.0
+- Pipeline ＋: creates a 3D task (with its subfolders), DMP or Comp in the current shot; existing ones are checked off.
+- Settings › New folders: edit the 3D tasks (and what goes inside 1_projects for each), the task folders, DMP and Comp subfolders.
+- Downloads starts grouped by date modified and Videos in Large icons (reset once on update).
+- App icon: one big folder with the marker and a second one tucked right behind.
+
 ## 0.16.0
 - Sequence collapse button in the status bar (left of Subfolders): off shows every frame as its own file.
 - VFX Library: Large icons by default for every folder (its views are remembered apart from File Explorer).

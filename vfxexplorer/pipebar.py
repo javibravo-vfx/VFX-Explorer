@@ -36,6 +36,14 @@ class PipelineBar(QWidget):
                 cb.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
                 cb.setMinimumContentsLength(4)
             self.cbs[key] = cb
+        self.add_b = QToolButton()
+        self.add_b.setIcon(app.icons.glyph("plus", 16, "#4cc2ff"))
+        self.add_b.setToolTip("Create a 3D task, DMP or Comp for this shot")
+        self.add_b.setPopupMode(QToolButton.InstantPopup)
+        self.add_b.setAutoRaise(True)
+        self.add_menu = QMenu(self.add_b)
+        self.add_menu.aboutToShow.connect(self._fill_add_menu)
+        self.add_b.setMenu(self.add_menu)
         self.folder = QToolButton()
         self.folder.setIcon(app.icons.glyph("folder", 16))
         self.folder.setToolTip("Go to shot / dept / task folders")
@@ -55,6 +63,7 @@ class PipelineBar(QWidget):
                 l.setStyleSheet("color:#9d9d9d; font-size:8pt;")
                 g.addWidget(l, r, 0)
                 g.addWidget(self.cbs[key], r, 1)
+            g.addWidget(self.add_b, 1, 2)
             g.addWidget(self.folder, 0, 2)
             g.setColumnStretch(1, 1)
         else:
@@ -73,6 +82,7 @@ class PipelineBar(QWidget):
                     lay.addWidget(d)
                 lay.addWidget(self.cbs[key], stretch[key])
             lay.addSpacing(4)
+            lay.addWidget(self.add_b)
             lay.addWidget(self.folder)
         self.reload()
 
@@ -110,6 +120,7 @@ class PipelineBar(QWidget):
         for cb in self.cbs.values():
             cb.setEnabled(ok)
         self.folder.setEnabled(ok)
+        self.add_b.setEnabled(ok)
         if not ok:
             self.setToolTip(f"Pipeline root not found: {self.pipe.base()} (see Settings › Pipeline)")
             return
@@ -209,6 +220,51 @@ class PipelineBar(QWidget):
         for k in ("seq", "shot", "dept", "task"):
             self._fill(k, [])
         self.cbs["task"].setPlaceholderText("Task")
+
+    # ---------------- ＋ crear 3D task / DMP / Comp
+    def _fill_add_menu(self):
+        m = self.add_menu
+        m.clear()
+        p, s, sh, d, t = self._vals()
+        pipe = self.pipe
+        if not sh:
+            m.addAction("Pick a shot first").setEnabled(False)
+            return
+        three = pipe.dept_folder(p, s, sh, "3d")
+        have = {x.lower() for x in pipe.tasks(p, s, sh, os.path.basename(three))} if os.path.isdir(three) else set()
+        sub = m.addMenu(f"{pipe.tpl('3d_name')} task")
+        for task, _inner in pipe.template_tasks():
+            a = sub.addAction(("✓  " if task.lower() in have else "     ") + task)
+            a.setEnabled(task.lower() not in have)
+            a.triggered.connect(lambda c=False, x=task: self._create("task", x))
+        if not pipe.template_tasks():
+            sub.addAction("No tasks (Settings › New folders)").setEnabled(False)
+        for which in ("dmp", "comp"):
+            name = pipe.tpl(which + "_name")
+            exists = os.path.isdir(pipe.dept_folder(p, s, sh, which))
+            a = m.addAction(("✓  " if exists else "") + name)
+            a.setEnabled(not exists)
+            a.setToolTip(name + "\\" + ", ".join(pipe.tpl(which + "_subs").split(",")))
+            a.triggered.connect(lambda c=False, w=which: self._create(w))
+        m.addSeparator()
+        m.addAction("Edit templates…", lambda: self.app.open_settings("New folders"))
+        m.setToolTipsVisible(True)
+
+    def _create(self, which, task=None):
+        p, s, sh, d, t = self._vals()
+        try:
+            if which == "task":
+                target = self.pipe.create_task(p, s, sh, task)
+            else:
+                target = self.pipe.create_dept(p, s, sh, which)
+        except OSError as ex:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "Pipeline", f"Could not create the folders:\n{ex}")
+            return
+        if target:
+            self.app.status.setText(f"Created {target}")
+            self.app.open_in_explorer(target)
+            self.sync(target)
 
     def _fill_menu(self):
         m = self.menu

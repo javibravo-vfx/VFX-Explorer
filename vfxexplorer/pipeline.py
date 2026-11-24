@@ -24,6 +24,37 @@ STM_DEFAULTS = {
 }
 
 
+# Plantillas del botón ＋ (editables en Settings › New folders). 3D: una línea por task,
+# «task: subcarpetas dentro de la primera carpeta de trabajo (1_projects)».
+TEMPLATE_DEFAULTS = {
+    "3d_name": "3D",
+    "3d_tasks": "1_matchmove: footage, textures\n2_model: textures\n3_retopo: textures\n4_rigging: textures\n"
+                "5_shaders: textures\n6_animation: textures\n7_fx: textures, cache\n8_lighting: textures, cache, import",
+    "3d_task_subs": "1_projects, 2_review, 3_publish",
+    "dmp_name": "DMP",
+    "dmp_subs": "1_projects, 2_review, 3_publish",
+    "comp_name": "Comp",
+    "comp_subs": "0_assets, 1_projects, 2_prerenders, 3_review, 4_publish",
+}
+
+
+def split_list(v):
+    return [x.strip() for x in str(v or "").replace("\n", ",").split(",") if x.strip()]
+
+
+def parse_tasks(text):
+    """«1_matchmove: footage, textures» por línea → [(task, [subs])]."""
+    out = []
+    for line in str(text or "").splitlines():
+        if not line.strip():
+            continue
+        name, _, subs = line.partition(":")
+        name = name.strip()
+        if name:
+            out.append((name, split_list(subs)))
+    return out
+
+
 def _listdirs(path):
     try:
         with os.scandir(path) as it:
@@ -67,6 +98,55 @@ class Pipeline:
             v = "1_projects, 2_review, 3_publish"
         return [x.strip() for x in v.split(",") if x.strip()]
 
+    # ---------------- plantillas del ＋
+    def tpl(self, key):
+        v = (self.cfg["pipeline_templates"] or {}).get(key)
+        return TEMPLATE_DEFAULTS[key] if v is None else v
+
+    def template_tasks(self):
+        return parse_tasks(self.tpl("3d_tasks"))
+
+    def _existing(self, parent, name):
+        """La carpeta tal como existe (sin importar mayúsculas) o el nombre de la plantilla."""
+        for d in _listdirs(parent):
+            if d.lower() == name.lower():
+                return d
+        return name
+
+    def dept_folder(self, project, seq, shot, which):
+        """Ruta de 3D / DMP / Comp en el shot (respeta las mayúsculas de lo que ya exista)."""
+        sd = self.shot_dir(project, seq, shot)
+        if not sd:
+            return ""
+        return os.path.join(sd, self._existing(sd, self.tpl(which + "_name")))
+
+    def create_task(self, project, seq, shot, task):
+        r"""3D\<task>\1_projects\(footage, textures…) + 2_review, 3_publish."""
+        base = self.dept_folder(project, seq, shot, "3d")
+        if not base or not task:
+            return ""
+        td = os.path.join(base, task)
+        subs = split_list(self.tpl("3d_task_subs"))
+        inner = dict(self.template_tasks()).get(task, [])
+        if subs:
+            for x in inner or [""]:
+                os.makedirs(os.path.join(td, subs[0], x) if x else os.path.join(td, subs[0]), exist_ok=True)
+            for sub in subs[1:]:
+                os.makedirs(os.path.join(td, sub), exist_ok=True)
+        else:
+            os.makedirs(td, exist_ok=True)
+        return td
+
+    def create_dept(self, project, seq, shot, which):
+        """DMP o Comp con sus subcarpetas."""
+        d = self.dept_folder(project, seq, shot, which)
+        if not d:
+            return ""
+        os.makedirs(d, exist_ok=True)
+        for sub in split_list(self.tpl(which + "_subs")):
+            os.makedirs(os.path.join(d, sub), exist_ok=True)
+        return d
+
     def task_depts(self):
         v = self.cfg["pipeline_task_depts"]
         if v is None:
@@ -78,8 +158,10 @@ class Pipeline:
         · «folder»: carpetas sueltas (_input)."""
         if not dept:
             return "task"
-        if dept.lower() in self.task_depts():
+        if dept.lower() in self.task_depts() or dept.lower() == self.tpl("3d_name").lower():
             return "task"
+        if dept.lower() in (self.tpl("dmp_name").lower(), self.tpl("comp_name").lower()):
+            return "stage"
         kids = {k.lower() for k in _listdirs(self.dept_dir(project, seq, shot, dept))}
         if kids & {x.lower() for x in self.subfolders()}:
             return "stage"

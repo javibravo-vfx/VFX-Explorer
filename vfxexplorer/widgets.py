@@ -10,7 +10,7 @@ from PySide6.QtGui import (QPixmap, QPainter, QColor, QIcon, QPainterPath, QFont
 from PySide6.QtWidgets import (QStyledItemDelegate, QStyle, QWidget, QHBoxLayout, QToolButton, QLineEdit,
                                QMenu, QStackedLayout, QDialog, QFormLayout, QVBoxLayout, QLabel, QListWidget,
                                QDialogButtonBox, QComboBox, QSpinBox, QPushButton, QFileDialog, QCheckBox,
-                               QTabWidget, QCompleter, QSizePolicy)
+                               QTabWidget, QCompleter, QSizePolicy, QPlainTextEdit)
 
 from .core import IS_WIN, human_size, fwd, find_tool
 from .imaging import COLORSPACES
@@ -476,38 +476,39 @@ APP_ICON_MARKER = "#0a7bca"                    # el azul del ícono del Explorad
 
 
 def app_icon_pixmap(S):
-    """Dos carpetas apiladas (amarillo Windows) con un tracking marker azul sobre la de adelante."""
+    """Carpeta grande (amarillo Windows) con el tracking marker azul y otra pegadita atrás."""
     pm = QPixmap(S, S)
     pm.fill(Qt.transparent)
     p = QPainter(pm)
     p.setRenderHint(QPainter.Antialiasing)
     p.setPen(Qt.NoPen)
     k = S / 64.0
-    for (x, y), col in zip(((10, 20), (22, 8)), APP_ICON_FOLDERS):
-        p.setBrush(QColor(col))
-        p.drawRoundedRect(QRectF(x * k, y * k, 36 * k, 30 * k), 5 * k, 5 * k)
-    # luz arriba en la carpeta de adelante, como la de Windows
+    fx, fy, fw, fh = 12 * k, 10 * k, 49 * k, 40 * k          # carpeta de adelante
+    r = 6 * k
+    p.setBrush(QColor(APP_ICON_FOLDERS[0]))                    # la de atrás asoma apenas
+    p.drawRoundedRect(QRectF(fx - 7 * k, fy + 7 * k, fw, fh), r, r)
+    p.setBrush(QColor(APP_ICON_FOLDERS[1]))
+    p.drawRoundedRect(QRectF(fx, fy, fw, fh), r, r)
     p.save()
-    p.setClipRect(QRectF(22 * k, 8 * k, 36 * k, 7 * k))
+    p.setClipRect(QRectF(fx, fy, fw, fh * .23))
     p.setBrush(QColor(APP_ICON_FRONT_TOP))
-    p.drawRoundedRect(QRectF(22 * k, 8 * k, 36 * k, 30 * k), 5 * k, 5 * k)
+    p.drawRoundedRect(QRectF(fx, fy, fw, fh), r, r)
     p.restore()
     # tracking marker: cuatro esquinas tipo visor + cruz al centro
     col = QColor(APP_ICON_MARKER)
-    w = max(1.0, 2.5 * k)
-    pen = QPen(col, w, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
-    p.setPen(pen)
+    p.setPen(QPen(col, max(1.0, fw * .072), Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
     p.setBrush(Qt.NoBrush)
-    x0, x1, y0, y1 = 28.2 * k, 52.4 * k, 13.9 * k, 32.4 * k
-    ax, ay = 7.0 * k, 5.8 * k
+    x0, x1 = fx + fw * .172, fx + fw * .828
+    y0, y1 = fy + fh * .2, fy + fh * .81
+    ax, ay = fw * .19, fh * .19
     for x, y, dx, dy in ((x0, y0, 1, 1), (x1, y0, -1, 1), (x0, y1, 1, -1), (x1, y1, -1, -1)):
         path = QPainterPath()
         path.moveTo(x + dx * ax, y)
         path.lineTo(x, y)
         path.lineTo(x, y + dy * ay)
         p.drawPath(path)
-    p.setPen(QPen(col, max(1.0, 1.7 * k), Qt.SolidLine, Qt.RoundCap))
-    cx, cy, c = 40.3 * k, 23.2 * k, 3.3 * k
+    p.setPen(QPen(col, max(1.0, fw * .05), Qt.SolidLine, Qt.RoundCap))
+    cx, cy, c = fx + fw * .5, fy + fh * .505, fw * .095
     p.drawLine(QPointF(cx - c, cy), QPointF(cx + c, cy))
     p.drawLine(QPointF(cx, cy - c), QPointF(cx, cy + c))
     p.end()
@@ -1261,6 +1262,42 @@ class SettingsDialog(QDialog):
         pl.addRow("Show the dropdowns:", self.p_loc)
         tabs.addTab(pw, "Pipeline")
 
+        # --- Plantillas del ＋ del pipeline
+        from .pipeline import TEMPLATE_DEFAULTS
+        tpl = dict(TEMPLATE_DEFAULTS)
+        tpl.update({k: v for k, v in (cfg["pipeline_templates"] or {}).items() if v is not None})
+        nw = QWidget()
+        nl = QFormLayout(nw)
+        nl.addRow("", _hint("The ＋ next to the pipeline dropdowns creates these folders inside the current shot."))
+        self.t_3d = QLineEdit(tpl["3d_name"])
+        nl.addRow("3D folder:", self.t_3d)
+        self.t_tasks = QPlainTextEdit(tpl["3d_tasks"])
+        self.t_tasks.setFixedHeight(150)
+        self.t_tasks.setPlaceholderText("task: folders inside the first task folder\n1_matchmove: footage, textures")
+        nl.addRow("3D tasks:", self.t_tasks)
+        nl.addRow("", _hint("One task per line. After «:» the folders created inside its first folder "
+                            "(e.g. 7_fx: textures, cache → 7_fx\\1_projects\\textures, cache)."))
+        self.t_tsubs = QLineEdit(tpl["3d_task_subs"])
+        nl.addRow("Folders in each task:", self.t_tsubs)
+        self.t_dmp = QLineEdit(tpl["dmp_name"])
+        self.t_dmp_subs = QLineEdit(tpl["dmp_subs"])
+        nl.addRow("DMP folder:", self.t_dmp)
+        nl.addRow("DMP subfolders:", self.t_dmp_subs)
+        self.t_comp = QLineEdit(tpl["comp_name"])
+        self.t_comp_subs = QLineEdit(tpl["comp_subs"])
+        nl.addRow("Comp folder:", self.t_comp)
+        nl.addRow("Comp subfolders:", self.t_comp_subs)
+        tdef = QPushButton("Restore defaults")
+        tdef.clicked.connect(lambda: (self.t_3d.setText(TEMPLATE_DEFAULTS["3d_name"]),
+                                      self.t_tasks.setPlainText(TEMPLATE_DEFAULTS["3d_tasks"]),
+                                      self.t_tsubs.setText(TEMPLATE_DEFAULTS["3d_task_subs"]),
+                                      self.t_dmp.setText(TEMPLATE_DEFAULTS["dmp_name"]),
+                                      self.t_dmp_subs.setText(TEMPLATE_DEFAULTS["dmp_subs"]),
+                                      self.t_comp.setText(TEMPLATE_DEFAULTS["comp_name"]),
+                                      self.t_comp_subs.setText(TEMPLATE_DEFAULTS["comp_subs"])))
+        nl.addRow("", tdef)
+        tabs.addTab(nw, "New folders")
+
         # --- Colores
         from .colors import COLOR_MODES, DEFAULT_NAME_RULES
         cw = QWidget()
@@ -1311,7 +1348,6 @@ class SettingsDialog(QDialog):
             i = self.lcolor.count() - 1
         self.lcolor.setCurrentIndex(i)
         cl.addRow("VFX Library lines:", self.lcolor)
-        from PySide6.QtWidgets import QPlainTextEdit
         self.rules = QPlainTextEdit(cfg["name_rules"] or DEFAULT_NAME_RULES)
         self.rules.setMinimumHeight(220)
         self.rules.setStyleSheet("font-family:Consolas,monospace; font-size:9pt;")
@@ -1412,6 +1448,13 @@ class SettingsDialog(QDialog):
         cfg["pipeline_task_depts"] = self.p_taskdepts.text().strip()
         cfg["pipeline_stages"] = self.p_stages.text().strip()
         cfg["pipeline_location"] = self.p_loc.currentData()
+        from .pipeline import TEMPLATE_DEFAULTS
+        newt = {"3d_name": self.t_3d.text().strip() or "3D", "3d_tasks": self.t_tasks.toPlainText().strip(),
+                "3d_task_subs": self.t_tsubs.text().strip(), "dmp_name": self.t_dmp.text().strip() or "DMP",
+                "dmp_subs": self.t_dmp_subs.text().strip(), "comp_name": self.t_comp.text().strip() or "Comp",
+                "comp_subs": self.t_comp_subs.text().strip()}
+        # solo se guarda lo que difiere del default (así un cambio de default en otra versión se aplica)
+        cfg["pipeline_templates"] = {k: v for k, v in newt.items() if v != TEMPLATE_DEFAULTS[k]}
         new_p = (cfg["pipeline_root"], cfg["pipeline_prefix"], cfg["pipeline_seq_exclude"],
                  cfg["pipeline_depts"], cfg["pipeline_task_depts"], cfg["pipeline_stages"])
         listing_changed = hidden_changed or cfg["folder_sizes"] != self.fsizes.isChecked()
