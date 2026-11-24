@@ -193,7 +193,7 @@ class TabCloseButton(QToolButton):
 
     def __init__(self):
         super().__init__()
-        self.setFixedSize(30, 28)
+        self.setFixedSize(24, 24)
         self.setToolTip("Close tab (Ctrl+W · middle click)")
         self.setCursor(Qt.ArrowCursor)
         self.setStyleSheet("QToolButton{border:none;background:transparent;border-radius:5px;}"
@@ -205,7 +205,7 @@ class TabCloseButton(QToolButton):
         p.setRenderHint(QPainter.Antialiasing)
         p.setPen(QPen(QColor("#ffffff" if self.underMouse() else "#c5c5c5"), 1.3, Qt.SolidLine, Qt.RoundCap))
         c = QPointF(self.width() / 2, self.height() / 2)
-        k = 6.0
+        k = 4.0
         p.drawLine(QPointF(c.x() - k, c.y() - k), QPointF(c.x() + k, c.y() + k))
         p.drawLine(QPointF(c.x() + k, c.y() - k), QPointF(c.x() - k, c.y() + k))
         p.end()
@@ -977,9 +977,9 @@ class FilePane(QFrame):
         i = self.tabbar.addTab(self._tab_icon(t), self._tab_title(t))
         self.tabbar.setTabToolTip(i, t["path"])
         close = QWidget()                       # contenedor: deja aire a la derecha, como Windows
-        close.setFixedSize(42, 32)
+        close.setFixedSize(34, 28)
         cl = QHBoxLayout(close)
-        cl.setContentsMargins(0, 0, 10, 0)
+        cl.setContentsMargins(0, 0, 8, 0)
         btn = TabCloseButton()
         btn.clicked.connect(lambda c=False, b=close: self._close_by_button(b))
         cl.addWidget(btn, 0, Qt.AlignRight | Qt.AlignVCenter)
@@ -1171,6 +1171,10 @@ class FilePane(QFrame):
         self._apply_folder_view()
         self.b_back.setEnabled(t["hpos"] > 0 or bool(t["virtual"]))
         self.b_fwd.setEnabled(t["hpos"] < len(t["history"]) - 1)
+        top = (t["virtual"] and t["virtual"]["kind"] == "thispc") or t["path"] == THISPC
+        if self.root_lock and not t["virtual"]:
+            top = any(same_path(t["path"], r) for r in self.root_lock())
+        self.b_up.setEnabled(not top)
         self._notify_nav()
         self._update_tab()
         self.location_changed.emit(self)
@@ -1196,6 +1200,8 @@ class FilePane(QFrame):
         t = self.tab()
         if not t:
             return
+        if (t["virtual"] and t["virtual"]["kind"] == "thispc") or t["path"] == THISPC:
+            return                                  # This PC es el nivel más alto
         if t["virtual"]:
             self.navigate(t["path"], add_history=False)
             return

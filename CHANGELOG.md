@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.2
+- Tab close × back to a normal size.
+- The Details pane keeps the width you chose whatever you select (text files and long names no longer widen it).
+- Dragging the Details pane closed turns the Details button off; turning it on brings it back at its minimum width.
+- This PC is the top level: Up is disabled there.
+
 ## 0.14.1
 - Original file icons are centered in the grid on scaled displays (125%, 150%…); generic "unknown type" icons fall back to the type badge.
 - Bigger tab close button (×), further from the edge.

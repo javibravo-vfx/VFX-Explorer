@@ -522,7 +522,10 @@ class MainWindow(QMainWindow):
         self.text_view.setStyleSheet("QPlainTextEdit{background:#141414; border:1px solid #2a2a2a; border-radius:4px;"
                                      "font-family:Consolas,'Cascadia Mono','DejaVu Sans Mono',monospace;"
                                      "font-size:9.5pt; color:#d6d6d6; padding:4px;}")
+        self.text_title.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.text_meta = QLabel()
+        self.text_meta.setWordWrap(True)
+        self.text_meta.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.text_meta.setStyleSheet("color:#8b9099; font-size:8.5pt;")
         tpl.addWidget(self.text_title)
         tpl.addWidget(self.text_view, 1)
@@ -549,6 +552,10 @@ class MainWindow(QMainWindow):
         dsl.setContentsMargins(0, 0, 0, 0)
         dsl.addWidget(self.details_stack)
         self.info_area.setMinimumWidth(0)      # el mínimo (DETAILS_MIN_W) lo maneja el splitter
+        # lo que se muestra adentro nunca cambia el ancho del panel (lo elige el usuario)
+        self.info_area.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
+        self.details_stack.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
+        self.text_view.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
         self.info.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.preview.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         self.preview.installEventFilter(self)
@@ -794,6 +801,7 @@ class MainWindow(QMainWindow):
             return
         self.gnav_buttons["back"].setEnabled(pane.b_back.isEnabled())
         self.gnav_buttons["fwd"].setEnabled(pane.b_fwd.isEnabled())
+        self.gnav_buttons["up"].setEnabled(pane.b_up.isEnabled())
         if self.gsearch.text() != pane.search.text():
             self.gsearch.blockSignals(True)
             self.gsearch.setText(pane.search.text())
@@ -852,11 +860,23 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self._auto_details)
 
     def _clamp_details(self):
-        """El panel de detalles no se achica arrastrando por debajo de su mínimo."""
+        """El panel de detalles no se achica arrastrando por debajo de su mínimo; si se colapsa del todo,
+        se apaga (y el botón Details también)."""
         s = self.main_split.sizes()
+        if self.info_area.isVisible() and len(s) == 3 and s[2] == 0:
+            self.toggle_details(False)
+            return
         if self.info_area.isVisible() and len(s) == 3 and 0 < s[2] < DETAILS_MIN_W:
             d = DETAILS_MIN_W - s[2]
             self.main_split.setSizes([s[0], max(50, s[1] - d), DETAILS_MIN_W])
+
+    def _ensure_details_width(self):
+        """Al volver a mostrar el panel de detalles, que tenga al menos su ancho mínimo."""
+        s = self.main_split.sizes()
+        if self.info_area.isVisible() and len(s) == 3 and s[2] < DETAILS_MIN_W:
+            d = DETAILS_MIN_W - s[2]
+            self.main_split.setSizes([s[0], max(220, s[1] - d), DETAILS_MIN_W])
+        self._sync_cmd_left()
 
     def _auto_details(self):
         """Si la ventana queda tan angosta que el panel de detalles no entra con su mínimo, se apaga solo
@@ -1228,7 +1248,7 @@ class MainWindow(QMainWindow):
             self._details_auto_off = False
         self.info_area.setVisible(show)
         if show and changed:
-            QTimer.singleShot(0, self._clamp_details)
+            QTimer.singleShot(0, self._ensure_details_width)
         self.act_details.setChecked(show)
         QTimer.singleShot(0, self._sync_cmd_left)
         self.cfg["details_visible"] = show
