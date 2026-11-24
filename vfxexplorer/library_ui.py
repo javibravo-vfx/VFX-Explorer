@@ -8,6 +8,7 @@ from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QTreeWidget, QTreeWidgetItem,
                                QToolButton, QLabel, QMenu, QFileDialog)
 
+from .core import reachable
 from .viewer import Viewer
 from .pane import FilePane
 from .tree import LibTree
@@ -97,7 +98,18 @@ class LibrarySidebar(QWidget):
             self.tree.addTopLevelItem(it)
             return
         for r in roots:
-            it = self._item(r, os.path.basename(r.rstrip("\\/")) or r)
+            name = os.path.basename(r.rstrip("\\/")) or r
+            if not reachable(r):                  # NAS apagado: se muestra, sin tocarlo, y se reintenta solo
+                it = QTreeWidgetItem([name + "   (offline)"])
+                it.setData(0, Qt.UserRole, r)
+                it.setData(0, Qt.UserRole + 2, True)
+                it.setForeground(0, Qt.gray)
+                it.setIcon(0, self.app.icons.folder_icon(None, 18))
+                it.setToolTip(0, r + "\nNot available right now — it shows up by itself when the network is back")
+                it.setChildIndicatorPolicy(QTreeWidgetItem.DontShowIndicator)
+                self.tree.addTopLevelItem(it)
+                continue
+            it = self._item(r, name)
             it.setToolTip(0, r)
             self.tree.addTopLevelItem(it)
             it.setExpanded(len(roots) <= 3)      # las raíces arrancan abiertas
@@ -116,6 +128,9 @@ class LibrarySidebar(QWidget):
             return
         it.setData(0, Qt.UserRole + 1, True)
         path = it.data(0, Qt.UserRole)
+        if not reachable(path):
+            it.setData(0, Qt.UserRole + 1, False)
+            return
         try:
             with os.scandir(path) as sc:
                 dirs = sorted((d.name for d in sc if d.is_dir() and not d.name.startswith(".")), key=str.lower)

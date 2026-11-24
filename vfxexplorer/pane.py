@@ -10,10 +10,10 @@ from PySide6.QtWidgets import (QSizePolicy, QFrame, QVBoxLayout, QHBoxLayout, QT
                                QCheckBox, QListView, QTreeView, QStackedWidget, QAbstractItemView, QHeaderView,
                                QLabel, QMenu, QWidget)
 
-from .core import IS_WIN, FILTERS, parse_query, norm_key, same_path, THISPC, IMAGE_EXTS
+from .core import IS_WIN, FILTERS, parse_query, norm_key, same_path, THISPC, IMAGE_EXTS, reachable
 from .fileops import is_subpath, is_network_path
 from .models import (EntryModel, EntryProxy, ScanWorker, SearchWorker, ResolveWorker, DrivesWorker, ROLE_ENTRY, COLS,
-                     C_NAME, C_FOLDER, C_TAGS, C_RATING)
+                     C_NAME, C_FOLDER, C_TAGS, C_RATING, VFX_COLS)
 from .widgets import GridDelegate, BreadcrumbBar, ListNameDelegate
 
 
@@ -434,11 +434,13 @@ class FilePane(QFrame):
         self.proxy = EntryProxy(app)
         self.proxy.setSourceModel(self.model)
         app.thumbs.ready.connect(self.model.thumb_ready)
+        app.meta.ready.connect(self.model.meta_ready)
         self.gen = 0
         self.workers = set()
         self.search_worker = None
         self.pending_select = None
         self.pending_edit = False            # New folder: queda con el nombre en edición
+        self._loc_prev = self._loc_cur = None   # F7
         self.tabs = []
         self.ti = -1
         self.view_mode = "grid"
@@ -528,6 +530,7 @@ class FilePane(QFrame):
         self.crumb = BreadcrumbBar(self.app.fs)
         self.crumb.setMinimumWidth(140)
         self.crumb.navigate.connect(self.navigate)
+        self.crumb.open_alt.connect(self._crumb_alt)
         nrow.addWidget(self.crumb, 7)
         self.filter = QComboBox(self)                 # estado del filtro de tipo (lo maneja el botón)
         for label, key in FILTERS:
@@ -763,8 +766,15 @@ class FilePane(QFrame):
             if c in (C_RATING, C_TAGS) and not lib:
                 self.list.setColumnHidden(c, True)
                 continue
-            default = self._folder_col_default if c == C_FOLDER else True
+            default = self._folder_col_default if c == C_FOLDER else (c not in VFX_COLS)
             self.list.setColumnHidden(c, not vis.get(name, default))
+        order = self.app.cfg["col_order"]
+        if order:
+            hd = self.list.header()
+            for i, name in enumerate(n for n in order if n in COLS):
+                lg = COLS.index(name)
+                if hd.visualIndex(lg) != i:
+                    hd.moveSection(hd.visualIndex(lg), i)
 
     def _header_menu(self, pos):
         hd = self.list.header()
@@ -776,6 +786,8 @@ class FilePane(QFrame):
         a = m.addAction("Row numbers", self.app._toggle_row_numbers)
         a.setCheckable(True)
         a.setChecked(bool(self.app.cfg["list_row_numbers"]))
+        m.addSeparator()
+        self.app.fill_layout_menu(m.addMenu("Column layout"), self)
         m.addSeparator()
         lib = bool(self.app.cfg["library_features"])
         for c in sorted(range(len(COLS)), key=hd.visualIndex):
@@ -1116,7 +1128,10 @@ class FilePane(QFrame):
 
     def restore(self, st, fallback):
         tabs = [t.get("path") for t in (st or {}).get("tabs", []) if t.get("path")]
-        tabs = [p for p in tabs if p == THISPC or os.path.isdir(p)] or [fallback]
+        # una pestaña en un NAS apagado no traba el arranque: se abre igual y avisa (al volver la red, Refresh)
+        tabs = [p for p in tabs if p == THISPC or not reachable(p, 0.3) or os.path.isdir(p)] or [fallback]
+        if self.root_lock:
+            tabs = [p for p in tabs if self.allowed(p)] or ([fallback] if fallback else [])
         for p in tabs:
             self.add_tab(p, activate=False)
         self.set_view((st or {}).get("view", "grid"), emit=False)
@@ -1150,6 +1165,10 @@ class FilePane(QFrame):
             self.show_virtual("This PC", "thispc", "")
             return
         path = os.path.expandvars(os.path.expanduser(path))
+        if not reachable(path):
+            self._set_status(f"Network location not available: {path}  (it retries by itself; Refresh when it's back)")
+            self.crumb.set_path(self.tab_path())
+            return
         if os.path.isfile(path):
             select = os.path.basename(path)
             path = os.path.dirname(path)
@@ -1199,9 +1218,38 @@ class FilePane(QFrame):
         if self.root_lock and not t["virtual"]:
             top = any(same_path(t["path"], r) for r in self.root_lock())
         self.b_up.setEnabled(not top)
+        # F7: recuerda las dos últimas ubicaciones (carpetas o This PC) para ir y volver
+        loc = THISPC if (t["virtual"] and t["virtual"]["kind"] == "thispc") else (None if t["virtual"] else t["path"])
+        if loc and loc != self._loc_cur:
+            self._loc_prev, self._loc_cur = self._loc_cur, loc
         self._notify_nav()
         self._update_tab()
         self.location_changed.emit(self)
+
+    def _crumb_alt(self, path):
+        """Ctrl+Enter en la barra: un archivo se abre; una carpeta, en una pestaña nueva."""
+        p = os.path.expandvars(os.path.expanduser(path.strip().strip('"')))
+        if reachable(p) and os.path.isfile(p):
+            from .core import Entry
+            name = os.path.basename(p)
+            e = Entry(kind="file", dirpath=os.path.dirname(p), name=name, path=p, ext=os.path.splitext(name)[1].lower())
+            self.app.open_entry(e)
+        else:
+            self.navigate(p, new_tab=True)
+
+    def go_previous(self):
+        """F7: va a la ubicación anterior (y otra vez F7 vuelve). Si está abierta en otra pestaña, va a esa."""
+        prev = self._loc_prev
+        if not prev:
+            return
+        for i, tt in enumerate(self.tabs):
+            if i != self.ti:
+                here = THISPC if (tt["virtual"] and tt["virtual"]["kind"] == "thispc") else tt["path"]
+                if not tt["virtual"] or here == THISPC:
+                    if here == prev or (prev != THISPC and same_path(here, prev)):
+                        self.tabbar.setCurrentIndex(i)
+                        return
+        self.navigate(prev)
 
     def go_back(self):
         t = self.tab()

@@ -903,8 +903,141 @@ def _folder_pm():
     return _FOLDER_PM
 
 
+class SixKeyEdit(QLineEdit):
+    """Barra de dirección con «6 Key Navigation»: se recorre todo con Ctrl, ←, →, ↑, ↓ y Enter.
+    → al final de una carpeta agrega la barra y abre la lista de subcarpetas · Ctrl+← / Ctrl+→ saltan entre
+    carpetas del camino · Ctrl+↓ abre la lista en el cursor (corta lo de la derecha) · ↑ ↓ eligen · Ctrl+↑ cierra
+    · Enter va (un archivo: va a su carpeta y lo selecciona) · Ctrl+Enter al revés (abre el archivo / la carpeta
+    en una pestaña nueva)."""
+    go = Signal(str, bool)          # ruta, alternativo (Ctrl+Enter)
+
+    def __init__(self):
+        super().__init__()
+        from PySide6.QtCore import QStringListModel
+        self._model = QStringListModel(self)
+        self.comp = QCompleter(self._model, self)
+        self.comp.setCaseSensitivity(Qt.CaseInsensitive)
+        self.comp.setCompletionMode(QCompleter.PopupCompletion)
+        self.comp.setMaxVisibleItems(16)
+        self.comp.setWidget(self)
+        self.comp.activated.connect(self._picked)
+        self.comp.popup().installEventFilter(self)
+        self._dir = None
+        self.textEdited.connect(self._typed)
+
+    @staticmethod
+    def _seps():
+        return "\\/"
+
+    def _split(self, text):
+        """(carpeta, lo que se está escribiendo del nombre)"""
+        i = max(text.rfind("\\"), text.rfind("/"))
+        if i < 0:
+            return "", text
+        return text[: i + 1], text[i + 1:]
+
+    def _fill(self, folder):
+        from .core import reachable
+        if folder == self._dir:
+            return
+        self._dir = folder
+        names = []
+        if folder and reachable(folder):
+            try:
+                with os.scandir(folder) as it:
+                    names = sorted((d.name for d in it if not d.name.startswith(".") and d.is_dir()), key=str.lower)
+            except OSError:
+                names = []
+        self._model.setStringList([folder + n for n in names[:2000]])
+
+    def open_list(self):
+        text = self.text()
+        folder, part = self._split(text)
+        self._fill(folder)
+        self.comp.setCompletionPrefix(text)
+        if self.comp.completionCount():
+            r = self.cursorRect()
+            r.setWidth(max(320, self.width() - r.x()))
+            self.comp.complete(r)
+        else:
+            self.comp.popup().hide()
+
+    def _typed(self, _t):
+        folder, _ = self._split(self.text())
+        if folder:
+            self.open_list()
+
+    def _picked(self, text):
+        self.setText(text)
+        self.setCursorPosition(len(text))
+
+    def _component_pos(self, forward):
+        t, c = self.text(), self.cursorPosition()
+        seps = [i + 1 for i, ch in enumerate(t) if ch in "\\/"]
+        if forward:
+            nxt = [p for p in seps if p > c]
+            return nxt[0] if nxt else len(t)
+        prv = [p for p in seps if p < c]
+        return prv[-1] if prv else 0
+
+    def eventFilter(self, obj, ev):
+        if obj is self.comp.popup() and ev.type() == ev.Type.KeyPress:
+            if ev.key() == Qt.Key_Up and ev.modifiers() & Qt.ControlModifier:
+                self.comp.popup().hide()
+                return True
+            if ev.key() in (Qt.Key_Return, Qt.Key_Enter):
+                ix = self.comp.popup().currentIndex()
+                if ix.isValid():
+                    self._picked(ix.data())
+                self.comp.popup().hide()
+                self._go(bool(ev.modifiers() & Qt.ControlModifier))
+                return True
+            if ev.key() == Qt.Key_Right:
+                ix = self.comp.popup().currentIndex()
+                if ix.isValid():
+                    self._picked(ix.data())
+                self.comp.popup().hide()
+                self.keyPressEvent(ev)
+                return True
+        return super().eventFilter(obj, ev)
+
+    def keyPressEvent(self, ev):
+        k, ctrl = ev.key(), bool(ev.modifiers() & Qt.ControlModifier)
+        t = self.text()
+        if k == Qt.Key_Right and not ctrl and self.cursorPosition() == len(t) and not self.hasSelectedText():
+            p = os.path.expandvars(t)
+            if p and not p.endswith(("\\", "/")) and os.path.isdir(p):
+                self.setText(t + os.sep)
+                self.open_list()
+                return
+        if k in (Qt.Key_Left, Qt.Key_Right) and ctrl:
+            self.setCursorPosition(self._component_pos(k == Qt.Key_Right))
+            return
+        if k == Qt.Key_Down and ctrl:
+            c = self.cursorPosition()
+            self.setText(t[:c])
+            self.open_list()
+            return
+        if k == Qt.Key_Down and not self.comp.popup().isVisible():
+            self.open_list()
+            return
+        if k == Qt.Key_Up and ctrl:
+            self.comp.popup().hide()
+            return
+        if k in (Qt.Key_Return, Qt.Key_Enter):
+            self._go(ctrl)
+            return
+        super().keyPressEvent(ev)
+
+    def _go(self, alt):
+        t = self.text().strip()
+        if t:
+            self.go.emit(t, alt)
+
+
 class BreadcrumbBar(QWidget):
     navigate = Signal(str)
+    open_alt = Signal(str)          # Ctrl+Enter en la barra: abrir el archivo / la carpeta en una pestaña nueva
 
     def __init__(self, fs_model=None, parent=None):
         super().__init__(parent)
@@ -920,14 +1053,10 @@ class BreadcrumbBar(QWidget):
         self.cl = QHBoxLayout(self.crumbs)
         self.cl.setContentsMargins(4, 0, 4, 0)
         self.cl.setSpacing(0)
-        self.edit = QLineEdit()
-        self.edit.returnPressed.connect(self._commit)
+        self.edit = SixKeyEdit()
+        self.edit.go.connect(self._commit)
         self.edit.editingFinished.connect(self._end_edit)
         self.edit.installEventFilter(self)
-        if fs_model is not None:
-            comp = QCompleter(fs_model, self)
-            comp.setCaseSensitivity(Qt.CaseInsensitive)
-            self.edit.setCompleter(comp)
         self.stack.addWidget(self.crumbs)
         self.stack.addWidget(self.edit)
         self.setStyleSheet("""
@@ -957,14 +1086,18 @@ class BreadcrumbBar(QWidget):
         self.edit.setFocus()
         self.edit.selectAll()
 
-    def _commit(self):
-        t = self.edit.text().strip()
+    def _commit(self, t=None, alt=False):
+        t = (t if t is not None else self.edit.text()).strip()
         self.stack.setCurrentIndex(0)
         if t:
-            self.navigate.emit(t)
+            (self.open_alt if alt else self.navigate).emit(t)
 
     def _end_edit(self):
-        QTimer.singleShot(0, lambda: self.stack.setCurrentIndex(0))
+        # con la lista de la 6 Key Navigation abierta el foco pasa al popup: no cerrar la edición
+        if self.edit.comp.popup().isVisible():
+            return
+        QTimer.singleShot(0, lambda: (not self.edit.hasFocus() and not self.edit.comp.popup().isVisible())
+                          and self.stack.setCurrentIndex(0))
 
     def resizeEvent(self, ev):
         super().resizeEvent(ev)
@@ -987,7 +1120,10 @@ class BreadcrumbBar(QWidget):
                 for d in list_drives():
                     m.addAction(_drive_icon_cache(d), d.name, lambda p=d.path: self.navigate.emit(p))
                 return
+            from .core import reachable
             try:
+                if not reachable(path):
+                    raise OSError("offline")
                 with os.scandir(path) as it:
                     dirs = sorted((d.name for d in it if d.is_dir() and not d.name.startswith(".")), key=str.lower)
             except OSError:

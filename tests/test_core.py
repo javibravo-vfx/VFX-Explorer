@@ -213,6 +213,48 @@ def test_date_groups():
     assert date_group(ts(dt.date(2026, 11, 24)), thu) == 2         # antes esta semana
 
 
+def test_network_no_freeze(tmp):
+    """Un share caído no traba: reachable() vuelve en el tiempo máximo y después contesta al instante."""
+    import time
+    from vfxexplorer import core
+    root = os.path.join(tmp, "nas")
+    os.makedirs(os.path.join(root, "lib"))
+    core.NET_FAKE_ROOTS.add(root)
+    core.NET_FAKE_OFFLINE.add(root)
+    try:
+        t = time.time()
+        assert core.reachable(os.path.join(root, "lib"), 0.3) is False
+        assert time.time() - t < 1.0
+        t = time.time()
+        assert core.safe_isdir(os.path.join(root, "lib")) is False
+        assert time.time() - t < 0.1
+        assert core.reachable(tmp) is True                     # local
+    finally:
+        core.NET_FAKE_ROOTS.discard(root)
+        core.NET_FAKE_OFFLINE.discard(root)
+
+
+def test_pipeline_departments(tmp):
+    from vfxexplorer.pipeline import Pipeline, DEFAULT_DEPTS
+
+    class C(dict):
+        def __getitem__(self, k):
+            return self.get(k)
+    shot = os.path.join(tmp, "VFX-MOR", "101", "MOR_101_010")
+    os.makedirs(shot)
+    deps = [dict(d) for d in DEFAULT_DEPTS] + [{"name": "FX", "has_tasks": True, "tasks": "1_sim: cache",
+                                                 "folders": "work, out"}]
+    p = Pipeline(C(pipeline_root=tmp, pipeline_prefix="VFX-", pipeline_seq_exclude="", pipeline_departments=deps))
+    p.create_task("MOR", "101", "MOR_101_010", "3D", "7_fx")
+    p.create_dept("MOR", "101", "MOR_101_010", "Comp")
+    p.create_task("MOR", "101", "MOR_101_010", "FX", "1_sim")
+    assert os.path.isdir(os.path.join(shot, "3D", "7_fx", "1_projects", "cache"))
+    assert os.path.isdir(os.path.join(shot, "Comp", "2_prerenders"))
+    assert os.path.isdir(os.path.join(shot, "FX", "1_sim", "work", "cache"))
+    assert p.dept_kind("MOR", "101", "MOR_101_010", "Comp") == "stage"
+    assert p.dept_kind("MOR", "101", "MOR_101_010", "FX") == "task"
+
+
 if __name__ == "__main__":
     from PySide6.QtCore import QCoreApplication
     app = QCoreApplication([])

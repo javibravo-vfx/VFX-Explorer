@@ -13,8 +13,12 @@ from .core import (IMAGE_EXTS, date_group, DATE_GROUPS, scan_dir, entry_matches,
 ROLE_ENTRY = Qt.UserRole + 1
 ROLE_SORT = Qt.UserRole + 2
 
-COLS = ["Name", "Type", "Range", "Frames", "Missing", "Size", "Modified", "Rating", "Tags", "Folder"]
-C_NAME, C_TYPE, C_RANGE, C_FRAMES, C_MISSING, C_SIZE, C_MTIME, C_RATING, C_TAGS, C_FOLDER = range(10)
+COLS = ["Name", "Type", "Range", "Frames", "Missing", "Size", "Modified", "Rating", "Tags", "Folder",
+        "Resolution", "FPS", "Codec", "Channels", "Colorspace"]
+C_NAME, C_TYPE, C_RANGE, C_FRAMES, C_MISSING, C_SIZE, C_MTIME, C_RATING, C_TAGS, C_FOLDER, \
+    C_RES, C_FPS, C_CODEC, C_CH, C_CS = range(15)
+META_COLS = {C_RES: "res", C_FPS: "fps", C_CODEC: "codec", C_CH: "ch", C_CS: "cs"}
+VFX_COLS = tuple(META_COLS)       # se leen del archivo (en segundo plano)
 
 
 def entry_tooltip(e, lib=None):
@@ -114,8 +118,14 @@ class EntryModel(QAbstractTableModel):
 
     def _reindex(self):
         self.key_rows = {}
+        self.path_rows = {}
         for i, e in enumerate(self.entries):
             self.key_rows.setdefault(e.thumb_source(), []).append(i)
+            self.path_rows.setdefault(e.path, []).append(i)
+
+    def meta_ready(self, path):
+        for r in getattr(self, "path_rows", {}).get(path, []):
+            self.dataChanged.emit(self.index(r, C_RES), self.index(r, C_CS), [Qt.DisplayRole])
 
     def thumb_ready(self, key):
         for r in self.key_rows.get(key, []):
@@ -235,6 +245,9 @@ class EntryModel(QAbstractTableModel):
                 return ", ".join(lib.tags(e.key()))
             if col == C_FOLDER:
                 return self.folder_text(e)
+            if col in META_COLS:
+                m = self.app.meta.get(e)
+                return "…" if m is None else (m.get(META_COLS[col]) or "")
         if role == ROLE_SORT:
             if col == C_NAME:
                 return natural_key(e.name)
@@ -256,6 +269,21 @@ class EntryModel(QAbstractTableModel):
                 return ", ".join(lib.tags(e.key())).lower()
             if col == C_FOLDER:
                 return natural_key(e.dirpath)
+            if col in META_COLS:
+                m = self.app.meta.cache.get(self.app.meta.key_for(e)) if self.app.meta.applies(e) else None
+                v = (m or {}).get(META_COLS[col]) or ""
+                if col == C_RES and "×" in v:
+                    try:
+                        w, h = v.split("×")
+                        return int(w) * 100000 + int(h)
+                    except ValueError:
+                        return 0
+                if col == C_FPS:
+                    try:
+                        return float(v)
+                    except ValueError:
+                        return 0.0
+                return v.lower() if col != C_RES else 0
         if role == Qt.DecorationRole and col == C_NAME:
             if e.kind == "dir":
                 return self.app.icons.folder_icon(self.app.entry_color(e), 18)

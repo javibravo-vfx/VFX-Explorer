@@ -216,7 +216,8 @@ class Pipeline:
         return "folder"
 
     def available(self):
-        return os.path.isdir(self.base())
+        from .core import safe_isdir
+        return safe_isdir(self.base(), 0.4)
 
     # ---------------- listados ----------------
     def projects(self):

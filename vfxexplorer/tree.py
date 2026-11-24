@@ -371,3 +371,151 @@ class LibTree(_LinedMixin, QTreeWidget):
 
     def _trace_color(self):
         return QColor(self._cfg("lib_tree_line_color", "#4cc2ff"))
+
+
+class MiniTree(_LinedMixin, QTreeWidget):
+    """Mini tree: solo las carpetas que visitaste (y sus carpetas madre). Se arma con las rutas guardadas,
+    sin leer el disco, así que es chico, rápido y no se traba con un NAS apagado."""
+
+    MAX = 400
+
+    def __init__(self, app):
+        super().__init__()
+        self._lined_init(app)
+        self.setItemDelegate(_LibDelegate(self))
+        self.setHeaderHidden(True)
+        self.setDragEnabled(True)
+        self.setIconSize(QSize(18, 18))
+        self.setExpandsOnDoubleClick(False)
+        self._items = {}          # norm_key -> item
+        self.rebuild()
+
+    # ---------------- datos
+    def paths(self):
+        return list(self.app.cfg["mini_tree"] or [])
+
+    @staticmethod
+    def _key(p):
+        return os.path.normcase(os.path.normpath(p))
+
+    @staticmethod
+    def _chain(path):
+        """C:\\a\\b → [C:\\, C:\\a, C:\\a\\b] · \\\\srv\\share\\x → [\\\\srv\\share, …] · /a/b → [/, /a, /a/b]."""
+        p = os.path.normpath(path)
+        drive, rest = os.path.splitdrive(p)
+        out = []
+        if drive:
+            root = drive + (os.sep if not drive.startswith(("\\\\", "//")) else "")
+            out.append(root)
+            cur = root
+        else:
+            out.append(os.sep)
+            cur = os.sep
+        for part in [x for x in rest.split(os.sep) if x]:
+            cur = os.path.join(cur, part)
+            out.append(cur)
+        return out
+
+    def add(self, path):
+        """Llamado al visitar una carpeta: queda en el mini tree (los más recientes primero en la lista)."""
+        if not path or path.startswith("::"):
+            return
+        p = os.path.normpath(path)
+        lst = [x for x in self.paths() if self._key(x) != self._key(p)]
+        lst.insert(0, p)
+        self.app.cfg["mini_tree"] = lst[: self.MAX]
+        if self._key(p) not in self._items:
+            self._ensure(p)
+
+    def remove(self, path):
+        k = self._key(path)
+        self.app.cfg["mini_tree"] = [x for x in self.paths()
+                                     if self._key(x) != k and not self._key(x).startswith(k.rstrip("\\/") + os.sep)]
+        self.app.cfg.save()
+        self.rebuild()
+
+    def clear_all(self):
+        self.app.cfg["mini_tree"] = []
+        self.app.cfg.save()
+        self.rebuild()
+
+    # ---------------- ítems
+    def _label(self, path):
+        b = os.path.basename(path.rstrip("\\/"))
+        return b or path.rstrip("\\") or path
+
+    def _ensure(self, path):
+        parent = None
+        for p in self._chain(path):
+            k = self._key(p)
+            it = self._items.get(k)
+            if it is None:
+                it = QTreeWidgetItem([self._label(p)])
+                it.setData(0, Qt.UserRole, p)
+                it.setToolTip(0, p)
+                it.setIcon(0, self.app.icons.folder_icon(self.app.dir_color(p), 18) if parent is not None
+                           else self.app.icons.glyph("drive", 18))
+                if parent is None:
+                    self._insert_sorted(None, it)
+                else:
+                    self._insert_sorted(parent, it)
+                    parent.setExpanded(True)
+                self._items[k] = it
+            parent = it
+        return parent
+
+    def _insert_sorted(self, parent, it):
+        name = it.text(0).lower()
+        n = parent.childCount() if parent else self.topLevelItemCount()
+        pos = n
+        for i in range(n):
+            c = parent.child(i) if parent else self.topLevelItem(i)
+            if c.text(0).lower() > name:
+                pos = i
+                break
+        if parent:
+            parent.insertChild(pos, it)
+        else:
+            self.insertTopLevelItem(pos, it)
+
+    def rebuild(self):
+        cur = self._trace_path
+        self.clear()
+        self._items = {}
+        for p in reversed(self.paths()):
+            self._ensure(p)
+        self.expandAll()
+        if cur:
+            self.set_trace_path(cur)
+
+    def refresh_colors(self):
+        for k, it in self._items.items():
+            if it.parent() is not None:
+                it.setIcon(0, self.app.icons.folder_icon(self.app.dir_color(it.data(0, Qt.UserRole)), 18))
+
+    # ---------------- _LinedMixin
+    def mimeTypes(self):
+        return ["text/uri-list"]
+
+    def mimeData(self, items):
+        from PySide6.QtCore import QMimeData, QUrl
+        md = QMimeData()
+        md.setUrls([QUrl.fromLocalFile(it.data(0, Qt.UserRole)) for it in items if it.data(0, Qt.UserRole)])
+        return md
+
+    def supportedDropActions(self):
+        return Qt.CopyAction | Qt.MoveAction
+
+    def path_of(self, index):
+        return index.data(Qt.UserRole) or "" if index.isValid() else ""
+
+    def index_of(self, path):
+        it = self._items.get(self._key(path)) if path else None
+        return self.indexFromItem(it) if it is not None else None
+
+    def sync(self, path):
+        it = self._items.get(self._key(path)) if path else None
+        if it is not None:
+            self.setCurrentItem(it)
+            self.scrollToItem(it)
+        self.set_trace_path(path if it is not None else "")

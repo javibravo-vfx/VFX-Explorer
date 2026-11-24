@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (QLineEdit, QApplication, QMainWindow, QWidget, QV
                                QTabBar, QStackedWidget, QTabWidget)
 
 from . import APP_NAME, VERSION
-from .core import (AUDIO_EXTS, Config, IS_WIN, data_dir, norm_key, fwd, human_size, fmt_time, compress_ranges, find_tool,
+from .core import (safe_isdir, reachable, net_root, net_offline_roots, AUDIO_EXTS, Config, IS_WIN, data_dir, norm_key, fwd, human_size, fmt_time, compress_ranges, find_tool,
                    same_path, Entry, FILTERS)
 from .library import Library, dir_target
 from .pipeline import Pipeline
@@ -22,7 +22,7 @@ from .imaging import ThumbManager, InfoTask, Signals, init_formats
 from .widgets import Icons, TAG_COLORS, TagDialog, RenameDialog, SettingsDialog, ACCENT
 from .pane import FilePane
 from .colors import ColorEngine, COLOR_MODES, DEFAULT_NAME_RULES
-from .tree import LinedTree
+from .tree import LinedTree, MiniTree
 from .dirsize import DirSizeManager
 from .library_ui import LibraryPage, LibrarySidebar
 from .pipebar import PipelineBar
@@ -162,6 +162,8 @@ class MainWindow(QMainWindow):
         self.icons = Icons()
         self.icons.set_default_folder(self.cfg["folder_color"] or "yellow")
         self.thumbs = ThumbManager(self.cfg, self.data_dir)
+        from .meta import MetaManager
+        self.meta = MetaManager(self)
         self.fs = QFileSystemModel()
         self.fs.setFilter(QDir.AllDirs | QDir.NoDotAndDotDot | QDir.Drives)
         self.fs.setRootPath("")
@@ -184,6 +186,15 @@ class MainWindow(QMainWindow):
         self._ready = True
         for p in self.all_panes:
             p._apply_folder_view()
+        from .hoverbox import HoverBox
+        self.hoverbox = HoverBox(self)
+        for p in self.all_panes:
+            self.hoverbox.attach(p.grid)
+            self.hoverbox.attach(p.list)
+        # red: lo que estaba caído al abrir (NAS apagado) se vuelve a chequear solo y aparece cuando responde
+        self._net_known_bad = set(net_offline_roots())
+        self.net_timer = QTimer(self, interval=4000, timeout=self._net_watch)
+        self.net_timer.start()
 
     # ------------------------------------------------------------------ UI
     def _build(self):
@@ -331,6 +342,15 @@ class MainWindow(QMainWindow):
         self.tree.setDragEnabled(True)            # arrastrar carpetas a Acceso rápido / a otros paneles
         self.fs.rowsInserted.connect(lambda parent, *_: (not parent.isValid()) and
                                      QTimer.singleShot(0, self._apply_hidden_drives))
+        # Mini tree: solo las carpetas visitadas (botón del árbol en la esquina para pasar al árbol completo)
+        self.minitree = MiniTree(self)
+        self.minitree.itemClicked.connect(lambda it, c: it.data(0, Qt.UserRole) and
+                                          self.open_in_explorer(it.data(0, Qt.UserRole)))
+        self.minitree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.minitree.customContextMenuRequested.connect(self._minitree_menu)
+        self.tree_stack = QStackedWidget()
+        self.tree_stack.addWidget(self.tree)
+        self.tree_stack.addWidget(self.minitree)
 
         self.libside = LibrarySidebar(self)
         self.pipebar_side = PipelineBar(self, vertical=True)
@@ -388,7 +408,7 @@ class MainWindow(QMainWindow):
         self.side_boxes["pipeline"] = boxed("PIPELINE", self.pipebar_side)
         fpl.addWidget(self.side_boxes["pipeline"])
         fpl.addWidget(self.thispc)
-        fpl.addWidget(self.tree, 1)
+        fpl.addWidget(self.tree_stack, 1)
         self.side_boxes["tree"] = folders_page
 
         # tab VFX LIBRARY: árbol de la librería (+ colecciones y tags si están activados)
@@ -431,12 +451,20 @@ class MainWindow(QMainWindow):
         self._popfix(self.b_side_add)
         self.b_eye_tree = self._eye_button("show_hidden_drives", "Show hidden drives\n"
                                            "(hide a drive with right-click › Hide drive)", self._apply_hidden_drives)
+        self.b_minitree = QToolButton()
+        self.b_minitree.setCheckable(True)
+        self.b_minitree.setAutoRaise(True)
+        self.b_minitree.setChecked(bool(self.cfg["mini_tree_on"]))
+        self.b_minitree.toggled.connect(self._toggle_minitree)
+        self._popfix(self.b_minitree)
+        crl.addWidget(self.b_minitree)
         crl.addWidget(self.b_eye_tree)
         crl.addWidget(self.b_colors)
         crl.addWidget(self.b_side_add)
         self.sidetabs.setCornerWidget(corner, Qt.TopRightCorner)
         self._peek = False
         self.sidetabs.currentChanged.connect(self._sidetab_changed)
+        self._toggle_minitree()
         tb = self.sidetabs.tabBar()
         tb.setAcceptDrops(True)
         tb.installEventFilter(self)
@@ -473,7 +501,7 @@ class MainWindow(QMainWindow):
         self.libpane = self.libpage.pane
         lp = self.libpane
         lp.proxy.hide_images = not self.cfg["lib_show_images"]
-        lp.root_lock = lambda: [r for r in (self.cfg["library_roots"] or []) if os.path.isdir(r)]
+        lp.root_lock = lambda: [r for r in (self.cfg["library_roots"] or []) if safe_isdir(r)]
         lp.focused.connect(self.set_active)
         lp.selection_changed.connect(self._sel_changed)
         lp.location_changed.connect(self._location_changed)
@@ -725,6 +753,7 @@ class MainWindow(QMainWindow):
             QListWidget, QTreeWidget, QTreeView {{ background:#191919; }}
         """)
         QShortcut(QKeySequence("F9"), self, lambda: self.toggle_dual(orient="h"))
+        QShortcut(QKeySequence("F7"), self, lambda: self.active.go_previous())   # ir y volver entre las 2 últimas
         QShortcut(QKeySequence("F10"), self, lambda: self.toggle_dual(orient="v"))
         QShortcut(QKeySequence("F6"), self, self.switch_pane)
         QShortcut(QKeySequence("Ctrl+Shift+E"), self, lambda: self.set_mode("explorer"))
@@ -1013,6 +1042,7 @@ class MainWindow(QMainWindow):
             ix = self.fs.index(r, 0, root)
             self.tree.setRowHidden(r, root, (not show) and norm_key(self.fs.filePath(ix)) in hidden)
         self.tree.viewport().update()
+        self.minitree.refresh_colors()
 
     def _toggle_drive(self, path):
         hidden = list(self.cfg["hidden_drives"] or [])
@@ -1035,10 +1065,104 @@ class MainWindow(QMainWindow):
         self.cfg.save()
         self._reload_sidebar()
 
+    # ---------------- layouts de columnas (vista Details)
+    COL_LAYOUTS = (
+        ("Standard", ["Name", "Type", "Range", "Frames", "Missing", "Size", "Modified"]),
+        ("VFX", ["Name", "Range", "Frames", "Missing", "Resolution", "FPS", "Codec", "Channels", "Colorspace",
+                 "Size", "Modified"]),
+        ("Video", ["Name", "Resolution", "FPS", "Codec", "Colorspace", "Size", "Modified"]),
+        ("Minimal", ["Name", "Size", "Modified"]),
+    )
+
+    def _visible_cols(self, pane):
+        from .models import COLS
+        hd = pane.list.header()
+        return [COLS[lg] for lg in sorted(range(len(COLS)), key=hd.visualIndex) if not pane.list.isColumnHidden(lg)]
+
+    def fill_layout_menu(self, m, pane):
+        cur = self._visible_cols(pane)
+        custom = dict(self.cfg["col_layouts"] or {})
+        for name, cols in list(self.COL_LAYOUTS) + sorted(custom.items()):
+            a = m.addAction(name, lambda c=cols: self.apply_col_layout(c))
+            a.setCheckable(True)
+            a.setChecked(cols == cur)
+            a.setToolTip(", ".join(cols))
+        m.setToolTipsVisible(True)
+        m.addSeparator()
+        m.addAction("Save current layout as…", lambda: self._save_col_layout(pane))
+        if custom:
+            d = m.addMenu("Delete layout")
+            for name in sorted(custom):
+                d.addAction(name, lambda n=name: self._del_col_layout(n))
+
+    def apply_col_layout(self, cols):
+        from .models import COLS
+        self.cfg["list_cols"] = {n: (n in cols) for n in COLS}
+        self.cfg["col_order"] = [c for c in cols if c in COLS]
+        self.cfg.save()
+        for p in self.all_panes:
+            p._apply_columns()
+            if p.view_mode != "grid":
+                p.fit_columns()
+
+    def _save_col_layout(self, pane):
+        name, ok = QInputDialog.getText(self, "Column layout", "Name:")
+        name = (name or "").strip()
+        if not ok or not name:
+            return
+        lay = dict(self.cfg["col_layouts"] or {})
+        lay[name] = self._visible_cols(pane)
+        self.cfg["col_layouts"] = lay
+        self.cfg.save()
+        self.status.setText(f"Column layout «{name}» saved")
+
+    def _del_col_layout(self, name):
+        lay = dict(self.cfg["col_layouts"] or {})
+        lay.pop(name, None)
+        self.cfg["col_layouts"] = lay
+        self.cfg.save()
+
+    def _toggle_hover_box(self):
+        self.cfg["hover_box"] = not self.cfg["hover_box"]
+        self.cfg.save()
+        if not self.cfg["hover_box"]:
+            self.hoverbox.hide_box()
+        self.status.setText("Hover box on" if self.cfg["hover_box"] else "Hover box off")
+
+    def _toggle_minitree(self, on=None):
+        on = self.b_minitree.isChecked() if on is None else on
+        self.cfg["mini_tree_on"] = bool(on)
+        self.tree_stack.setCurrentIndex(1 if on else 0)
+        self.b_minitree.setIcon(self.icons.glyph("branch", 15, "#4cc2ff" if on else "#9d9d9d"))
+        self.b_minitree.setToolTip("Mini tree: only the folders you visited  (click: full folder tree)" if on
+                                   else "Full folder tree  (click: Mini tree, only the folders you visited)")
+        self._side_tooltip(self.sidetabs.currentIndex() if hasattr(self, "sidetabs") else 0)
+        if not on:
+            cur = self.explorer_active.current_dir() if hasattr(self, "explorer_active") else None
+            if cur and reachable(cur):
+                self.tree.set_trace_path(cur)
+                ix = self.fs.index(cur)
+                if ix.isValid():
+                    self.tree.setCurrentIndex(ix)
+                    self.tree.scrollTo(ix)
+
+    def _minitree_menu(self, pos):
+        it = self.minitree.itemAt(pos)
+        p = it.data(0, Qt.UserRole) if it else ""
+        m = QMenu(self)
+        if p:
+            m.addAction("Open in new tab", lambda: self.open_in_explorer(p, new_tab=True))
+            m.addAction("Remove from Mini tree", lambda: self.minitree.remove(p))
+            m.addSeparator()
+        m.addAction("Clear Mini tree", self.minitree.clear_all)
+        m.addAction("Show the full folder tree", lambda: self.b_minitree.setChecked(False))
+        m.exec(self.minitree.viewport().mapToGlobal(pos))
+
     def _side_tooltip(self, i):
         self.b_side_add.setVisible(i == 1)
         self.b_eye.setVisible(i == 0)
-        self.b_eye_tree.setVisible(i == 0)
+        self.b_minitree.setVisible(i == 0)
+        self.b_eye_tree.setVisible(i == 0 and not self.b_minitree.isChecked())
 
     def _sidetab_changed(self, i):
         """Los tabs del panel izquierdo solo cambian el árbol (y el acceso rápido): el modo del centro cambia
@@ -1181,9 +1305,9 @@ class MainWindow(QMainWindow):
         states = self.cfg["panes"] or []
         home = QDir.homePath()
         from .core import THISPC
-        fallback = start_path if start_path and os.path.isdir(start_path) else (THISPC if IS_WIN else home)
+        fallback = start_path if safe_isdir(start_path) else (THISPC if IS_WIN else home)
         a_state = states[0] if states else None
-        if start_path and os.path.isdir(start_path):
+        if safe_isdir(start_path):
             a_state = {"tabs": [{"path": start_path}], "current": 0, "view": (a_state or {}).get("view", "grid")}
         self.paneA.restore(a_state, fallback)
         self.paneB.restore(states[1] if len(states) > 1 else None, fallback)
@@ -1212,7 +1336,8 @@ class MainWindow(QMainWindow):
 
     def _save_now(self):
         self.cfg["panes"] = [p.state() for p in self.panes]
-        self.cfg["library_pane"] = self.libpane.state()
+        if self.libpane.tabs:              # con la librería offline no se pisan sus pestañas guardadas
+            self.cfg["library_pane"] = self.libpane.state()
         self.cfg["dual"] = self.paneB.isVisible()
         self.cfg.save()
         self.lib.save()
@@ -1255,6 +1380,8 @@ class MainWindow(QMainWindow):
             super().closeEvent(ev)
             self._finish_reset()
             return
+        self.meta.cancel()
+        self.meta.save()
         self.cfg["geometry"] = bytes(self.saveGeometry().toBase64()).decode()
         self.cfg["splitter"] = bytes(self.main_split.saveState().toBase64()).decode()
         self.cfg["splitter_left3"] = bytes(self.left_split.saveState().toBase64()).decode()
@@ -1352,6 +1479,7 @@ class MainWindow(QMainWindow):
         a.setChecked(pane.view_mode != "grid")
         if pane.view_mode != "grid":
             m.addAction("Size all columns to fit", pane.fit_columns)
+            self.fill_layout_menu(m.addMenu("Column layout"), pane)
             a = m.addAction("Row numbers", self._toggle_row_numbers)
             a.setCheckable(True)
             a.setChecked(bool(self.cfg["list_row_numbers"]))
@@ -1361,6 +1489,9 @@ class MainWindow(QMainWindow):
         if not full:
             return
         m.addSeparator()
+        a = m.addAction("Hover box (preview under the mouse)", self._toggle_hover_box)
+        a.setCheckable(True)
+        a.setChecked(bool(self.cfg["hover_box"]))
         a = m.addAction("Details pane\tAlt+Shift+P", self.toggle_details)
         a.setCheckable(True)
         a.setChecked(self.info_area.isVisible())
@@ -1667,11 +1798,18 @@ class MainWindow(QMainWindow):
             if d:
                 self.setWindowTitle(f"{os.path.basename(d.rstrip(chr(92) + '/')) or d} — {APP_NAME} {VERSION}")
             return
-        self.tree.set_trace_path(d or "")
+        if d and not reachable(d):
+            d_tree = ""
+        else:
+            d_tree = d
+        if d:
+            self.minitree.add(d)
+        self.minitree.sync(d or "")
+        self.tree.set_trace_path(d_tree or "")
         if not d:
             for pb in self.pipebars:
                 pb.clear()
-        if d:
+        if d_tree:
             ix = self.fs.index(d)
             if ix.isValid():
                 self.tree.setCurrentIndex(ix)
@@ -1698,6 +1836,32 @@ class MainWindow(QMainWindow):
             p.grid.viewport().update()
             p.list.viewport().update()
         self.tree.viewport().update()
+        self.minitree.refresh_colors()
+
+    def _net_watch(self):
+        bad = set(net_offline_roots())
+        for r in list(self._net_known_bad | bad):
+            if r not in bad:                 # respondió de nuevo
+                self._net_back(r)
+            else:
+                reachable(r, 0)              # dispara otro chequeo en segundo plano (no espera)
+        self._net_known_bad = set(net_offline_roots())
+
+    def _net_back(self, root):
+        self.status.setText(f"{root} is back online")
+        self.libside.reload()
+        roots = self.libpane.root_lock()
+        if roots and not self.libpane.tabs:
+            lst = self.cfg["library_pane"] or None
+            if lst:
+                lst = dict(lst, tabs=[t for t in lst.get("tabs", []) if self.libpane.allowed(t.get("path", ""))])
+            self.libpane.restore(lst, roots[0])
+        for p in self.all_panes:
+            cur = p.current_dir()
+            if cur and net_root(cur) == root:
+                p.refresh()
+        for pb in self.pipebars:
+            pb.reload()
 
     def refresh_dirs(self, dirs):
         keys = {norm_key(d) for d in dirs if d}
@@ -2293,6 +2457,7 @@ class MainWindow(QMainWindow):
             it.setData(Qt.UserRole, t)
             self.tagl.addItem(it)
         self.tree.viewport().update()
+        self.minitree.refresh_colors()
         if hasattr(self, "libside"):
             self.libside.reload()
 

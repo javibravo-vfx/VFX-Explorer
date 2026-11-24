@@ -84,6 +84,97 @@ def data_dir():
         return d
 
 
+# ---------------------------------------------------------------- red sin congelarse
+# Preguntar por una carpeta de un NAS apagado (o una unidad mapeada desconectada) traba el hilo que pregunta
+# hasta 20-30 s en Windows. Antes de tocar una ruta de red desde la interfaz, se consulta `reachable()`:
+# el chequeo corre en otro hilo con un tiempo máximo y el resultado se guarda por «share» (\\server\share o X:).
+import threading as _thr
+
+_NET = {}            # raíz -> {"ok": bool|None, "t": float, "busy": bool, "ev": Event}
+_NET_LOCK = _thr.Lock()
+_NET_OK_TTL = 30.0   # una vez visto vivo, no se vuelve a chequear por 30 s
+_NET_BAD_TTL = 8.0   # caído: se reintenta cada 8 s (en otro hilo)
+_DRIVE_TYPES = {}
+NET_FAKE_ROOTS = set()     # pruebas en Linux: carpetas que se tratan como un share de red
+NET_FAKE_OFFLINE = set()   # pruebas: de esas, las que están caídas (el chequeo tarda y falla)
+
+
+def _drive_is_remote(letter):
+    if letter in _DRIVE_TYPES:
+        return _DRIVE_TYPES[letter]
+    r = False
+    if IS_WIN:
+        try:
+            import ctypes
+            r = ctypes.windll.kernel32.GetDriveTypeW(ctypes.c_wchar_p(letter + "\\")) == 4   # DRIVE_REMOTE
+        except Exception:
+            r = False
+    _DRIVE_TYPES[letter] = r
+    return r
+
+
+def net_root(path):
+    r"""«\\server\share», «T:» (unidad de red) o None si la ruta es local."""
+    p = str(path or "").replace("/", "\\") if IS_WIN else str(path or "")
+    if p.startswith("\\\\") or p.startswith("//"):
+        parts = [x for x in re.split(r"[\\/]+", p) if x]
+        return ("\\\\" + "\\".join(parts[:2])) if len(parts) >= 2 else None
+    for r in NET_FAKE_ROOTS:                         # pruebas en Linux
+        if p == r or p.startswith(r.rstrip("/") + "/"):
+            return r
+    if IS_WIN and len(p) >= 2 and p[1] == ":":
+        letter = p[:2].upper()
+        return letter if _drive_is_remote(letter) else None
+    return None
+
+
+def _net_probe(root, st):
+    try:
+        if root in NET_FAKE_OFFLINE:
+            time.sleep(3.0)
+            ok = False
+        else:
+            ok = os.path.isdir(root + ("\\" if IS_WIN and len(root) == 2 else ""))
+    except Exception:
+        ok = False
+    with _NET_LOCK:
+        st["ok"], st["t"], st["busy"] = ok, time.monotonic(), False
+    st["ev"].set()
+
+
+def reachable(path, timeout=0.6):
+    """True si la ruta es local o su servidor responde. Nunca bloquea más de `timeout`."""
+    root = net_root(path)
+    if not root:
+        return True
+    now = time.monotonic()
+    with _NET_LOCK:
+        st = _NET.setdefault(root, {"ok": None, "t": 0.0, "busy": False, "ev": _thr.Event()})
+        fresh = st["ok"] is not None and now - st["t"] < (_NET_OK_TTL if st["ok"] else _NET_BAD_TTL)
+        if fresh or st["busy"]:
+            return bool(st["ok"])
+        st["busy"] = True
+        st["ev"] = _thr.Event()
+        ev = st["ev"]
+    _thr.Thread(target=_net_probe, args=(root, st), daemon=True).start()
+    ev.wait(timeout)
+    with _NET_LOCK:
+        if st["busy"]:              # no contestó a tiempo: por ahora, caída (el chequeo sigue en su hilo)
+            if st["ok"] is None:
+                st["ok"] = False
+            return False
+        return bool(st["ok"])
+
+
+def net_offline_roots():
+    with _NET_LOCK:
+        return [r for r, st in _NET.items() if st["ok"] is False]
+
+
+def safe_isdir(path, timeout=0.6):
+    return bool(path) and reachable(path, timeout) and os.path.isdir(path)
+
+
 def norm_key(path):
     return os.path.normcase(os.path.normpath(path))
 
@@ -355,8 +446,11 @@ def _win_drives():
         if dtype in (0, 1):
             continue
         label = ""
+        _DRIVE_TYPES[letter] = dtype == 4
         buf = ctypes.create_unicode_buffer(261)
-        if k32.GetVolumeInformationW(ctypes.c_wchar_p(root), buf, 261, None, None, None, None, 0):
+        # con una unidad de red caída, GetVolumeInformation traba: solo si responde
+        if (dtype != 4 or reachable(root, 0.3)) and \
+                k32.GetVolumeInformationW(ctypes.c_wchar_p(root), buf, 261, None, None, None, None, 0):
             label = buf.value
         unc = ""
         if dtype == 4:
@@ -401,8 +495,9 @@ def list_drives():
     for d in raw:
         total = free = 0
         try:
-            u = shutil.disk_usage(d["root"])
-            total, free = u.total, u.free
+            if d["kind"] != "network" or reachable(d["root"], 0.3):
+                u = shutil.disk_usage(d["root"])
+                total, free = u.total, u.free
         except OSError:
             pass
         label = d["label"] or ({"local": "Local Disk", "network": "Network drive", "removable": "Removable drive",
@@ -716,7 +811,12 @@ class Config:
         "lib_tree_line_color": "#4cc2ff",
         "splitter_left3": "",
         "hidden_sys": ["onedrive"],
-        "collapse_seqs": True,          # secuencias de imágenes en una sola entrada
+        "collapse_seqs": True,
+        "mini_tree_on": True,
+        "hover_box": True,
+        "col_layouts": {},              # layouts de columnas propios {nombre: [columnas en orden]}
+        "col_order": None,              # orden de columnas del último layout aplicado              # preview flotante al dejar el mouse sobre un ítem           # árbol solo con las carpetas visitadas
+        "mini_tree": [],                # carpetas visitadas (más recientes primero)          # secuencias de imágenes en una sola entrada
         "lib_show_images": True,        # VFX Library: mostrar imágenes sueltas (jpg de capturas, etc.)
         "hidden_drives": [],
         "list_cols": {},

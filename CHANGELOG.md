@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.19.0
+- Network without freezing: a NAS or mapped drive that is off no longer hangs the app (startup, VFX Library, tabs, tree, This PC). It shows "(offline)", checks again by itself and comes back when the server answers.
+- F7: go to the previous location and back (between the last two).
+- Hover box: leave the mouse over an item for a large preview next to the cursor (image, first frame, video, PDF, text, folder contents). View › Hover box turns it off.
+- Column layouts (right-click the column titles or View › Column layout): Standard, VFX, Video, Minimal, and your own. New columns Resolution, FPS, Codec, Channels and Colorspace, read in the background.
+- 6 Key Navigation in the address bar: → at the end of a folder lists its subfolders, Ctrl+← / Ctrl+→ jump between folders of the path, Ctrl+↓ lists at the cursor, ↑ ↓ choose, Ctrl+↑ closes, Enter goes, Ctrl+Enter opens the file / the folder in a new tab.
+- Mini tree (on by default): the folder tree shows only the folders you visited; the tree button switches to the full tree.
+
 ## 0.18.1
 - The folder PDF no longer opens by itself in Details (it was meant only for a future 3D Library).
 - VFX Library images button: turning it on or off reloads the folder, so the images come back without pressing Refresh.
