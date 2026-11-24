@@ -4,8 +4,8 @@
 import os
 
 from PySide6.QtCore import (Qt, Signal, QSize, QTimer, QEvent, QItemSelectionModel, QRect, QPersistentModelIndex,
-                            QModelIndex, QRectF)
-from PySide6.QtGui import QKeySequence, QShortcut, QCursor, QPainter, QPainterPath, QColor
+                            QModelIndex, QRectF, QPointF)
+from PySide6.QtGui import QKeySequence, QShortcut, QCursor, QPainter, QPainterPath, QColor, QPen, QFont
 from PySide6.QtWidgets import (QSizePolicy, QFrame, QVBoxLayout, QHBoxLayout, QTabBar, QToolButton, QLineEdit, QComboBox,
                                QCheckBox, QListView, QTreeView, QStackedWidget, QAbstractItemView, QHeaderView,
                                QLabel, QMenu, QWidget)
@@ -18,6 +18,13 @@ from .widgets import GridDelegate, BreadcrumbBar, ListNameDelegate
 
 
 class _ViewMixin:
+    def mouseDoubleClickEvent(self, ev):
+        """Doble click en el espacio vacío: subir un nivel."""
+        if ev.button() == Qt.LeftButton and not self.indexAt(ev.position().toPoint()).isValid():
+            self.pane.go_up()
+            return
+        super().mouseDoubleClickEvent(ev)
+
     def _setup(self, pane):
         self.pane = pane
         self.setDragEnabled(True)
@@ -126,7 +133,7 @@ class GridView(_ViewMixin, QListView):
 
 
 class ListView(_ViewMixin, QTreeView):
-    """Vista Detalles con numeración de filas a la izquierda, como XYplorer (se dibuja en el área de ramas)."""
+    """Vista Detalles con numeración de filas a la izquierda (se dibuja en el área de ramas)."""
 
     def setup_numbers(self, pane):
         self._numpane = pane
@@ -179,6 +186,105 @@ class ListView(_ViewMixin, QTreeView):
         p.setPen(QColor("#2c2c2c"))
         p.drawLine(rect.right(), rect.top(), rect.right(), rect.bottom())
         p.restore()
+
+
+class FilterButton(QToolButton):
+    """Filtro de tipo de archivo entre la dirección y el buscador. Ancho fijo (no corre nada); cuando hay un
+    filtro se resalta y muestra un dibujito del tipo (o «EXR»)."""
+
+    def __init__(self, pane):
+        super().__init__()
+        self.pane = pane
+        self.setFixedSize(52, 34)
+        self.setPopupMode(QToolButton.InstantPopup)
+        self.setStyleSheet("QToolButton{border:none;} QToolButton::menu-indicator{image:none;width:0px;}")
+        self.m = QMenu(self)
+        self.m.aboutToShow.connect(self._fill)
+        self.setMenu(self.m)
+        self.setMouseTracking(True)
+        self.setToolTip("Filter: show only one file type")
+
+    def _fill(self):
+        self.pane.app.set_active(self.pane)
+        self.m.clear()
+        cur = self.pane.filter.currentData()
+        for i, (label, key) in enumerate(FILTERS):
+            a = self.m.addAction(label, lambda i=i: self.pane.filter.setCurrentIndex(i))
+            a.setCheckable(True)
+            a.setChecked(key == cur)
+            if i == 0:
+                self.m.addSeparator()
+
+    def paintEvent(self, ev):
+        cat = self.pane.filter.currentData() or "all"
+        on = cat != "all"
+        label = next((l for l, k in FILTERS if k == cat), "")
+        self.setToolTip("Filter: show only one file type" if not on else f"Filter on: {label}")
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        r = QRectF(self.rect()).adjusted(1, 2, -1, -2)
+        hover = self.underMouse()
+        if on:
+            p.setPen(QPen(QColor("#2f7fb0"), 1))
+            p.setBrush(QColor("#164a6b" if hover else "#0f3a55"))
+            p.drawRoundedRect(r, 5, 5)
+        elif hover:
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor("#3a3a3a"))
+            p.drawRoundedRect(r, 5, 5)
+        c = QColor("#4cc2ff" if on else "#c5c5c5")
+        cx, cy = 20.0, r.center().y()
+        p.setPen(QPen(c, 1.6, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        p.setBrush(Qt.NoBrush)
+        if cat == "all":
+            f = QPainterPath()
+            f.moveTo(cx - 7, cy - 6); f.lineTo(cx + 7, cy - 6); f.lineTo(cx + 2, cy + 1)
+            f.lineTo(cx + 2, cy + 6); f.lineTo(cx - 2, cy + 7); f.lineTo(cx - 2, cy + 1); f.closeSubpath()
+            p.drawPath(f)
+        elif cat == "exr":
+            fnt = QFont(self.font())
+            fnt.setPointSizeF(7.5)
+            fnt.setBold(True)
+            p.setFont(fnt)
+            p.setPen(c)
+            p.drawText(QRectF(cx - 13, cy - 8, 26, 16), Qt.AlignCenter, "EXR")
+        elif cat == "seq":
+            for k in (4, 0, -4):
+                p.drawRect(QRectF(cx - 6 + k * .5, cy - 5 - k * .5, 11, 9))
+        elif cat == "video":
+            p.drawRoundedRect(QRectF(cx - 8, cy - 6, 16, 12), 2, 2)
+            t = QPainterPath()
+            t.moveTo(cx - 2, cy - 3); t.lineTo(cx + 3, cy); t.lineTo(cx - 2, cy + 3); t.closeSubpath()
+            p.fillPath(t, c)
+        elif cat == "image":
+            p.drawRoundedRect(QRectF(cx - 8, cy - 6, 16, 12), 2, 2)
+            mnt = QPainterPath()
+            mnt.moveTo(cx - 6, cy + 4); mnt.lineTo(cx - 1, cy - 1); mnt.lineTo(cx + 2, cy + 2)
+            mnt.lineTo(cx + 4, cy); mnt.lineTo(cx + 7, cy + 4)
+            p.drawPath(mnt)
+        elif cat == "model":
+            cube = QPainterPath()
+            cube.moveTo(cx, cy - 7); cube.lineTo(cx + 7, cy - 3); cube.lineTo(cx + 7, cy + 4); cube.lineTo(cx, cy + 8)
+            cube.lineTo(cx - 7, cy + 4); cube.lineTo(cx - 7, cy - 3); cube.closeSubpath()
+            cube.moveTo(cx - 7, cy - 3); cube.lineTo(cx, cy + 1); cube.lineTo(cx + 7, cy - 3)
+            cube.moveTo(cx, cy + 1); cube.lineTo(cx, cy + 8)
+            p.drawPath(cube)
+        elif cat == "dir":
+            d = QPainterPath()
+            d.moveTo(cx - 8, cy + 6); d.lineTo(cx - 8, cy - 6); d.lineTo(cx - 3, cy - 6); d.lineTo(cx - 1, cy - 4)
+            d.lineTo(cx + 8, cy - 4); d.lineTo(cx + 8, cy + 6); d.closeSubpath()
+            p.drawPath(d)
+        else:      # media
+            p.drawRoundedRect(QRectF(cx - 8, cy - 6, 10, 9), 2, 2)
+            t = QPainterPath()
+            t.moveTo(cx + 1, cy - 1); t.lineTo(cx + 8, cy + 3); t.lineTo(cx + 1, cy + 7); t.closeSubpath()
+            p.fillPath(t, c)
+        # flechita
+        p.setPen(QPen(QColor("#c5c5c5"), 1.3))
+        x = r.right() - 11
+        p.drawLine(QPointF(x - 3, cy - 1), QPointF(x, cy + 2))
+        p.drawLine(QPointF(x, cy + 2), QPointF(x + 3, cy - 1))
+        p.end()
 
 
 class WinTabBar(QTabBar):
@@ -389,25 +495,22 @@ class FilePane(QFrame):
         nrow.setSpacing(6)
         self.b_back = tb("back", "Back (Alt+←)", self.go_back, nrow)
         self.b_fwd = tb("fwd", "Forward (Alt+→)", self.go_forward, nrow)
-        tb("up", "Up (Alt+↑ · Backspace)", self.go_up, nrow)
-        tb("reload", "Refresh (F5)", self.refresh, nrow)
-        nrow.addSpacing(10)
+        self.b_up = tb("up", "Up (Alt+↑ · Backspace)", self.go_up, nrow)
+        self.b_ref = tb("reload", "Refresh (F5)", self.refresh, nrow)
+        self.nav_spacer = QWidget()
+        self.nav_spacer.setFixedWidth(10)
+        nrow.addWidget(self.nav_spacer)
+        self.nav_buttons = (self.b_back, self.b_fwd, self.b_up, self.b_ref, self.nav_spacer)
         self.crumb = BreadcrumbBar(self.app.fs)
         self.crumb.setMinimumWidth(140)
         self.crumb.navigate.connect(self.navigate)
         nrow.addWidget(self.crumb, 7)
-        self.sort_menu = QMenu(self)
-        self.sort_menu.aboutToShow.connect(lambda: (self.app.set_active(self), self.app._fill_sort_menu(self.sort_menu)))
-        self.b_sort = QToolButton()
-        self.b_sort.setIcon(ic.glyph("sort", 18, "#4cc2ff"))
-        self.b_sort.setIconSize(QSize(18, 18))
-        self.b_sort.setToolTip("Sort and group")
-        self.b_sort.setMenu(self.sort_menu)
-        self.b_sort.setPopupMode(QToolButton.InstantPopup)
-        self.b_sort.setFixedSize(38, 34)
-        self.b_sort.setStyleSheet("QToolButton{border:none;border-radius:4px;} QToolButton:hover{background:#3a3a3a;}"
-                                  "QToolButton::menu-indicator{image:none;width:0px;}")
-        nrow.addWidget(self.b_sort)
+        self.filter = QComboBox(self)                 # estado del filtro de tipo (lo maneja el botón)
+        for label, key in FILTERS:
+            self.filter.addItem(label, key)
+        self.filter.hide()
+        self.b_filter = FilterButton(self)
+        nrow.addWidget(self.b_filter)
         self.search = QLineEdit()
         self.search.setObjectName("paneSearch")
         self.search.setToolTip("Name or part · *wildcards* · (with tags on: #tag, ★3)\n"
@@ -420,15 +523,14 @@ class FilePane(QFrame):
                                   "border:1px solid #333333; background:#2d2d2d;}"
                                   "QLineEdit:focus{background:#1f1f1f; border-bottom:2px solid #4cc2ff;}")
         self.search.textChanged.connect(self._on_search_text)
+        self.search.textChanged.connect(lambda *_: self._notify_nav())
         self.search.returnPressed.connect(self._apply_search)
         nrow.addWidget(self.search, 3)
         hl.addWidget(navrow)
 
         # --- estado que se maneja desde la barra de comandos (no se muestra en el panel)
-        self.filter = QComboBox(self)
-        for label, key in FILTERS:
-            self.filter.addItem(label, key)
         self.filter.currentIndexChanged.connect(self._apply_search)
+        self.filter.currentIndexChanged.connect(lambda *_: self.b_filter.update())
         self.filter.currentIndexChanged.connect(lambda *_: self.app.sync_commandbar(self))
         self.filter.hide()
         self.rec = QToolButton(self)
@@ -470,6 +572,7 @@ class FilePane(QFrame):
         self.grid.setItemDelegate(GridDelegate(self.app, self.grid))
         self.app.thumbs.ready.connect(self.grid.scrub_ready)
         ts = int(self.app.cfg["thumb_size"])
+        self.thumb_size = ts
         self.grid.setIconSize(QSize(ts, ts))
 
         self.list = ListView()
@@ -552,7 +655,7 @@ class FilePane(QFrame):
         sc("Ctrl+Tab", lambda: self.tabbar.setCurrentIndex((self.ti + 1) % max(1, len(self.tabs))))
         sc("Ctrl+Shift+Tab", lambda: self.tabbar.setCurrentIndex((self.ti - 1) % max(1, len(self.tabs))))
         sc("Ctrl+L", self.crumb.start_edit)
-        sc("Ctrl+F", lambda: (self.search.setFocus(), self.search.selectAll()))
+        sc("Ctrl+F", self.focus_search)
         sc("Ctrl+1", lambda: self.set_view("grid"))
         sc("Ctrl+2", lambda: self.set_view("list"))
         sc("Ctrl+B", lambda: self.set_rec_level({0: 1, 1: 2, 2: 0}[self.rec_value()]))
@@ -645,6 +748,9 @@ class FilePane(QFrame):
         a = m.addAction("Size column to fit", lambda: self.list.resizeColumnToContents(col))
         a.setEnabled(col >= 0)
         m.addAction("Size all columns to fit", self.fit_columns)
+        a = m.addAction("Row numbers", self.app._toggle_row_numbers)
+        a.setCheckable(True)
+        a.setChecked(bool(self.app.cfg["list_row_numbers"]))
         m.addSeparator()
         lib = bool(self.app.cfg["library_features"])
         for c in sorted(range(len(COLS)), key=hd.visualIndex):
@@ -673,7 +779,8 @@ class FilePane(QFrame):
                 self.list.resizeColumnToContents(c)
 
     # ------------------------------------------------------------------ vista por carpeta
-    VIEW_DEFAULT = {"view": "grid", "sort": 0, "order": 0, "group": "auto"}
+    VIEW_DEFAULT = {"view": "list", "sort": 0, "order": 0, "group": "auto"}      # como Windows: Detalles
+    PICTURES_DEFAULT = {"view": "grid", "size": 240, "sort": 0, "order": 0, "group": "auto"}   # Íconos grandes
 
     def _fv_key(self):
         t = self.tab()
@@ -686,12 +793,25 @@ class FilePane(QFrame):
         k = self._fv_key()
         if not k:
             return
-        st = (self.app.cfg["folder_views"] or {}).get(k) or self.app.cfg["folder_view_default"] or self.VIEW_DEFAULT
+        st = (self.app.cfg["folder_views"] or {}).get(k)
+        if not st:
+            pics = self.app._sys_path("pictures") if hasattr(self.app, "_sys_path") else ""
+            if pics and norm_key(pics) == k:
+                st = self.PICTURES_DEFAULT
+            else:
+                st = self.app.cfg["folder_view_default"] or self.VIEW_DEFAULT
         self._applying_view = True
         try:
             if st.get("view", "grid") != self.view_mode:
                 self.set_view(st.get("view", "grid"), emit=False)
             self.group_mode = st.get("group", "auto")
+            size = int(st.get("size") or self.app.cfg["thumb_size"])
+            if size != self.thumb_size:
+                self.set_thumb_size(size)
+                if self.app.active is self and hasattr(self.app, "size_slider"):
+                    self.app.size_slider.blockSignals(True)
+                    self.app.size_slider.setValue(size)
+                    self.app.size_slider.blockSignals(False)
             col = int(st.get("sort", 0))
             order = Qt.DescendingOrder if int(st.get("order", 0)) else Qt.AscendingOrder
             hd = self.list.header()
@@ -706,13 +826,14 @@ class FilePane(QFrame):
     def _view_state(self):
         hd = self.list.header()
         st = {"view": self.view_mode, "sort": hd.sortIndicatorSection(),
-              "order": 1 if hd.sortIndicatorOrder() == Qt.DescendingOrder else 0, "group": self.group_mode}
+              "order": 1 if hd.sortIndicatorOrder() == Qt.DescendingOrder else 0, "group": self.group_mode,
+              "size": self.thumb_size}
         if hasattr(self.app, "info_area"):
             st["details"] = self.app.info_area.isVisible()
         return st
 
     def _save_folder_view(self):
-        if self._applying_view or not hasattr(self.app, "cfg"):
+        if self._applying_view or not getattr(self.app, "_ready", False):
             return
         k = self._fv_key()
         if not k:
@@ -775,9 +896,11 @@ class FilePane(QFrame):
         self._apply_columns()
         if not self.banner.isVisible():
             self.search.setPlaceholderText(self._placeholder())
+            self._notify_nav()
 
     def set_thumb_size(self, v):
-        self.grid.setIconSize(QSize(v, v))
+        self.thumb_size = int(v)
+        self.grid.setIconSize(QSize(int(v), int(v)))
 
     # ------------------------------------------------------------------ pestañas
     def tab(self):
@@ -841,7 +964,7 @@ class FilePane(QFrame):
 
     def close_tab(self, i):
         if len(self.tabs) <= 1 and 0 <= i < len(self.tabs):
-            self.app.close_pane(self)          # en doble panel, cerrar la única pestaña cierra ese panel
+            self.app.close_pane(self)          # doble panel: cierra ese panel · un solo panel: cierra la app
             return
         if not (0 <= i < len(self.tabs)):
             return
@@ -1015,9 +1138,11 @@ class FilePane(QFrame):
                             root=self.lock_root_for(t["path"]))
         if not self.banner.isVisible():
             self.search.setPlaceholderText(self._placeholder())
+            self._notify_nav()
         self._apply_folder_view()
         self.b_back.setEnabled(t["hpos"] > 0 or bool(t["virtual"]))
         self.b_fwd.setEnabled(t["hpos"] < len(t["history"]) - 1)
+        self._notify_nav()
         self._update_tab()
         self.location_changed.emit(self)
 
@@ -1068,6 +1193,20 @@ class FilePane(QFrame):
             self._load()
 
     # ------------------------------------------------------------------ carga
+    def _notify_nav(self):
+        """Avisa a la ventana (buscador y ← → ↑ ⟳ compartidos entre los paneles de File Explorer)."""
+        if hasattr(self.app, "sync_nav"):
+            self.app.sync_nav(self)
+
+    def focus_search(self):
+        if self.search.isVisible():
+            self.search.setFocus()
+            self.search.selectAll()
+        else:
+            self.app.set_active(self)
+            self.app.gsearch.setFocus()
+            self.app.gsearch.selectAll()
+
     def rec_value(self):
         return self.rec_level if self.rec.isChecked() else 0
 
@@ -1248,6 +1387,7 @@ class FilePane(QFrame):
         if count is None:
             self.banner.hide()
             self.search.setPlaceholderText(self._placeholder())
+            self._notify_nav()
             return
         root = os.path.basename(self.tab_path().rstrip("\\/")) or self.tab_path()
         q = self.search.text().strip()
@@ -1260,6 +1400,7 @@ class FilePane(QFrame):
                             f"&nbsp;&nbsp;<span style='color:#cfe0ff'>✕ show only this folder</span>")
         self.banner.show()
         self.search.setPlaceholderText(f"Search {root} and subfolders")
+        self._notify_nav()
 
     def _placeholder(self):
         t = self.tab()

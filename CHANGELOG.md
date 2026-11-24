@@ -1,9 +1,24 @@
 # Changelog
 
+## 0.13.0
+- **One search box and one ← → ↑ ⟳** for File Explorer: they work on the active pane. In dual pane each pane only has its tabs, address bar and filter.
+- **Dual pane one above the other** (F10) besides side by side (F9); two icon buttons in the toolbar.
+- **Color filters** button: paints file names by pattern (default: `.exe`, `.msi`, `.bat` in red). Rules in ⚙ › Colors (`pattern = color` or `= text, background`, `dir:` for folders).
+- **Text files** (.ini, .txt, .json, .nk, .py…) are shown in the whole Details pane, read-only and selectable.
+- **Default view is Details** for every folder; This PC keeps its tiles and Pictures opens in Large icons. The **icon size is remembered per folder** too.
+- The **View** button shows the current view. Toolbar order: New, Sort, View, ⋯.
+- **Filter** moved between the address bar and the search box: fixed width, highlighted with a small drawing of the type (or «EXR») when on.
+- Pipeline dropdowns read nicer: `_input` → INPUT, `comp` → COMP, `8_lighting` → Lighting (only in the dropdown). The last one says Task (3D), Stage (Comp, DMP) or Shot (INPUT).
+- Row numbers can be turned off from the column headers menu.
+- Closing the only tab closes the app (in dual pane it closes that pane).
+- Quick access only highlights the current folder (follows navigation and tab changes).
+- Double-click the empty space of the list or the tree to go up one level.
+- References to other programs removed from the app.
+
 ## 0.12.0
-- **Tree like XYplorer**: › / ⌄ chevrons and a single thin path line to the current folder (no gray lines or ⊞ boxes). The old style is still in ⚙ › Colors.
+- **New tree style**: › / ⌄ chevrons and a single thin path line to the current folder (no gray lines or ⊞ boxes). The old style is still in ⚙ › Colors.
 - **Row numbers** in Details (View › Row numbers).
-- **Subfolders switch** like Found, at the bottom of the center pane: off · 1 level · the whole branch (Ctrl+B steps through).
+- **Subfolders switch** at the bottom of the center pane: off · 1 level · the whole branch (Ctrl+B steps through).
 - **Pipeline bar spans the center pane**, aligned with it (dividers at both edges), and follows the splitters. New and View shrink to icons when the left pane is narrow; **Sort** moved between the address bar and the search box.
 - **Active file-type filter** shows its name highlighted (e.g. «Sequences»).
 - **This PC** tiles like Windows: narrower, more drives per row.
@@ -16,7 +31,7 @@
 ## 0.11.0
 - **ffmpeg included** in `bin\` (LGPL build): videos play and get thumbnails/info without downloading anything. The CI selftest now checks video.
 - **Grid names centered** and wrapped on up to two lines, like Windows.
-- **Pipeline without Studio Toolbar**: everything is set in ⚙ › Pipeline (the toolbar settings are imported once).
+- **Standalone pipeline settings**: everything is set in ⚙ › Pipeline.
 - **Departments with or without tasks**: 3D › Task › Stage; Comp / DMP go straight to the stages (the last dropdown becomes «Stage»); `_input` lists its folders («Folder»). Configurable.
 - **Switching shot keeps your place**: same dept / task / stage / `_input` subfolder in the new shot when it exists (falls back to the closest parent).
 
@@ -51,7 +66,7 @@
 ## 0.7.0
 - **Nueva disposición** (como el Explorador de Windows 11): pestañas y dirección a todo el ancho, selector **Carpetas / VFX Library** arriba a la derecha, fila con ＋ · pipeline · Doble panel · Detalles · ⚙, y Subcarpetas / Filtrar / Ordenar / Ver / ⋯ en la barra de abajo.
 - **Acceso rápido por modo**: uno para Carpetas y otro para la VFX Library, arriba del panel izquierdo.
-- **Árbol de la VFX Library** con las líneas estilo XYplorer en otro color (configurable) y path tracing; sigue a la pestaña activa.
+- **Árbol de la VFX Library** con líneas en otro color (configurable) y path tracing; sigue a la pestaña activa.
 - **Tags rápidos** en la VFX Library (Humo, Fuego, Explosión…): filtran toda la rama por nombre, carpeta o tag. Editables.
 - **Arrastrar entre los dos mundos**: soltar archivos en las carpetas de los árboles; al arrastrar sobre un tab se muestra su árbol.
 - **Botón de colores** con los modos (manual, por proyecto, por nombre, ambos) en lugar del combo.
@@ -71,14 +86,14 @@
 
 ## 0.4.0
 - **Look Windows 11**: pestañas estilo Explorador, fila de navegación con barra de dirección y «Buscar en…», barra de comandos (Nuevo, Cortar, Copiar, Pegar, Cambiar nombre, Eliminar, Ordenar, Ver, Filtrar, Subcarpetas, Ver más), panel de Detalles conmutable, botones de vista y tamaño en la barra de estado, tema oscuro Win11 y barra de título oscura.
-- **Árbol estilo XYplorer**: líneas sólidas (o punteadas), cajitas ⊞/⊟ y Tree Path Tracing (camino hasta la carpeta actual en color de acento), con grosor y color configurables.
+- **Árbol con líneas**: líneas sólidas (o punteadas), cajitas ⊞/⊟ y Tree Path Tracing (camino hasta la carpeta actual en color de acento), con grosor y color configurables.
 - Árbol con scroll horizontal para rutas profundas; indicador de panel activo en doble panel.
 
 ## 0.3.0
 - **VFX Library**: tab propio con viewer/player arriba y elementos abajo (grilla). Autoplay en loop al moverse con las flechas. Secuencias EXR/JPG/PNG, videos vía ffmpeg e imágenes/HDRIs. Raíces de la librería elegibles desde el panel izquierdo.
 - **Subcarpetas** (Ctrl+B): sin texto muestra todos los archivos de la rama; con texto busca en la rama. Banner y carpeta relativa visibles.
 - **Colores automáticos** de carpetas por proyecto (más claro en secuencias y shots) y/o por nombre (reglas editables), con selector en el panel de carpetas.
-- **Árbol con líneas** estilo XYplorer, coloreadas con el color de cada carpeta.
+- **Árbol con líneas**, coloreadas con el color de cada carpeta.
 - **Tamaño de carpetas** opcional, calculado en segundo plano.
 - **Renombrar en el lugar (F2)**, también secuencias completas (cambia el padding según la cantidad de #). «Renumerar secuencia…» queda en el menú.
 - Tags, rating y colecciones apagados por defecto (se prenden en Configuración).
@@ -90,7 +105,7 @@
 - Breadcrumb clickeable, con menú de subcarpetas en cada tramo.
 - Operaciones de archivo: copiar / cortar / pegar (compatible con el Explorador), copia y movimiento con progreso, papelera, renombrar, **renumerar secuencias**, carpeta nueva y drag & drop entre paneles y con el Explorador.
 - Librería de assets: tags, rating ★1–5, colecciones; sidebar de tags y colecciones; búsqueda con `#tag` y `★N`.
-- Barra de pipeline compatible con Studio Toolbar (lee `pipeline_config.ini`).
+- Barra de pipeline.
 - Thumbnails con OpenImageIO: HDR, TIFF de 16 y 32 bits, TX y EXR tileados con mips, DPX, PSD. Lectura por franjas para imágenes enormes.
 - Previews de modelos y carpetas con imágenes del mismo nombre (sidecar).
 - Build automático en GitHub Actions con selftest del exe; release en tags `v*`.

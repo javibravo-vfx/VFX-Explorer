@@ -267,6 +267,14 @@ class EntryModel(QAbstractTableModel):
                 return QColor("#f5c542")
             if col == C_TAGS:
                 return QColor("#8fb3ff")
+            if col == C_NAME:
+                cf = self.app.color_filter_for(e)
+                if cf and cf[0]:
+                    return QColor(cf[0])
+        if role == Qt.BackgroundRole and col == C_NAME:
+            cf = self.app.color_filter_for(e)
+            if cf and cf[1]:
+                return QColor(cf[1])
         if role == Qt.BackgroundRole and e.kind != "dir":
             c = lib.color(e.key())
             if c:

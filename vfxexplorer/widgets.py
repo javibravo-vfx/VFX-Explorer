@@ -315,6 +315,16 @@ class Icons:
             gear.closeSubpath()
             p.drawPath(gear)
             p.drawEllipse(QPointF(c, c), s * .13, s * .13)
+        elif kind == "dualv":
+            p.drawRoundedRect(QRectF(s * .14, s * .14, s * .72, s * .72), 2, 2)
+            path.moveTo(s * .14, s * .5); path.lineTo(s * .86, s * .5)
+        elif kind == "colorfilter":
+            for i, c in enumerate(("#ff5c5c", "#4cc2ff", "#3ecf8e")):
+                p.save()
+                p.setPen(QPen(QColor(c), max(1.2, s * .09), Qt.SolidLine, Qt.RoundCap))
+                y = s * (.28 + i * .22)
+                p.drawLine(QPointF(s * .18, y), QPointF(s * (.82 - i * .14), y))
+                p.restore()
         elif kind == "dual":
             p.drawRoundedRect(QRectF(s * .12, s * .2, s * .76, s * .6), 2, 2)
             path.moveTo(s * .5, s * .2); path.lineTo(s * .5, s * .8)
@@ -665,10 +675,19 @@ class GridDelegate(QStyledItemDelegate):
         f.setPointSizeF(10.0)
         p.setFont(f)
         fm = QFontMetrics(f)
-        p.setPen(QColor("#e8e8e8"))
+        cf = self.app.color_filter_for(e)
+        lines = wrap_name(e.name, fm, r.width() - 12)
         lh = fm.height()
         y = th.bottom() + 4
-        for line in wrap_name(e.name, fm, r.width() - 12):
+        if cf and cf[1]:
+            bw = max(fm.horizontalAdvance(x) for x in lines) + 10
+            p.save()
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(cf[1]))
+            p.drawRoundedRect(QRectF(r.center().x() - bw / 2, y - 1, bw, lh * len(lines) + 2), 3, 3)
+            p.restore()
+        p.setPen(QColor(cf[0]) if cf and cf[0] else QColor("#e8e8e8"))
+        for line in lines:
             p.drawText(QRect(r.x() + 6, y, r.width() - 12, lh), Qt.AlignHCenter | Qt.AlignVCenter, line)
             y += lh
         tr = QRect(r.x() + 6, y - lh, r.width() - 12, lh)
@@ -1175,7 +1194,7 @@ class SettingsDialog(QDialog):
                             "it gets lighter on sequences and shots. By name: the rules below. "
                             "Manual color always wins. Also changed with the colors button in the left pane."))
         self.fcolor = QComboBox()
-        self.fcolor.addItem("Yellow (like Windows)", "yellow")
+        self.fcolor.addItem("Yellow", "yellow")
         self.fcolor.addItem("Light blue", "blue")
         self.fcolor.setCurrentIndex(max(0, self.fcolor.findData(cfg["folder_color"] or "yellow")))
         cl.addRow("Folder color:", self.fcolor)
@@ -1183,7 +1202,7 @@ class SettingsDialog(QDialog):
         self.tlines.setChecked(bool(cfg["tree_line_colors"]))
         cl.addRow("", self.tlines)
         self.tstyle = QComboBox()
-        self.tstyle.addItem("Chevrons + path line (like XYplorer)", "chevron")
+        self.tstyle.addItem("Chevrons + path line", "chevron")
         self.tstyle.addItem("Solid lines with ⊞ boxes", "solid")
         self.tstyle.addItem("Dotted", "dotted")
         self.tstyle.setCurrentIndex(max(0, self.tstyle.findData(cfg["tree_lines_style"])))
@@ -1203,7 +1222,7 @@ class SettingsDialog(QDialog):
         cl.addRow("Trace color:", self.tcolor)
         self.lcolor = QComboBox()
         for label, hexc in (("Light blue", "#4cc2ff"), ("Violet", "#8d6fd1"), ("Pink", "#d16fa8"), ("Green", "#3ecf8e"),
-                            ("Orange", "#ff9f43"), ("Gray (like Folders)", "#5f6368")):
+                            ("Orange", "#ff9f43"), ("Gray", "#5f6368")):
             self.lcolor.addItem(app.icons.swatch(hexc), label, hexc)
         i = self.lcolor.findData(cfg["lib_tree_line_color"])
         if i < 0:
@@ -1217,6 +1236,14 @@ class SettingsDialog(QDialog):
         self.rules.setMinimumHeight(220)
         self.rules.setStyleSheet("font-family:Consolas,monospace; font-size:9pt;")
         cl.addRow("Name rules:", self.rules)
+        from .core import DEFAULT_COLOR_FILTERS
+        cfv = cfg["color_filters"]
+        self.cfilters = QPlainTextEdit(DEFAULT_COLOR_FILTERS if cfv is None else cfv)
+        self.cfilters.setFont(QFont("Consolas", 9))
+        self.cfilters.setMinimumHeight(120)
+        cl.addRow("Color filters:", self.cfilters)
+        cl.addRow("", _hint("Turned on with the color filters button next to the dual pane buttons. "
+                            "pattern = text color  ·  or  = text color, background  ·  dir: only folders."))
         rb = QPushButton("Restore default rules")
         rb.clicked.connect(lambda: self.rules.setPlainText(DEFAULT_NAME_RULES))
         cl.addRow("", rb)
@@ -1306,6 +1333,7 @@ class SettingsDialog(QDialog):
         cfg["tree_trace_width"] = self.twidth.value()
         cfg["tree_trace_color"] = self.tcolor.currentData()
         cfg["lib_tree_line_color"] = self.lcolor.currentData()
+        cfg["color_filters"] = self.cfilters.toPlainText()
         cfg["name_rules"] = self.rules.toPlainText()
         cfg["viewer_res"] = self.vres.currentData()
         cfg["viewer_mem"] = self.vmem.value()

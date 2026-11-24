@@ -4,7 +4,7 @@
 
 Los departamentos pueden tener tasks (3D\\1_matchmove\\1_projects…), ir directo a los stages
 (Comp\\1_projects, 2_review, 3_publish) o tener carpetas sueltas (_input\\plates…).
-Se configura todo en VFX Explorer (ya no depende de Studio Toolbar; su config se importa una vez)."""
+Se configura todo en VFX Explorer (ya no depende de the toolbar; su config se importa una vez)."""
 
 import os
 import json

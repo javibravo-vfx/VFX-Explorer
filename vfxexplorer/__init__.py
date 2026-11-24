@@ -1,4 +1,4 @@
 """VFX Explorer — explorador de archivos liviano y portable pensado para VFX."""
 
 APP_NAME = "VFX Explorer"
-VERSION = "0.12.0"
+VERSION = "0.13.0"

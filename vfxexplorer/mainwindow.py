@@ -6,7 +6,7 @@ import subprocess
 
 from PySide6.QtCore import Qt, QSize, QTimer, QByteArray, QDir, QUrl, QEvent, Signal, QRectF, QPointF
 from PySide6.QtGui import QKeySequence, QShortcut, QDesktopServices, QCursor, QAction
-from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QTreeView,
+from PySide6.QtWidgets import (QLineEdit, QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QTreeView,
                                QListWidget, QListWidgetItem, QComboBox, QSlider, QToolBar, QLabel, QMenu,
                                QFileSystemModel, QAbstractItemView, QToolButton, QScrollArea, QFrame,
                                QMessageBox, QInputDialog, QProgressDialog, QStyledItemDelegate, QSizePolicy, QStyleOptionViewItem,
@@ -76,7 +76,7 @@ class ChevronButton(QToolButton):
 
 
 class SubfolderSwitch(QWidget):
-    """Interruptor de subcarpetas como el de Found: apagado · 1 nivel · toda la rama."""
+    """Interruptor de subcarpetas apagado · 1 nivel · toda la rama."""
     changed = Signal(int)
     LABELS = ("Subfolders: off", "Subfolders: 1 level", "Subfolders: all")
 
@@ -167,8 +167,12 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle(f"{APP_NAME} {VERSION}")
         self.setWindowIcon(self.icons.app_icon())
+        self._ready = False             # hasta terminar de abrir no se guardan vistas por carpeta
         self._build()
         self._restore(start_path)
+        self._ready = True
+        for p in self.all_panes:
+            p._apply_folder_view()
 
     # ------------------------------------------------------------------ UI
     def _build(self):
@@ -218,16 +222,14 @@ class MainWindow(QMainWindow):
         self.m_new.aboutToShow.connect(self._fill_new_menu)
         self.b_new = ChevronButton(ic.new_icon(18), "New", self.m_new, "New: folder, tab…")
         cll.addWidget(self.b_new)
-        self.m_sort = QMenu(self)                      # el botón Sort está en cada barra de dirección
+        self.m_sort = QMenu(self)
         self.m_sort.aboutToShow.connect(self._fill_sort_menu)
+        self.b_sort = ChevronButton(ic.glyph("sort", 18, ACCENT), "Sort", self.m_sort, "Sort and group")
+        cll.addWidget(self.b_sort)
         self.m_view = QMenu(self)
         self.m_view.aboutToShow.connect(self._fill_view_menu)
         self.b_view = ChevronButton(ic.glyph("list", 18), "View", self.m_view, "View: icon size, details, hidden items…")
         cll.addWidget(self.b_view)
-        self.m_filter = QMenu(self)
-        self.m_filter.aboutToShow.connect(self._fill_filter_menu)
-        self.b_filter = ChevronButton(ic.glyph("filter", 18), "", self.m_filter, "Filter: show only one file type")
-        cll.addWidget(self.b_filter)
         self.m_more = QMenu(self)
         self.m_more.aboutToShow.connect(self._fill_more_menu)
         b_more = QToolButton()
@@ -240,7 +242,7 @@ class MainWindow(QMainWindow):
         b_more.setFixedSize(34, 32)
         cll.addWidget(b_more)
         cll.addStretch(1)
-        self.chev_buttons = (self.b_new, self.b_view)
+        self.chev_buttons = (self.b_new, self.b_sort, self.b_view)
 
         def vsep():
             f = QFrame()
@@ -258,10 +260,20 @@ class MainWindow(QMainWindow):
             b.setAutoRaise(True)
             b.setToolButtonStyle(Qt.ToolButtonTextBesideIcon if action.text() else Qt.ToolButtonIconOnly)
             return b
-        self.act_dual = QAction(ic.glyph("dual", 16, ACCENT), "Dual pane", self)
-        self.act_dual.triggered.connect(lambda: self.toggle_dual())
+        self.act_dual = QAction(ic.glyph("dual", 18, ACCENT), "", self)
+        self.act_dual.triggered.connect(lambda: self.toggle_dual(orient="h"))
         self.act_dual.setCheckable(True)
-        self.act_dual.setToolTip("Dual pane (F9) · F6 switches pane")
+        self.act_dual.setToolTip("Dual pane, side by side (F9) · F6 switches pane")
+        self.act_dual_v = QAction(ic.glyph("dualv", 18, ACCENT), "", self)
+        self.act_dual_v.triggered.connect(lambda: self.toggle_dual(orient="v"))
+        self.act_dual_v.setCheckable(True)
+        self.act_dual_v.setToolTip("Dual pane, one above the other (F10) · F6 switches pane")
+        self.act_cfilter = QAction(ic.glyph("colorfilter", 18), "", self)
+        self.act_cfilter.setCheckable(True)
+        self.act_cfilter.setChecked(bool(self.cfg["color_filters_on"]))
+        self.act_cfilter.toggled.connect(self._toggle_color_filters)
+        self.act_cfilter.setToolTip("Color filters: paint file names by type or pattern (e.g. .exe in red)\n"
+                                    "Set the rules in ⚙ › Colors")
         self.act_details = QAction(ic.glyph("details", 16, ACCENT), "Details", self)
         self.act_details.triggered.connect(lambda: self.toggle_details())
         self.act_details.setCheckable(True)
@@ -274,7 +286,7 @@ class MainWindow(QMainWindow):
         crr.setContentsMargins(6, 0, 6, 0)
         crr.setSpacing(2)
         crr.addStretch(1)
-        for a in (self.act_dual, self.act_details, a_set):
+        for a in (self.act_cfilter, self.act_dual, self.act_dual_v, self.act_details, a_set):
             crr.addWidget(tool(a))
         ch.addWidget(self.cmd_right)
 
@@ -479,16 +491,43 @@ class MainWindow(QMainWindow):
         il.addWidget(self.info)
         il.addStretch(1)
         sa = QScrollArea()
-        self.info_area = sa
         sa.setWidget(iw)
         sa.setWidgetResizable(True)
         sa.setFrameShape(QFrame.NoFrame)
-        sa.setMinimumWidth(240)
+        # archivos de texto (.ini, .txt, .nk…): se leen en todo el panel, como un bloc de notas (sin editar)
+        from PySide6.QtWidgets import QPlainTextEdit
+        tp = QWidget()
+        tpl = QVBoxLayout(tp)
+        tpl.setContentsMargins(8, 8, 8, 8)
+        tpl.setSpacing(6)
+        self.text_title = QLabel()
+        self.text_title.setStyleSheet("font-size:10pt; font-weight:bold; color:#eee;")
+        self.text_title.setWordWrap(True)
+        self.text_view = QPlainTextEdit()
+        self.text_view.setReadOnly(True)
+        self.text_view.setLineWrapMode(QPlainTextEdit.NoWrap)
+        self.text_view.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
+        self.text_view.setStyleSheet("QPlainTextEdit{background:#141414; border:1px solid #2a2a2a; border-radius:4px;"
+                                     "font-family:Consolas,'Cascadia Mono','DejaVu Sans Mono',monospace;"
+                                     "font-size:9.5pt; color:#d6d6d6; padding:4px;}")
+        self.text_meta = QLabel()
+        self.text_meta.setStyleSheet("color:#8b9099; font-size:8.5pt;")
+        tpl.addWidget(self.text_title)
+        tpl.addWidget(self.text_view, 1)
+        tpl.addWidget(self.text_meta)
+        self.details_stack = QStackedWidget()
+        self.details_stack.addWidget(sa)
+        self.details_stack.addWidget(tp)
+        self.info_area = QWidget()
+        dsl = QVBoxLayout(self.info_area)
+        dsl.setContentsMargins(0, 0, 0, 0)
+        dsl.addWidget(self.details_stack)
+        self.info_area.setMinimumWidth(240)
 
         main = QSplitter(Qt.Horizontal)
         main.addWidget(left)
         main.addWidget(self.center_stack)
-        main.addWidget(sa)
+        main.addWidget(self.info_area)
         main.setStretchFactor(1, 1)
         main.setSizes([280, 940, 300])
         main.setCollapsible(0, False)
@@ -506,9 +545,55 @@ class MainWindow(QMainWindow):
         rl.setSpacing(0)
         self.head_host = QWidget()
         self.head_host.setObjectName("headHost")
-        hh = QHBoxLayout(self.head_host)
+        hh = QVBoxLayout(self.head_host)
         hh.setContentsMargins(0, 0, 0, 0)
         hh.setSpacing(0)
+        self.tabs_host = QWidget()
+        self.tabs_host.setObjectName("paneTabs")
+        thl = QHBoxLayout(self.tabs_host)
+        thl.setContentsMargins(0, 0, 0, 0)
+        thl.setSpacing(0)
+        self.nav_host = QWidget()
+        self.nav_host.setObjectName("navHost")
+        nhl = QHBoxLayout(self.nav_host)
+        nhl.setContentsMargins(0, 0, 0, 0)
+        nhl.setSpacing(0)
+        hh.addWidget(self.tabs_host)
+        hh.addWidget(self.nav_host)
+        # ← → ↑ ⟳ y buscador: uno solo para File Explorer, trabajan sobre el panel activo
+        self.gnav = QWidget()
+        gl = QHBoxLayout(self.gnav)
+        gl.setContentsMargins(8, 7, 4, 7)
+        gl.setSpacing(6)
+        self.gnav_buttons = {}
+        for key, glyph, tip, fn in (("back", "back", "Back (Alt+←)", "go_back"), ("fwd", "fwd", "Forward (Alt+→)", "go_forward"),
+                                    ("up", "up", "Up (Alt+↑ · Backspace)", "go_up"), ("ref", "reload", "Refresh (F5)", "refresh")):
+            b = QToolButton()
+            b.setFixedSize(38, 34)
+            b.setIconSize(QSize(18, 18))
+            b.setIcon(ic.glyph(glyph, 18))
+            b.setToolTip(tip)
+            b.setAutoRaise(True)
+            b.clicked.connect(lambda _=False, fn=fn: self._gnav(fn))
+            gl.addWidget(b)
+            self.gnav_buttons[key] = b
+        self.gsearch = QLineEdit()
+        self.gsearch.setObjectName("paneSearch")
+        self.gsearch.setToolTip("Search the active pane · name or part · *wildcards*\n"
+                                "With Subfolders on it searches the branch · Ctrl+F · Esc clears")
+        self.gsearch.setClearButtonEnabled(True)
+        self.gsearch.addAction(ic.glyph("search", 16, "#c5c5c5"), QLineEdit.TrailingPosition)
+        self.gsearch.setFixedHeight(36)
+        self.gsearch.setStyleSheet("QLineEdit{font-size:10.5pt; padding:4px 10px; border-radius:5px;"
+                                   "border:1px solid #333333; background:#2d2d2d;}"
+                                   "QLineEdit:focus{background:#1f1f1f; border-bottom:2px solid #4cc2ff;}")
+        self.gsearch.textChanged.connect(self._gsearch_changed)
+        self.gsearch.returnPressed.connect(lambda: self._gpane()._apply_search())
+        self.gsearch.installEventFilter(self)
+        self.gsearch_box = QWidget()
+        gsl = QHBoxLayout(self.gsearch_box)
+        gsl.setContentsMargins(4, 7, 10, 7)
+        gsl.addWidget(self.gsearch)
         rl.addWidget(self.head_host)
         rl.addWidget(cmd)
         rl.addWidget(main, 1)
@@ -589,7 +674,8 @@ class MainWindow(QMainWindow):
             QStatusBar {{ border-top:1px solid #2a2a2a; }}
             QListWidget, QTreeWidget, QTreeView {{ background:#191919; }}
         """)
-        QShortcut(QKeySequence("F9"), self, self.toggle_dual)
+        QShortcut(QKeySequence("F9"), self, lambda: self.toggle_dual(orient="h"))
+        QShortcut(QKeySequence("F10"), self, lambda: self.toggle_dual(orient="v"))
         QShortcut(QKeySequence("F6"), self, self.switch_pane)
         QShortcut(QKeySequence("Ctrl+Shift+E"), self, lambda: self.set_mode("explorer"))
         QShortcut(QKeySequence("Ctrl+Shift+L"), self, lambda: self.set_mode("library"))
@@ -605,29 +691,81 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ cabeceras / sidebar
     def _place_headers(self):
-        """Las pestañas y la dirección de Carpetas van siempre arriba, a todo el ancho (como el Explorador de
-        Windows 11); en doble panel, una al lado de la otra, alineadas con cada panel. La VFX Library tiene sus
-        pestañas en el centro, entre el viewer y los elementos. El selector de modo va a la derecha."""
+        """Arriba, a todo el ancho: las pestañas y la dirección de File Explorer, con ← → ↑ ⟳ y el buscador
+        compartidos (trabajan sobre el panel activo). Doble panel lado a lado: cada panel tiene sus pestañas y su
+        dirección arriba, alineadas con él. Doble panel arriba/abajo (F10): el de abajo lleva las suyas adentro.
+        La VFX Library tiene sus propias pestañas en el centro, entre el viewer y los elementos."""
+        orient = self.cfg["dual_orient"] or "h"
         dual = bool(self.cfg["dual"]) if self.mode() == "library" else self.paneB.isVisible()
-        hl = self.head_host.layout()
-        for p in self.panes:
-            if p.header.parent() is not self.head_host:
-                p.layout().removeWidget(p.header)
-                hl.addWidget(p.header)
-        hl.setStretch(0, 0 if dual else 1)
-        hl.setStretch(1, 1)
-        self.paneB.header.setVisible(dual)
-        self.paneA.header.show()
+        side = dual and orient == "h"
+        stacked = dual and orient == "v"
+        th, nh = self.tabs_host.layout(), self.nav_host.layout()
+        A, B = self.paneA, self.paneB
+        while th.count():
+            th.takeAt(0)
+        while nh.count():
+            nh.takeAt(0)
+        th.addWidget(A.tabsrow, 0 if side else 1)
+        nh.addWidget(self.gnav)
+        nh.addWidget(A.navrow, 1)
+        if side:
+            th.addWidget(B.tabsrow, 1)
+            nh.addWidget(B.navrow, 1)
+        nh.addWidget(self.gsearch_box)
+        for w in (A.tabsrow, A.navrow, self.gnav, self.gsearch_box):
+            w.show()
+        hl = B.header.layout()
+        if stacked or not dual:
+            if B.tabsrow.parent() is not B.header:
+                hl.insertWidget(0, B.tabsrow)
+                hl.insertWidget(1, B.navrow)
+            B.tabsrow.show()
+            B.navrow.show()
+        elif side:
+            B.tabsrow.show()
+            B.navrow.show()
+        A.header.hide()
+        B.header.setVisible(stacked)
+        for p in self.panes:                       # ← → ↑ ⟳ y buscador: uno solo (el de arriba), para el activo
+            for w in p.nav_buttons:
+                w.setVisible(False)
+            p.search.setVisible(False)
         lp = self.libpane
         if lp.header.parent() is not lp:
             lp.layout().insertWidget(0, lp.header)
-        (self.paneB if dual else self.paneA).corner.addWidget(self.modebar)
+        (B if side else A).corner.addWidget(self.modebar)
         for p in self.all_panes:
             p.footer.setVisible(dual and p is not lp)
+        self.pane_split.setOrientation(Qt.Vertical if orient == "v" else Qt.Horizontal)
         self.modebar.ensurePolished()
         QTimer.singleShot(0, lambda: self.modebar.setMinimumWidth(
             sum(self.modebar.tabRect(i).width() for i in range(self.modebar.count())) + 8))
         QTimer.singleShot(0, self._sync_cmd_left)
+
+    def _gpane(self):
+        return self.explorer_active
+
+    def _gnav(self, fn):
+        if self.mode() == "library":
+            self.set_mode("explorer")
+        getattr(self._gpane(), fn)()
+
+    def _gsearch_changed(self, text):
+        p = self._gpane()
+        if p.search.text() != text:
+            p.search.setText(text)
+
+    def sync_nav(self, pane):
+        """El buscador y ← → ↑ ⟳ compartidos reflejan el panel activo de File Explorer."""
+        if not hasattr(self, "gsearch") or pane is not self._gpane():
+            return
+        self.gnav_buttons["back"].setEnabled(pane.b_back.isEnabled())
+        self.gnav_buttons["fwd"].setEnabled(pane.b_fwd.isEnabled())
+        if self.gsearch.text() != pane.search.text():
+            self.gsearch.blockSignals(True)
+            self.gsearch.setText(pane.search.text())
+            self.gsearch.blockSignals(False)
+        self.gsearch.setPlaceholderText(pane.search.placeholderText())
 
     def _sync_cmd_left(self):
         """Alinea la fila de herramientas y las cabeceras con las columnas de abajo."""
@@ -645,23 +783,28 @@ class MainWindow(QMainWindow):
             return m.left() + m.right() + sum(x.sizeHint().width() for x in ws) + lay.spacing() * len(ws)
         for b in self.chev_buttons:
             b.set_compact(False)
-        self.b_filter.set_compact(False)
-        if need() > lw:                    # no entra: New / View quedan solo con ícono
-            for b in self.chev_buttons:
-                b.set_compact(True)
-        if need() > lw:
-            self.b_filter.set_compact(True)
+        for b in reversed(self.chev_buttons):         # no entra: quedan solo con ícono (View, Sort, New)
+            if need() <= lw:
+                break
+            b.set_compact(True)
         self.cmd_left.setFixedWidth(lw - 1)
         rw = (s[2] + hw) if (self.info_area.isVisible() and s[2] > 0) else 0
         self.cmd_right.setFixedWidth(max(self.cmd_right.layout().sizeHint().width(), rw))
         self.sb_right.setFixedWidth(max(self.sb_right.layout().sizeHint().width(), rw))
-        if self.paneB.header.isVisible():
+        # buscador de ancho fijo (no baila) y, lado a lado, cada cabecera alineada con su panel
+        self.gsearch_box.setFixedWidth(int(min(440, max(240, self.width() * 0.24))))
+        A, B = self.paneA, self.paneB
+        side = B.isVisible() and (self.cfg["dual_orient"] or "h") == "h" and B.tabsrow.parent() is self.tabs_host
+        if side:
             ps = self.pane_split.sizes()
             if ps and ps[0] > 0:
-                self.paneA.header.setFixedWidth(s[0] + hw + ps[0] + self.pane_split.handleWidth() // 2)
+                x = s[0] + hw + ps[0] + self.pane_split.handleWidth() // 2
+                A.tabsrow.setFixedWidth(x)
+                A.navrow.setFixedWidth(max(120, x - self.gnav.sizeHint().width()))
         else:
-            self.paneA.header.setMinimumWidth(0)
-            self.paneA.header.setMaximumWidth(16777215)
+            for w in (A.tabsrow, A.navrow):
+                w.setMinimumWidth(0)
+                w.setMaximumWidth(16777215)
 
     def _popfix(self, b):
         """Botones de ícono que no se corren al pasar el mouse."""
@@ -799,6 +942,14 @@ class MainWindow(QMainWindow):
             self.quick_stack.setCurrentIndex(i)
 
     def eventFilter(self, obj, ev):
+        if obj is getattr(self, "gsearch", None) and ev.type() == QEvent.KeyPress:
+            if ev.key() == Qt.Key_Escape:
+                self.gsearch.clear()
+                self._gpane().view().setFocus()
+                return True
+            if ev.key() in (Qt.Key_Down, Qt.Key_Up):
+                self._gpane().view().setFocus()
+                return False
         if ev.type() == QEvent.MouseButtonPress and isinstance(obj, QWidget) and hasattr(self, "panes"):
             self._header_press(obj)
         if hasattr(self, "sidetabs") and obj is self.sidetabs.tabBar():
@@ -832,8 +983,12 @@ class MainWindow(QMainWindow):
         while x is not None:
             if x is self.modebar:
                 return
+            if x is self.gnav or x is self.gsearch_box:
+                if self.mode() == "library":
+                    self.set_mode("explorer")
+                return
             for p in self.panes:
-                if x is p.header:
+                if x is p.tabsrow or x is p.navrow:
                     if self.mode() == "library":
                         self.set_mode("explorer")
                     if p is not self.active:
@@ -988,15 +1143,13 @@ class MainWindow(QMainWindow):
             return
         self.sub_switch.set_value(pane.rec_value(), emit=False)
         self.sub_switch.setEnabled(not pane.is_virtual())
-        cat = pane.filter.currentData()
-        label = next((l for l, k in FILTERS if k == cat), "Filter")
-        on = cat != "all"
-        self.b_filter.setIcon(self.icons.glyph("filter", 18, ACCENT if on else "#c9ccd1"))
-        self.b_filter.setText(label if on else "")      # con filtro: se ve cuál (resaltado)
-        self.b_filter.set_active(on)
-        self.b_filter.setToolTip("Filter: show only one file type" if not on else
-                                 f"Filter on: {label} · click › All to clear")
-        QTimer.singleShot(0, self._sync_cmd_left)
+        pane.b_filter.update()
+        # el ícono de View muestra la vista actual
+        self.b_view.setIcon(self.icons.glyph("grid" if pane.view_mode == "grid" else "list", 18))
+        self.size_slider.blockSignals(True)
+        self.size_slider.setValue(int(getattr(pane, "thumb_size", self.cfg["thumb_size"])))
+        self.size_slider.blockSignals(False)
+        self.size_slider.setEnabled(pane.view_mode == "grid")
         self.sb_grid.setChecked(pane.view_mode == "grid")
         self.sb_list.setChecked(pane.view_mode != "grid")
 
@@ -1132,6 +1285,7 @@ class MainWindow(QMainWindow):
         self.sidetabs.setCurrentIndex(1 if lib else 0)
         self._sidetab_changed(1 if lib else 0)
         self.act_dual.setEnabled(not lib)
+        self.act_dual_v.setEnabled(not lib)
         self._place_headers()
         self.apply_pipeline_location()
         if lib:
@@ -1275,6 +1429,8 @@ class MainWindow(QMainWindow):
             self.active = pane
             for p in self.panes:
                 p.set_active(p is pane and self.paneB.isVisible())
+            if pane in self.panes:
+                self.sync_nav(pane)
             self._location_changed(pane)
             self._sel_changed(pane)
             self._pane_status(pane)
@@ -1284,12 +1440,24 @@ class MainWindow(QMainWindow):
             return None
         return self.paneB if pane is self.paneA else self.paneA
 
-    def toggle_dual(self, force=None):
+    def toggle_dual(self, force=None, orient=None):
+        """F9 / botón: doble panel lado a lado · F10 / botón: uno arriba del otro."""
         if force is None and self.mode() != "explorer":
             self.set_mode("explorer")
-        show = (not self.paneB.isVisible()) if force is None else force
+        cur = self.cfg["dual_orient"] or "h"
+        if force is None:
+            if orient and self.paneB.isVisible() and orient != cur:
+                show = True                         # ya hay doble panel: solo cambia la orientación
+            else:
+                show = not self.paneB.isVisible()
+        else:
+            show = force
+        if orient:
+            self.cfg["dual_orient"] = orient
         self.paneB.setVisible(show)
-        self.act_dual.setChecked(show)
+        o = self.cfg["dual_orient"] or "h"
+        self.act_dual.setChecked(show and o == "h")
+        self.act_dual_v.setChecked(show and o == "v")
         if not show and self.active is self.paneB:
             self.set_active(self.paneA)
         for p in self.panes:
@@ -1301,8 +1469,11 @@ class MainWindow(QMainWindow):
         self.save_soon()
 
     def close_pane(self, pane):
-        """Cerrar la única pestaña de un panel en doble panel cierra ese panel."""
-        if pane not in self.panes or not self.paneB.isVisible():
+        """Cerrar la única pestaña: en doble panel cierra ese panel; con un solo panel cierra la app."""
+        if pane not in self.panes:
+            return
+        if not self.paneB.isVisible():
+            self.close()
             return
         if pane is self.paneA:
             st = self.paneB.state()
@@ -1317,10 +1488,29 @@ class MainWindow(QMainWindow):
             self.set_active(o)
             o.view().setFocus()
 
+    def _sync_quick(self, d):
+        """Acceso rápido: queda marcado solo el ítem de la carpeta actual (si está)."""
+        k = norm_key(d) if d else None
+        for w in (self.favs, self.lib_favs):
+            hit = None
+            for i in range(w.count()):
+                p = w.item(i).data(Qt.UserRole)
+                if k and p and norm_key(p) == k:
+                    hit = w.item(i)
+                    break
+            w.blockSignals(True)
+            if hit is not None:
+                w.setCurrentItem(hit)
+            else:
+                w.clearSelection()
+                w.setCurrentRow(-1)
+            w.blockSignals(False)
+
     def _location_changed(self, pane):
         if pane is not self.active:
             return
         d = pane.current_dir()
+        self._sync_quick(d)
         if pane is self.libpane:
             self.libside.sync(d or "")
             if d:
@@ -1344,10 +1534,10 @@ class MainWindow(QMainWindow):
             self.status.setText(pane.status_text)
 
     def _on_thumb_size(self, v):
-        for p in self.all_panes:
-            p.set_thumb_size(v)
+        """El tamaño de íconos es de la carpeta (como Windows): cambia el panel activo y se recuerda."""
+        self.active.set_thumb_size(v)
         self.thumbs.scaled.clear()
-        self.cfg["thumb_size"] = v
+        self.active._save_folder_view()
         self.save_soon()
 
     def refresh_views(self):
@@ -1373,6 +1563,7 @@ class MainWindow(QMainWindow):
         ents = pane.selected_entries()
         self.info_token += 1
         self._info_entry = None
+        self.details_stack.setCurrentIndex(0)
         if not ents:
             self.preview.clear()
             self.info.setText("")
@@ -1397,8 +1588,42 @@ class MainWindow(QMainWindow):
         else:
             self.preview.setText("<span style='color:#666'>no preview</span>")
 
+    TEXT_EXTS = {".txt", ".ini", ".cfg", ".conf", ".json", ".xml", ".yaml", ".yml", ".md", ".log", ".csv", ".tsv",
+                 ".py", ".mel", ".ms", ".mcr", ".nk", ".gizmo", ".bat", ".cmd", ".ps1", ".sh", ".lua", ".js", ".html",
+                 ".htm", ".css", ".toml", ".usda", ".srt", ".vtt", ".glsl", ".osl", ".vfl", ".chan", ".ocio", ".spi1d",
+                 ".cube", ".edl", ".rtf", ".reg", ".env", ".properties"}
+
+    def _text_preview(self, e):
+        """Muestra el contenido de un archivo de texto en todo el panel. Devuelve False si no es texto."""
+        if e.kind != "file" or os.path.splitext(e.name)[1].lower() not in self.TEXT_EXTS:
+            return False
+        try:
+            with open(e.path, "rb") as f:
+                raw = f.read(512 * 1024)
+        except OSError:
+            return False
+        if raw.count(b"\0") > 8:
+            return False
+        for enc in ("utf-8-sig", "cp1252", "latin-1"):
+            try:
+                txt = raw.decode(enc)
+                break
+            except UnicodeDecodeError:
+                continue
+        cut = e.size > len(raw)
+        self.text_title.setText(e.name)
+        self.text_view.setPlainText(txt + ("\n\n… (only the first 512 KB)" if cut else ""))
+        self.text_meta.setText(f"{human_size(e.size)} · {txt.count(chr(10)) + 1} lines · {fmt_time(e.mtime)} · "
+                               f"{fwd(e.dirpath)}")
+        self.details_stack.setCurrentIndex(1)
+        self.status_right.setText(fwd(e.path))
+        return True
+
     def _show_info(self, e):
         self._info_entry = e
+        if self._text_preview(e):
+            return
+        self.details_stack.setCurrentIndex(0)
         self._set_preview(e)
         rows = [("Type", e.type_label())]
         if e.kind == "seq":
@@ -1987,6 +2212,25 @@ class MainWindow(QMainWindow):
         for p in self.all_panes:
             p.list.apply_numbers()
 
+    def _toggle_color_filters(self, on):
+        self.cfg["color_filters_on"] = bool(on)
+        self.cfg.save()
+        self._cf_rules = None
+        self.refresh_views()
+
+    def color_filter_for(self, e):
+        """(color de texto, fondo) según los Color filters, o None."""
+        if not self.cfg["color_filters_on"] or e.kind in ("header", "drive"):
+            return None
+        rules = getattr(self, "_cf_rules", None)
+        if rules is None:
+            from .core import parse_color_filters, DEFAULT_COLOR_FILTERS
+            v = self.cfg["color_filters"]
+            rules = self._cf_rules = parse_color_filters(DEFAULT_COLOR_FILTERS if v is None else v)
+        from .core import color_filter_match
+        name = e.pattern_path("hash") if e.kind == "seq" else e.name
+        return color_filter_match(rules, os.path.basename(name), e.kind == "dir")
+
     def background_menu(self, pane, view, pos):
         """Clic derecho en el fondo, como en Windows 11: View, Sort by, Group by, Paste, New, Properties…"""
         ic = self.icons
@@ -2166,6 +2410,7 @@ class MainWindow(QMainWindow):
                 for pb in self.pipebars:
                     pb.reload()
             self.colors.reload()
+            self._cf_rules = None
             self.icons.set_default_folder(self.cfg["folder_color"] or "yellow")
             self._reload_sidebar()
             self.libside.tree.viewport().update()

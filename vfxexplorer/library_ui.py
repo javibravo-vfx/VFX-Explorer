@@ -54,7 +54,7 @@ class LibraryPage(QWidget):
 
 
 class LibrarySidebar(QWidget):
-    """Árbol de las raíces de la librería (con sus subcarpetas), con líneas estilo XYplorer."""
+    """Árbol de las raíces de la librería (con sus subcarpetas), con líneas con líneas."""
 
     def __init__(self, app):
         super().__init__()

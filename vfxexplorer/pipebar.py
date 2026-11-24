@@ -3,6 +3,7 @@
 Se puede mostrar arriba (horizontal) o en el panel izquierdo (vertical)."""
 
 import os
+import re
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QWidget, QHBoxLayout, QGridLayout, QLabel, QComboBox, QToolButton, QMenu,
@@ -76,8 +77,20 @@ class PipelineBar(QWidget):
         self.reload()
 
     # ---------------- util
+    @staticmethod
+    def pretty(key, name):
+        """Solo para mostrar en el dropdown: _input → INPUT, comp → COMP, 8_lighting → Lighting."""
+        if key == "dept":
+            return name.lstrip("_").upper() or name
+        if key == "task":
+            t = re.sub(r"^\d+[_\-. ]*", "", name).replace("_", " ").strip()
+            return (t[:1].upper() + t[1:]) if t else name
+        return name
+
     def _v(self, k):
-        return self.cbs[k].currentText()
+        cb = self.cbs[k]
+        v = cb.currentData()
+        return v if v is not None else (cb.currentText() if cb.currentIndex() >= 0 else "")
 
     def _vals(self):
         return tuple(self._v(k) for k, _ in LEVELS)
@@ -86,8 +99,10 @@ class PipelineBar(QWidget):
         cb = self.cbs[key]
         cb.blockSignals(True)
         cb.clear()
-        cb.addItems(items)
-        cb.setCurrentIndex(cb.findText(current) if current in items else -1)
+        for it in items:
+            cb.addItem(self.pretty(key, it), it)
+            cb.setItemData(cb.count() - 1, it, Qt.ToolTipRole)
+        cb.setCurrentIndex(cb.findData(current) if current in items else -1)
         cb.blockSignals(False)
 
     def reload(self):
@@ -153,7 +168,7 @@ class PipelineBar(QWidget):
     def _task_label(self, p, s, sh, d):
         kind = self.pipe.dept_kind(p, s, sh, d) if d else "task"
         cb = self.cbs["task"]
-        cb.setPlaceholderText({"task": "Task", "stage": "Stage", "folder": "Folder"}[kind])
+        cb.setPlaceholderText({"task": "Task", "stage": "Stage", "folder": "Shot"}[kind])
         cb.setToolTip({"task": "Tasks of the department",
                        "stage": "This department has no tasks: projects / review / publish",
                        "folder": "Folders of " + d}[kind] if d else "Task")
@@ -169,7 +184,7 @@ class PipelineBar(QWidget):
             return
         pipe = self.pipe
         p = info["project"]
-        if self.cbs["proj"].findText(p) < 0:
+        if self.cbs["proj"].findData(p) < 0:
             self._fill("proj", pipe.projects(), p)
         else:
             cb = self.cbs["proj"]

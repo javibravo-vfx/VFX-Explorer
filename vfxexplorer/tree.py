@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Árbol de carpetas estilo XYplorer:
+"""Árbol de carpetas con líneas:
 - líneas finas (sólidas o punteadas) que unen cada carpeta con su padre,
 - cajitas ⊞/⊟ para expandir,
 - "Tree Path Tracing": una línea de color más gruesa que va desde la raíz hasta la carpeta actual,
@@ -44,7 +44,7 @@ class FolderTreeDelegate(QStyledItemDelegate):
 
 
 class _LinedMixin:
-    """Dibujo de líneas estilo XYplorer + path tracing + destino de drag & drop (copiar/mover a la carpeta)."""
+    """Dibujo de líneas con líneas + path tracing + destino de drag & drop (copiar/mover a la carpeta)."""
 
     def _lined_init(self, app):
         self.app = app
@@ -69,7 +69,7 @@ class _LinedMixin:
 
     # ---------------- path tracing
     def set_trace_path(self, path):
-        """Marca el camino raíz → carpeta actual (como el Tree Path Tracing de XYplorer)."""
+        """Marca el camino raíz → carpeta actual ."""
         chain = []
         ix = self.index_of(path) if path else None
         while ix is not None and ix.isValid():
@@ -85,6 +85,15 @@ class _LinedMixin:
         ix = self.indexAt(ev.position().toPoint())
         p = self.path_of(ix) if ix.isValid() else ""
         return ix, (p if p and os.path.isdir(p) else "")
+
+    def mouseDoubleClickEvent(self, ev):
+        """Doble click en el espacio vacío del árbol: subir un nivel en el panel correspondiente."""
+        if ev.button() == Qt.LeftButton and not self.indexAt(ev.position().toPoint()).isValid():
+            pane = self.app.libpane if isinstance(self, QTreeWidget) else self.app.explorer_active
+            if isinstance(self, QTreeWidget) or self.app.mode() == "explorer":
+                pane.go_up()
+            return
+        super().mouseDoubleClickEvent(ev)
 
     def startDrag(self, actions):
         # solo "copiar" para Qt: así nunca saca filas del árbol; mover o copiar lo decide el destino
@@ -185,7 +194,7 @@ class _LinedMixin:
         top, bot = rect.top(), rect.bottom() + 1
         style = self._cfg("tree_lines_style", "chevron")
         dotted = style == "dotted"
-        chev = style == "chevron"          # como XYplorer: chevrons › y solo la línea del camino
+        chev = style == "chevron"          # chevrons › y solo la línea del camino
         p.save()
         p.setRenderHint(QPainter.Antialiasing, False)
 
@@ -240,7 +249,7 @@ class _LinedMixin:
                     p.drawLine(x, top, x, bot)
                 break
 
-        # 3) chevron › / ⌄ (estilo XYplorer)
+        # 3) chevron › / ⌄ (con líneas)
         if has_kids and chev:
             x = col_x(depth)
             on_path = tracing and QPersistentModelIndex(index) in tr

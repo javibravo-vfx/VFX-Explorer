@@ -594,6 +594,50 @@ DEFAULT_QUICK_TAGS = [
 ]
 
 
+DEFAULT_COLOR_FILTERS = """\
+# Color filters: pattern = text color   (or  = text color, background color)
+# Several patterns with ;  ·  dir: only folders  ·  case-insensitive, * and ? allowed
+*.exe;*.msi;*.bat;*.cmd = #ff5c5c
+# *.nk;*.gizmo = #f5a623
+# *.max;*.hip;*.hipnc;*.blend = #4cc2ff
+# *.mov;*.mp4 = #c49bff
+# dir:_input = #3ecf8e
+# *_v001* = #ffffff, #5a1f1f
+"""
+
+
+def parse_color_filters(text):
+    """→ [(patrones, solo_carpetas, color_texto, color_fondo)] en orden (gana la primera que coincide)."""
+    rules = []
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        pat, col = line.rsplit("=", 1)
+        cols = [c.strip() for c in col.split(",")]
+        fg = cols[0] if cols and cols[0].startswith("#") else None
+        bg = cols[1] if len(cols) > 1 and cols[1].startswith("#") else None
+        pat = pat.strip()
+        only_dirs = pat.lower().startswith("dir:")
+        if only_dirs:
+            pat = pat[4:]
+        pats = [x.strip().lower() for x in pat.split(";") if x.strip()]
+        if pats and (fg or bg):
+            rules.append((pats, only_dirs, fg, bg))
+    return rules
+
+
+def color_filter_match(rules, name, is_dir):
+    import fnmatch
+    n = name.lower()
+    for pats, only_dirs, fg, bg in rules:
+        if only_dirs and not is_dir:
+            continue
+        if any(fnmatch.fnmatchcase(n, x) for x in pats):
+            return fg, bg
+    return None
+
+
 class Config:
     DEFAULTS = {
         "favorites": [],
@@ -633,8 +677,8 @@ class Config:
         "viewer_loop": True,
         # 0.4
         "details_visible": True,
-        "tree_lines_style": "chevron",  # chevron (XYplorer: › + línea del camino) | solid | dotted
-        "tree_trace": True,             # Tree Path Tracing (como XYplorer)
+        "tree_lines_style": "chevron",  # chevron (› + línea del camino) | solid | dotted
+        "tree_trace": True,             # Tree Path Tracing 
         "tree_trace_width": 1,
         "tree_trace_color": "accent",   # accent | folder
         # 0.5
@@ -656,7 +700,10 @@ class Config:
         "hidden_sys": [],
         "hidden_drives": [],
         "list_cols": {},
-        "list_row_numbers": True,        # numeración de filas en Detalles (como XYplorer)                # columnas de Detalles tildadas/destildadas
+        "dual_orient": "h",             # doble panel: h = lado a lado (F9) · v = uno arriba del otro (F10)
+        "color_filters_on": False,      # pintar nombres por tipo / patrón
+        "color_filters": None,          # None = DEFAULT_COLOR_FILTERS
+        "list_row_numbers": True,        # numeración de filas en Detalles                 # columnas de Detalles tildadas/destildadas
         "folder_views": {},             # vista/orden/agrupado recordados por carpeta
         "folder_view_default": None,
         "show_hidden_quick": False,
@@ -676,7 +723,7 @@ class Config:
             if int(saved.get("cfg_version", 0)) < 8:
                 self._import_studio_toolbar()
                 self.data["cfg_version"] = 8
-            if int(saved.get("cfg_version", 0)) < 9:            # 0.12: árbol como XYplorer, acento celeste
+            if int(saved.get("cfg_version", 0)) < 9:            # 0.12: árbol con chevrons, acento celeste
                 self.data["tree_lines_style"] = "chevron"
                 self.data["tree_trace_width"] = 1
                 if self.data.get("lib_tree_line_color") == "#8d6fd1":
@@ -686,7 +733,7 @@ class Config:
             pass
 
     def _import_studio_toolbar(self):
-        """0.11: el pipeline ya no lee la config de Studio Toolbar; si se usaba, se copia una vez."""
+        """0.11: el pipeline ya no lee la config de the toolbar; si se usaba, se copia una vez."""
         if not self.data.get("pipeline_use_stm", True):
             return
         self.data["pipeline_use_stm"] = False
