@@ -150,7 +150,7 @@ class LibrarySidebar(QWidget):
             m.addAction("Open in new tab", lambda: (self.app.set_mode("library"),
                                                            self.app.libpane.add_tab(p)))
             m.addAction("Pin to Quick access", lambda: self.app.add_favorites([p], lib=True))
-            m.addAction("Open in Folders (new tab)", lambda: self.app.open_in_explorer(p, new_tab=True))
+            m.addAction("Open in File Explorer (new tab)", lambda: self.app.open_in_explorer(p, new_tab=True))
             if it.parent() is None:
                 def remove():
                     self.app.cfg["library_roots"] = [r for r in self.roots() if r != p]

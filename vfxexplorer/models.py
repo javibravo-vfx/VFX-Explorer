@@ -7,7 +7,7 @@ import time
 from PySide6.QtCore import Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, QMimeData, QUrl, QThread, Signal
 from PySide6.QtGui import QColor, QFont
 
-from .core import (scan_dir, entry_matches, resolve_refs, natural_key, human_size, fmt_time, fwd,
+from .core import (date_group, DATE_GROUPS, scan_dir, entry_matches, resolve_refs, natural_key, human_size, fmt_time, fwd,
                    compress_ranges, Query, list_drives)
 
 ROLE_ENTRY = Qt.UserRole + 1
@@ -70,6 +70,8 @@ class EntryModel(QAbstractTableModel):
 
     def _build_groups(self):
         groups = {}
+        import datetime as _dt
+        today = _dt.date.today()
         order = {k: i for i, (k, _) in enumerate(self.TYPE_GROUPS)}
         labels = dict(self.TYPE_GROUPS)
         for e in self.entries:
@@ -77,6 +79,10 @@ class EntryModel(QAbstractTableModel):
                 net = getattr(e, "drive_kind", "local") == "network"
                 key = (1 if net else 0,)
                 label = "Network locations" if net else "Devices and drives"
+            elif self.group_mode == "date":
+                gi = date_group(e.mtime, today)
+                key = (gi,)
+                label = DATE_GROUPS[gi]
             elif self.group_mode == "type":
                 c = e.cat
                 key = (order.get(c, 99),)

@@ -190,6 +190,22 @@ def test_quick_tag_pills():
     assert not entry_matches(e_dir, q, "all", recursive=True)
 
 
+def test_date_groups():
+    import datetime as dt, time
+    from vfxexplorer.core import date_group
+    today = dt.date(2026, 11, 23)       # lunes
+    ts = lambda d: time.mktime(d.timetuple()) + 3600
+    assert date_group(ts(today), today) == 0
+    assert date_group(ts(today - dt.timedelta(days=1)), today) == 1
+    assert date_group(ts(dt.date(2026, 11, 18)), today) == 3       # semana pasada
+    assert date_group(ts(dt.date(2026, 11, 3)), today) == 4        # antes este mes
+    assert date_group(ts(dt.date(2026, 10, 5)), today) == 5        # mes pasado
+    assert date_group(ts(dt.date(2026, 2, 1)), today) == 6
+    assert date_group(ts(dt.date(2024, 2, 1)), today) == 7
+    thu = dt.date(2026, 11, 26)
+    assert date_group(ts(dt.date(2026, 11, 24)), thu) == 2         # antes esta semana
+
+
 if __name__ == "__main__":
     from PySide6.QtCore import QCoreApplication
     app = QCoreApplication([])

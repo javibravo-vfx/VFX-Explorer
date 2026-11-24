@@ -112,9 +112,9 @@ class MainWindow(QMainWindow):
         self.modebar.setExpanding(False)
         self.modebar.setUsesScrollButtons(False)
         self.modebar.setElideMode(Qt.ElideNone)
-        self.modebar.addTab(ic.glyph("folder", 16), "Folders")
+        self.modebar.addTab(ic.glyph("folder", 16), "File Explorer")
         self.modebar.addTab(ic.glyph("library", 16, "#b98cff"), "VFX Library")
-        self.modebar.setTabToolTip(0, "Folders: the file explorer (Ctrl+Shift+E)")
+        self.modebar.setTabToolTip(0, "File Explorer (Ctrl+Shift+E)")
         self.modebar.setTabToolTip(1, "VFX Library: viewer on top, elements below (Ctrl+Shift+L)")
         self.modebar.currentChanged.connect(lambda i: self.set_mode("library" if i == 1 else "explorer"))
 
@@ -323,9 +323,9 @@ class MainWindow(QMainWindow):
         self.sidetabs.setObjectName("sidetabs")
         self.sidetabs.setDocumentMode(True)
         self.sidetabs.tabBar().setDrawBase(False)
-        self.sidetabs.addTab(folders_page, "FOLDERS")
+        self.sidetabs.addTab(folders_page, "FILE EXPLORER")
         self.sidetabs.addTab(lib_page, "VFX LIBRARY")
-        self.sidetabs.setTabToolTip(0, "Folders: the explorer")
+        self.sidetabs.setTabToolTip(0, "File Explorer: This PC and the folder tree")
         self.sidetabs.setTabToolTip(1, "VFX Library: your element folders.\n"
                                        "Drag files over a tab to show its tree and drop them there.")
         corner = QWidget()
@@ -506,6 +506,10 @@ class MainWindow(QMainWindow):
             #modebar::tab {{ padding:5px 16px; min-width:100px; border-radius:6px; margin:0 2px 2px 2px; }}
             #modebar::tab:selected {{ background:#2d2d2d; color:#ffffff; }}
             QStatusBar QToolButton {{ padding:2px; }}
+            #fileList {{ padding:6px 6px 0 14px; background:#191919; border:none; }}
+            #fileList::item {{ min-height:26px; }}
+            #fileGrid {{ padding:8px 6px 0 14px; background:#191919; border:none; }}
+            #sideTree, #quickList {{ padding:2px 2px 2px 6px; }}
             #paneTabs QTabBar::tab {{ padding:6px 10px; margin:4px 1px 0 1px; min-width:0; max-width:1000px; }}
             #paneTabs QTabBar::tab:selected {{ font-weight:bold; }}
             #softSplit::handle {{ background:#1c1c1c; }}
@@ -881,8 +885,8 @@ class MainWindow(QMainWindow):
         self.sb_grid.setChecked(pane.view_mode == "grid")
         self.sb_list.setChecked(pane.view_mode != "grid")
 
-    def _fill_sort_menu(self):
-        m = self.m_sort
+    def _fill_sort_menu(self, m=None, with_group=True):
+        m = m if m is not None else self.m_sort
         m.clear()
         pane = self.active
         hd = pane.list.header()
@@ -898,16 +902,23 @@ class MainWindow(QMainWindow):
             a = m.addAction(label, lambda o=o: pane.list.sortByColumn(cur, o))
             a.setCheckable(True)
             a.setChecked(order == o)
-        m.addSeparator()
-        g = m.addMenu("Group by")
-        for label, key in (("Automatic (folder in Subfolders)", "auto"), ("(None)", "none"),
-                           ("Folder", "folder"), ("Type", "type")):
+        if with_group:
+            m.addSeparator()
+            self._fill_group_menu(m.addMenu(self.icons.glyph("group", 16, ACCENT), "Group by"))
+
+    def _fill_group_menu(self, g):
+        pane = self.active
+        for label, key in (("Date modified", "date"), ("Type", "type"), ("Folder", "folder"), (None, None),
+                           ("(None)", "none"), ("Automatic (folder in Subfolders)", "auto")):
+            if label is None:
+                g.addSeparator()
+                continue
             a = g.addAction(label, lambda k=key: pane.set_group(k))
             a.setCheckable(True)
             a.setChecked(pane.group_mode == key)
 
-    def _fill_view_menu(self):
-        m = self.m_view
+    def _fill_view_menu(self, m=None, full=True):
+        m = m if m is not None else self.m_view
         m.clear()
         pane = self.active
         ts = int(self.cfg["thumb_size"])
@@ -920,6 +931,13 @@ class MainWindow(QMainWindow):
         a = m.addAction(self.icons.glyph("list", 16), "Details\tCtrl+2", lambda: pane.set_view("list"))
         a.setCheckable(True)
         a.setChecked(pane.view_mode != "grid")
+        if pane.view_mode != "grid":
+            m.addAction("Size all columns to fit", pane.fit_columns)
+        m.addSeparator()
+        m.addAction("Apply this view to all folders", lambda: (
+            pane.apply_view_to_all(), self.status.setText("This view is now the default for every folder")))
+        if not full:
+            return
         m.addSeparator()
         a = m.addAction("Details pane\tAlt+Shift+P", self.toggle_details)
         a.setCheckable(True)
@@ -1712,7 +1730,7 @@ class MainWindow(QMainWindow):
         self.cfg[key] = favs
         self.cfg.save()
         self._reload_sidebar()
-        self.status.setText(f"Pinned to Quick access of {'VFX Library' if lib else 'Folders'}")
+        self.status.setText(f"Pinned to Quick access of {'VFX Library' if lib else 'File Explorer'}")
 
     def _favs_reordered(self, *_):
         for w, key in ((self.favs, "favorites"), (self.lib_favs, "lib_favorites")):
@@ -1731,7 +1749,7 @@ class MainWindow(QMainWindow):
         m = QMenu(self)
         m.addAction("Open", lambda: self.open_library(p))
         m.addAction("Open in new tab", lambda: (self.set_mode("library"), self.libpane.add_tab(p)))
-        m.addAction("Open in Folders", lambda: self.open_in_explorer(p, new_tab=True))
+        m.addAction("Open in File Explorer", lambda: self.open_in_explorer(p, new_tab=True))
         self._color_menu(m, [dir_target(p)])
         m.addSeparator()
 
@@ -1844,13 +1862,74 @@ class MainWindow(QMainWindow):
         m.exec(self.tree.viewport().mapToGlobal(pos))
 
     # ------------------------------------------------------------------ menú contextual de ítems
+    def background_menu(self, pane, view, pos):
+        """Clic derecho en el fondo, como en Windows 11: View, Sort by, Group by, Paste, New, Properties…"""
+        ic = self.icons
+        m = QMenu(self)
+        cur = pane.current_dir()
+        self._fill_view_menu(m.addMenu(ic.glyph("grid", 16, ACCENT), "View"), full=False)
+        self._fill_sort_menu(m.addMenu(ic.glyph("sort", 16, ACCENT), "Sort by"), with_group=False)
+        self._fill_group_menu(m.addMenu(ic.glyph("group", 16, ACCENT), "Group by"))
+        m.addSeparator()
+        m.addAction(ic.glyph("reload", 16), "Refresh\tF5", pane.refresh)
+        clip_paths, _ = fileops.read_clip_mime(QApplication.clipboard().mimeData())
+        if cur:
+            a = m.addAction(ic.glyph("paste", 16), f"Paste ({len(clip_paths)} file(s))\tCtrl+V" if clip_paths
+                            else "Paste\tCtrl+V", lambda: self.op_paste(pane))
+            a.setEnabled(bool(clip_paths))
+            nm = m.addMenu(ic.new_icon(16), "New")
+            nm.addAction(ic.glyph("newfolder", 16), "Folder\tCtrl+Shift+N", lambda: self.op_new_folder(pane))
+            nm.addAction(ic.glyph("plus", 16), "Tab\tCtrl+T", pane.new_tab)
+            m.addSeparator()
+            m.addAction(ic.glyph("pin", 16), "Pin this folder to Quick access", lambda: self.add_favorites([cur]))
+            if self.mode() == "explorer":
+                m.addAction(ic.glyph("library", 16, "#b98cff"),
+                            "View in VFX Library" if self.libpane.allowed(cur) else "Add this folder to the VFX Library",
+                            lambda: self.open_library(cur))
+            m.addAction(ic.glyph("copy", 16), "Copy folder path", lambda: QApplication.clipboard().setText(cur))
+            m.addAction(ic.glyph("folder", 16), "Open in Windows Explorer", lambda: self.open_default(cur))
+            if IS_WIN:
+                m.addSeparator()
+                m.addAction(ic.glyph("details", 16), "Properties\tAlt+Enter", lambda: self.show_properties(cur))
+        m.exec(view.viewport().mapToGlobal(pos))
+
+    def show_properties(self, path):
+        """Abre la ventana de Propiedades de Windows."""
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            class SHELLEXECUTEINFO(ctypes.Structure):
+                _fields_ = [("cbSize", wintypes.DWORD), ("fMask", ctypes.c_ulong), ("hwnd", wintypes.HWND),
+                            ("lpVerb", wintypes.LPCWSTR), ("lpFile", wintypes.LPCWSTR),
+                            ("lpParameters", wintypes.LPCWSTR), ("lpDirectory", wintypes.LPCWSTR),
+                            ("nShow", ctypes.c_int), ("hInstApp", wintypes.HINSTANCE), ("lpIDList", ctypes.c_void_p),
+                            ("lpClass", wintypes.LPCWSTR), ("hkeyClass", wintypes.HKEY), ("dwHotKey", wintypes.DWORD),
+                            ("hIcon", wintypes.HANDLE), ("hProcess", wintypes.HANDLE)]
+            sei = SHELLEXECUTEINFO()
+            sei.cbSize = ctypes.sizeof(sei)
+            sei.fMask = 0x0000000C        # SEE_MASK_INVOKEIDLIST
+            sei.lpVerb = "properties"
+            sei.lpFile = os.path.normpath(path)
+            sei.nShow = 1
+            ctypes.windll.shell32.ShellExecuteExW(ctypes.byref(sei))
+        except Exception as ex:
+            self.status.setText(f"Could not open Properties: {ex}")
+
     def item_menu(self, pane, view, pos):
         self.set_active(pane)
         ix = view.indexAt(pos)
+        from PySide6.QtCore import QModelIndex
+        from .models import ROLE_ENTRY
+        if ix.isValid() and ix.data(ROLE_ENTRY) is not None and ix.data(ROLE_ENTRY).kind == "header":
+            ix = QModelIndex()
         if ix.isValid() and not view.selectionModel().isSelected(ix):
             view.setCurrentIndex(ix)
         if not ix.isValid():
             view.clearSelection()
+            if not pane.is_virtual() or pane.current_dir():
+                self.background_menu(pane, view, pos)
+                return
         ents = pane.selected_entries()
         m = QMenu(self)
         cur = pane.current_dir()

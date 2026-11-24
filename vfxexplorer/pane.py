@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (QSizePolicy, QFrame, QVBoxLayout, QHBoxLayout, QT
 from .core import IS_WIN, FILTERS, parse_query, norm_key, same_path, THISPC
 from .fileops import is_subpath, is_network_path
 from .models import (EntryModel, EntryProxy, ScanWorker, SearchWorker, ResolveWorker, DrivesWorker, ROLE_ENTRY, COLS,
-                     C_FOLDER, C_TAGS, C_RATING)
+                     C_NAME, C_FOLDER, C_TAGS, C_RATING)
 from .widgets import GridDelegate, BreadcrumbBar, ListNameDelegate
 
 
@@ -426,6 +426,13 @@ class FilePane(QFrame):
         self.list.setColumnHidden(C_FOLDER, True)
         hd.moveSection(hd.visualIndex(C_FOLDER), 1)     # "Carpeta" al lado del nombre
         hd.sortIndicatorChanged.connect(lambda c, o: self.proxy.sort(c, o))
+        hd.sortIndicatorChanged.connect(lambda *_: self._save_folder_view())
+        hd.setContextMenuPolicy(Qt.CustomContextMenu)
+        hd.customContextMenuRequested.connect(self._header_menu)
+        self._folder_col_default = False
+        self._applying_view = False
+        self.grid.setObjectName("fileGrid")
+        self.list.setObjectName("fileList")
 
         for v in (self.grid, self.list):
             v.activated.connect(self._activate)
@@ -533,6 +540,109 @@ class FilePane(QFrame):
     def view(self):
         return self.grid if self.stack.currentIndex() == 0 else self.list
 
+    # ------------------------------------------------------------------ columnas (vista Detalles)
+    def _apply_columns(self, folder_default=None):
+        """Columnas visibles: las que el usuario tildó en el menú del encabezado (como en Windows 11)."""
+        if folder_default is not None:
+            self._folder_col_default = folder_default
+        vis = self.app.cfg["list_cols"] or {}
+        lib = bool(self.app.cfg["library_features"])
+        for c, name in enumerate(COLS):
+            if c == C_NAME:
+                continue
+            if c in (C_RATING, C_TAGS) and not lib:
+                self.list.setColumnHidden(c, True)
+                continue
+            default = self._folder_col_default if c == C_FOLDER else True
+            self.list.setColumnHidden(c, not vis.get(name, default))
+
+    def _header_menu(self, pos):
+        hd = self.list.header()
+        col = hd.logicalIndexAt(pos)
+        m = QMenu(self)
+        a = m.addAction("Size column to fit", lambda: self.list.resizeColumnToContents(col))
+        a.setEnabled(col >= 0)
+        m.addAction("Size all columns to fit", self.fit_columns)
+        m.addSeparator()
+        lib = bool(self.app.cfg["library_features"])
+        for c in sorted(range(len(COLS)), key=hd.visualIndex):
+            name = COLS[c]
+            if c in (C_RATING, C_TAGS) and not lib:
+                continue
+            a = m.addAction(name, lambda c=c: self._toggle_column(c))
+            a.setCheckable(True)
+            a.setChecked(not self.list.isColumnHidden(c))
+            a.setEnabled(c != C_NAME)
+        m.exec(hd.mapToGlobal(pos))
+
+    def _toggle_column(self, c):
+        vis = dict(self.app.cfg["list_cols"] or {})
+        vis[COLS[c]] = self.list.isColumnHidden(c)
+        self.app.cfg["list_cols"] = vis
+        self.app.cfg.save()
+        for p in self.app.all_panes:
+            p._apply_columns()
+
+    def fit_columns(self):
+        hd = self.list.header()
+        last = max((c for c in range(len(COLS)) if not self.list.isColumnHidden(c)), key=hd.visualIndex, default=0)
+        for c in range(len(COLS)):
+            if not self.list.isColumnHidden(c) and c != last:
+                self.list.resizeColumnToContents(c)
+
+    # ------------------------------------------------------------------ vista por carpeta
+    VIEW_DEFAULT = {"view": "grid", "sort": 0, "order": 0, "group": "auto"}
+
+    def _fv_key(self):
+        t = self.tab()
+        if not t or t["virtual"]:
+            return None
+        return norm_key(t["path"])
+
+    def _apply_folder_view(self):
+        """Cada carpeta recuerda su vista, orden y agrupado (como Windows)."""
+        k = self._fv_key()
+        if not k:
+            return
+        st = (self.app.cfg["folder_views"] or {}).get(k) or self.app.cfg["folder_view_default"] or self.VIEW_DEFAULT
+        self._applying_view = True
+        try:
+            if st.get("view", "grid") != self.view_mode:
+                self.set_view(st.get("view", "grid"), emit=False)
+            self.group_mode = st.get("group", "auto")
+            col = int(st.get("sort", 0))
+            order = Qt.DescendingOrder if int(st.get("order", 0)) else Qt.AscendingOrder
+            hd = self.list.header()
+            if hd.sortIndicatorSection() != col or hd.sortIndicatorOrder() != order:
+                self.list.sortByColumn(col, order)
+        finally:
+            self._applying_view = False
+
+    def _view_state(self):
+        hd = self.list.header()
+        return {"view": self.view_mode, "sort": hd.sortIndicatorSection(),
+                "order": 1 if hd.sortIndicatorOrder() == Qt.DescendingOrder else 0, "group": self.group_mode}
+
+    def _save_folder_view(self):
+        if self._applying_view or not hasattr(self.app, "cfg"):
+            return
+        k = self._fv_key()
+        if not k:
+            return
+        fv = dict(self.app.cfg["folder_views"] or {})
+        fv.pop(k, None)
+        fv[k] = self._view_state()
+        while len(fv) > 3000:
+            fv.pop(next(iter(fv)))
+        self.app.cfg["folder_views"] = fv
+        self.app.save_soon()
+
+    def apply_view_to_all(self):
+        """«Apply to all folders»: esta vista pasa a ser la de todas las carpetas."""
+        self.app.cfg["folder_view_default"] = self._view_state()
+        self.app.cfg["folder_views"] = {}
+        self.app.cfg.save()
+
     def set_view(self, mode, emit=True):
         self.view_mode = mode
         self.stack.setCurrentIndex(0 if mode == "grid" else 1)
@@ -541,6 +651,7 @@ class FilePane(QFrame):
         if hasattr(self.app, "sync_commandbar"):
             self.app.sync_commandbar(self)
         if emit:
+            self._save_folder_view()
             self.app.save_soon()
 
     # ------------------------------------------------------------------ grupos
@@ -553,6 +664,7 @@ class FilePane(QFrame):
 
     def set_group(self, mode):
         self.group_mode = mode
+        self._save_folder_view()
         self.model.regroup(self.effective_group())
         self._grid_uniform()
         self.proxy.refresh_groups()
@@ -572,8 +684,7 @@ class FilePane(QFrame):
 
     def apply_features(self):
         on = bool(self.app.cfg["library_features"])
-        self.list.setColumnHidden(C_RATING, not on)
-        self.list.setColumnHidden(C_TAGS, not on)
+        self._apply_columns()
         if not self.banner.isVisible():
             self.search.setPlaceholderText(self._placeholder())
 
@@ -816,6 +927,7 @@ class FilePane(QFrame):
                             root=self.lock_root_for(t["path"]))
         if not self.banner.isVisible():
             self.search.setPlaceholderText(self._placeholder())
+        self._apply_folder_view()
         self.b_back.setEnabled(t["hpos"] > 0 or bool(t["virtual"]))
         self.b_fwd.setEnabled(t["hpos"] < len(t["history"]) - 1)
         self._update_tab()
@@ -906,7 +1018,7 @@ class FilePane(QFrame):
             return
         self.model.group_mode = self.effective_group(virtual=False)
         self.model.set_entries(entries, path, virtual=False)
-        self.list.setColumnHidden(C_FOLDER, True)
+        self._apply_columns(folder_default=False)
         self._set_banner(None)
         self._grid_uniform()
         self.proxy.set_filter(self._query(), self.filter.currentData())
@@ -975,7 +1087,7 @@ class FilePane(QFrame):
         self.model.group_mode = self.effective_group(virtual=True)
         self.model.set_entries([], self.tab_path(), virtual=True)
         self._grid_uniform()
-        self.list.setColumnHidden(C_FOLDER, False)
+        self._apply_columns(folder_default=True)
         self._set_banner(0, scanning=0)
         self.proxy.set_filter(parse_query(""), "all")
         w = SearchWorker(self.gen, self.tab_path(), self._query(), self.filter.currentData(),
@@ -1072,7 +1184,7 @@ class FilePane(QFrame):
             self.model.group_mode = "drives"
             self.model.set_entries([], "", virtual=True)
             self._grid_uniform()
-            self.list.setColumnHidden(C_FOLDER, True)
+            self._apply_columns(folder_default=False)
             self._set_banner(None)
             self._show_location()
             self._set_status("Reading drives…")
@@ -1084,7 +1196,7 @@ class FilePane(QFrame):
         refs = self.app.refs_for(v["kind"], v["name"])
         self.gen += 1
         self.model.set_entries([], "", virtual=True)
-        self.list.setColumnHidden(C_FOLDER, False)
+        self._apply_columns(folder_default=True)
         self._set_banner(None)
         self._show_location()
         self._set_status("Searching the library…")

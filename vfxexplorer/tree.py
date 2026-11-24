@@ -48,6 +48,7 @@ class _LinedMixin:
 
     def _lined_init(self, app):
         self.app = app
+        self.setObjectName("sideTree")
         self.setIndentation(18)
         self.setUniformRowHeights(True)
         self.setAnimated(False)

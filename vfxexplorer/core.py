@@ -453,6 +453,36 @@ class Query:
         return not (self.names or self.tags or self.min_rating or self.any_of)
 
 
+DATE_GROUPS = ["Today", "Yesterday", "Earlier this week", "Last week", "Earlier this month", "Last month",
+               "Earlier this year", "A long time ago"]
+
+
+def date_group(ts, today=None):
+    """Grupo de fecha como «Group by › Date modified» de Windows 11 → índice en DATE_GROUPS."""
+    import datetime as _dt
+    today = today or _dt.date.today()
+    if not ts:
+        return 7
+    d = _dt.date.fromtimestamp(ts)
+    if d >= today:
+        return 0
+    if d == today - _dt.timedelta(days=1):
+        return 1
+    week = today - _dt.timedelta(days=today.weekday())          # lunes
+    if d >= week:
+        return 2
+    if d >= week - _dt.timedelta(days=7):
+        return 3
+    month = today.replace(day=1)
+    if d >= month:
+        return 4
+    if d >= (month - _dt.timedelta(days=1)).replace(day=1):
+        return 5
+    if d.year == today.year:
+        return 6
+    return 7
+
+
 def fold(text):
     """minúsculas y sin acentos: «Explosión» == «explosion»."""
     t = unicodedata.normalize("NFKD", (text or "").lower())
@@ -623,6 +653,9 @@ class Config:
         "splitter_left3": "",
         "hidden_sys": [],
         "hidden_drives": [],
+        "list_cols": {},                # columnas de Detalles tildadas/destildadas
+        "folder_views": {},             # vista/orden/agrupado recordados por carpeta
+        "folder_view_default": None,
         "show_hidden_quick": False,
         "show_hidden_drives": False,               # Escritorio/Descargas/Imágenes/Videos ocultos en Acceso rápido
     }

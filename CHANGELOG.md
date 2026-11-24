@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.10.0
+- «Folders» mode renamed to **File Explorer**.
+- **Right-click on the background** opens a Windows 11 style menu: View, Sort by, Group by, Refresh, Paste, New, Pin, Copy folder path, Open in Windows Explorer and Properties.
+- **Group by › Date modified**: Today, Yesterday, Earlier this week, Last week, Earlier this month, Last month, Earlier this year, A long time ago.
+- **Every folder remembers its view** (icons/details, sort, grouping). View › «Apply this view to all folders» sets the default.
+- **Details columns**: right-click the column headers to tick the columns you want, «Size column to fit» and «Size all columns to fit».
+- More breathing room: margins in the file grid / details view, the trees and Quick access; taller rows in Details.
+
 ## 0.9.0
 - **The whole UI is now in English.**
 - New tabs open in **This PC** (Folders mode).

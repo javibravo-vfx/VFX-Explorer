@@ -53,6 +53,7 @@ class QuickList(QListWidget):
 
     def __init__(self, pin_icon):
         super().__init__()
+        self.setObjectName("quickList")
         self.setItemDelegate(QuickDelegate(self, pin_icon))
         self.setIconSize(QSize(18, 18))
         self.setDragDropMode(QAbstractItemView.DragDrop)

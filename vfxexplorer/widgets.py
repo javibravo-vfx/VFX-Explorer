@@ -315,6 +315,11 @@ class Icons:
         elif kind == "list":
             for y in (.28, .5, .72):
                 path.moveTo(s * .18, s * y); path.lineTo(s * .82, s * y)
+        elif kind == "group":
+            path.moveTo(s * .16, s * .2); path.lineTo(s * .84, s * .2)
+            for y in (.42, .62, .82):
+                path.moveTo(s * .3, s * y); path.lineTo(s * .34, s * y)
+                path.moveTo(s * .46, s * y); path.lineTo(s * .84, s * y)
         elif kind == "plus":
             path.moveTo(s * .5, s * .22); path.lineTo(s * .5, s * .78)
             path.moveTo(s * .22, s * .5); path.lineTo(s * .78, s * .5)
