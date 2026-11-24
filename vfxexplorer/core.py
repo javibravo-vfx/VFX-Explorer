@@ -119,9 +119,12 @@ def net_root(path):
     if p.startswith("\\\\") or p.startswith("//"):
         parts = [x for x in re.split(r"[\\/]+", p) if x]
         return ("\\\\" + "\\".join(parts[:2])) if len(parts) >= 2 else None
-    for r in NET_FAKE_ROOTS:                         # pruebas en Linux
-        if p == r or p.startswith(r.rstrip("/") + "/"):
-            return r
+    if NET_FAKE_ROOTS:                               # pruebas
+        np_ = os.path.normcase(os.path.normpath(p))
+        for r in NET_FAKE_ROOTS:
+            nr = os.path.normcase(os.path.normpath(r))
+            if np_ == nr or np_.startswith(nr.rstrip("\\/") + os.sep):
+                return r
     if IS_WIN and len(p) >= 2 and p[1] == ":":
         letter = p[:2].upper()
         return letter if _drive_is_remote(letter) else None
