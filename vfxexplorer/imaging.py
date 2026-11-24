@@ -23,6 +23,50 @@ except Exception:  # pragma: no cover
 
 from .core import IS_WIN, VIDEO_EXTS, find_tool
 
+try:
+    import pypdfium2 as _pdfium
+    HAS_PDF = True
+except Exception:          # pragma: no cover
+    _pdfium = None
+    HAS_PDF = False
+_PDF_LOCK = threading.Lock()     # pdfium no es thread-safe
+
+
+def pdf_page_count(path):
+    if not HAS_PDF:
+        return 0
+    with _PDF_LOCK:
+        try:
+            d = _pdfium.PdfDocument(path)
+            n = len(d)
+            d.close()
+            return n
+        except Exception:
+            return 0
+
+
+def pdf_render(path, page=0, width=400):
+    """Página de un PDF como QImage del ancho pedido (fondo blanco)."""
+    if not HAS_PDF:
+        return QImage()
+    with _PDF_LOCK:
+        try:
+            d = _pdfium.PdfDocument(path)
+            if page >= len(d):
+                d.close()
+                return QImage()
+            pg = d[page]
+            pw, ph = pg.get_size()
+            bm = pg.render(scale=max(0.05, width / max(1.0, pw)), rev_byteorder=True)
+            a = np.ascontiguousarray(bm.to_numpy())
+            pg.close()
+            d.close()
+        except Exception:
+            return QImage()
+    h, w = a.shape[:2]
+    fmt = QImage.Format_RGBA8888 if a.shape[2] == 4 else QImage.Format_RGB888
+    return QImage(a.data, w, h, a.strides[0], fmt).copy()
+
 NO_WINDOW = 0x08000000 if IS_WIN else 0
 THUMB_RES = 320
 
@@ -441,6 +485,8 @@ def load_thumbnail(e, settings, cache_dir, index):
     e2 = ext.lstrip(".")
     if cat == "video" or ext in VIDEO_EXTS:
         img = video_thumb(src, settings["ffmpeg"])
+    elif ext == ".pdf":
+        img = pdf_render(src, 0, 480)
     elif e2 in QT_FAST:
         img = qt_thumb(src)
     elif e2 in OIIO_EXTS and HAS_OIIO:
@@ -537,7 +583,7 @@ class ThumbManager(QObject):
         if c in ("dir", "model"):
             return self.settings["sidecar"]
         if c == "other":
-            return False
+            return e.ext == ".pdf" and HAS_PDF
         if c == "video":
             return bool(self.settings["ffmpeg"])
         return can_decode(e.ext)

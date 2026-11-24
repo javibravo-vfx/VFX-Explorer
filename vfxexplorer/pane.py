@@ -780,12 +780,17 @@ class FilePane(QFrame):
 
     # ------------------------------------------------------------------ vista por carpeta
     VIEW_DEFAULT = {"view": "list", "sort": 0, "order": 0, "group": "auto"}      # como Windows: Detalles
+    THISPC_DEFAULT = {"view": "grid", "sort": 0, "order": 0, "group": "auto"}             # Íconos grandes
     PICTURES_DEFAULT = {"view": "grid", "size": 240, "sort": 0, "order": 0, "group": "auto"}   # Íconos grandes
 
     def _fv_key(self):
         t = self.tab()
-        if not t or t["virtual"]:
+        if not t:
             return None
+        if t["virtual"]:
+            return THISPC if t["virtual"]["kind"] == "thispc" else None     # This PC también recuerda su vista
+        if t["path"] == THISPC or norm_key(t["path"]) == norm_key(THISPC):
+            return THISPC
         return norm_key(t["path"])
 
     def _apply_folder_view(self):
@@ -796,7 +801,9 @@ class FilePane(QFrame):
         st = (self.app.cfg["folder_views"] or {}).get(k)
         if not st:
             pics = self.app._sys_path("pictures") if hasattr(self.app, "_sys_path") else ""
-            if pics and norm_key(pics) == k:
+            if k == THISPC:
+                st = self.THISPC_DEFAULT
+            elif pics and norm_key(pics) == k:
                 st = self.PICTURES_DEFAULT
             else:
                 st = self.app.cfg["folder_view_default"] or self.VIEW_DEFAULT

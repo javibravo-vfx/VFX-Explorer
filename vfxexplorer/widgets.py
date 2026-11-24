@@ -441,18 +441,32 @@ class Icons:
         return self._c[key]
 
     def app_icon(self):
-        pm = QPixmap(64, 64)
-        pm.fill(Qt.transparent)
-        p = QPainter(pm)
-        p.setRenderHint(QPainter.Antialiasing)
-        p.setPen(Qt.NoPen)
-        for i, col in enumerate(("#1f6feb", "#3b8cff", "#6db1ff")):
-            p.setBrush(QColor(col))
-            p.drawRoundedRect(QRectF(8 + i * 7, 22 - i * 7, 36, 30), 5, 5)
-        p.setBrush(QColor("#ff9f43"))
-        p.drawEllipse(QPointF(46, 46), 9, 9)
-        p.end()
-        return QIcon(pm)
+        """Ícono de la app: carpetas amarillas apiladas con un play celeste (igual que assets/icon.ico)."""
+        icon = QIcon()
+        for S in (16, 24, 32, 48, 64, 128, 256):
+            pm = QPixmap(S, S)
+            pm.fill(Qt.transparent)
+            p = QPainter(pm)
+            p.setRenderHint(QPainter.Antialiasing)
+            p.setPen(Qt.NoPen)
+            k = S / 1024.0
+            for (x, y), back, front in (((120, 150), "#b0801e", "#d6a02c"), ((210, 250), "#c49224", "#eab636"),
+                                        ((300, 350), "#d6a42c", "#f6c84a")):
+                w, h, r = 620 * k, 470 * k, 60 * k
+                X, Y = x * k, y * k
+                p.setBrush(QColor(back))
+                p.drawRoundedRect(QRectF(X, Y, w * .38, h * .16 + r), r, r)
+                p.drawRoundedRect(QRectF(X, Y + h * .16, w, h * .84), r, r)
+                p.setBrush(QColor(front))
+                p.drawRoundedRect(QRectF(X, Y + h * .30, w, h * .70), r, r)
+            p.setBrush(QColor("#4cc2ff"))
+            p.drawEllipse(QPointF(790 * k, 800 * k), 170 * k, 170 * k)
+            tri = QPainterPath()
+            tri.moveTo(735 * k, 715 * k); tri.lineTo(885 * k, 800 * k); tri.lineTo(735 * k, 885 * k); tri.closeSubpath()
+            p.fillPath(tri, QColor("#ffffff"))
+            p.end()
+            icon.addPixmap(pm)
+        return icon
 
 
 # ----------------------------------------------------------------------------
@@ -496,7 +510,7 @@ class GridDelegate(QStyledItemDelegate):
         if e is not None and e.kind == "header":
             return QSize(max(200, self.view.viewport().width() - 10), 34)
         if e is not None and e.kind == "drive":
-            return QSize(262, 66)
+            return QSize(262, 72)
         ts = self.view.iconSize().width()
         return QSize(ts + 16, int(ts * 9 / 16) + 16 + self.TEXT_H)
 
@@ -524,7 +538,7 @@ class GridDelegate(QStyledItemDelegate):
                    fm.elidedText(e.name, Qt.ElideMiddle, w))
         total, free = e.size or 0, getattr(e, "free", 0) or 0
         used = (total - free) / total if total else 0
-        bar = QRectF(x, r.y() + 6 + fm.height(), w, 11)
+        bar = QRectF(x, r.y() + 6 + fm.height(), w, 15)
         p.setPen(Qt.NoPen)
         p.setBrush(QColor("#e6e6e6"))
         p.drawRect(bar)
@@ -609,8 +623,15 @@ class GridDelegate(QStyledItemDelegate):
             p.setBrush(QColor("#232323"))
             p.drawRoundedRect(QRectF(th), 4, 4)
             col = QColor(cat_color(e))
+            sysic = app.sys_icon(e, min(256, int(th.height() * .8))) if pm is None else None
             if pm is not None:
                 p.drawPixmap(th.x() + (th.width() - pm.width()) // 2, th.y() + (th.height() - pm.height()) // 2, pm)
+            elif sysic is not None:
+                # ícono original del archivo (programa / documento), como en el Explorador
+                p.setBrush(QColor("#1c1c1c") if not (sel or hov) else QColor("#333333" if sel else "#262626"))
+                p.drawRoundedRect(QRectF(th), 4, 4)
+                p.drawPixmap(th.x() + (th.width() - sysic.width()) // 2, th.y() + (th.height() - sysic.height()) // 2,
+                             sysic)
             else:
                 f = QFont(opt.font)
                 f.setPointSizeF(max(8.0, th.height() / 6.5))
@@ -628,6 +649,8 @@ class GridDelegate(QStyledItemDelegate):
             if e.kind == "dir":
                 fp = app.icons.folder(tag, 22)
                 p.drawPixmap(th.x() + 4, th.y() + 4, fp)
+            elif sysic is not None:
+                pass
             else:
                 label = e.ext[1:].upper() if e.ext else "FILE"
                 if e.kind == "seq":
@@ -1141,9 +1164,23 @@ class SettingsDialog(QDialog):
         self.feats = QCheckBox("Tags, rating and collections")
         self.feats.setChecked(bool(cfg["library_features"]))
         lay.addRow("", self.feats)
+        self.sysicons = QCheckBox("Show the original icon of programs and documents (not for images, video or audio)")
+        self.sysicons.setChecked(bool(cfg["system_icons"]))
+        lay.addRow("", self.sysicons)
         clr = QPushButton(f"Clear thumbnail cache ({human_size(app.thumbs.disk_usage())})")
         clr.clicked.connect(lambda: (app.thumbs.clear_disk(), clr.setText("Cache cleared"), app.refresh_views()))
-        lay.addRow("", clr)
+        rst = QPushButton("Reset all…")
+        rst.setToolTip("Clears the cache and every setting (Quick access, tabs, views, colors, tags…) "
+                       "and restarts VFX Explorer as the first time")
+        rst.setStyleSheet("QPushButton{color:#ff8a8a;}")
+        rst.clicked.connect(lambda: app.reset_all(self))
+        brow = QWidget()
+        brl = QHBoxLayout(brow)
+        brl.setContentsMargins(0, 0, 0, 0)
+        brl.addWidget(clr)
+        brl.addWidget(rst)
+        brl.addStretch(1)
+        lay.addRow("", brow)
         lay.addRow("", _hint(f"Portable data in: {fwd(app.data_dir)}"))
         tabs.addTab(g, "General")
 
@@ -1241,13 +1278,25 @@ class SettingsDialog(QDialog):
         self.cfilters = QPlainTextEdit(DEFAULT_COLOR_FILTERS if cfv is None else cfv)
         self.cfilters.setFont(QFont("Consolas", 9))
         self.cfilters.setMinimumHeight(120)
-        cl.addRow("Color filters:", self.cfilters)
-        cl.addRow("", _hint("Turned on with the color filters button next to the dual pane buttons. "
-                            "pattern = text color  ·  or  = text color, background  ·  dir: only folders."))
         rb = QPushButton("Restore default rules")
         rb.clicked.connect(lambda: self.rules.setPlainText(DEFAULT_NAME_RULES))
         cl.addRow("", rb)
         tabs.addTab(cw, "Colors")
+
+        # --- Color filters (separados de las etiquetas de color de carpetas)
+        fw = QWidget()
+        fl = QFormLayout(fw)
+        fl.addRow("", _hint("Paint file names by pattern. Turned on and off with the color filters button "
+                            "next to the dual pane buttons."))
+        self.cfilters.setMinimumHeight(260)
+        fl.addRow("Rules:", self.cfilters)
+        fl.addRow("", _hint("One rule per line:  pattern = text color   ·   pattern = text color, background\n"
+                            "Several patterns with ;   ·   dir: only folders   ·   * and ? allowed   ·   # comment\n"
+                            "e.g.  *.exe;*.msi = #ff5c5c     *.zip;*.rar = #ff9f43     dir:_input = #3ecf8e"))
+        rf = QPushButton("Restore default filters")
+        rf.clicked.connect(lambda: self.cfilters.setPlainText(DEFAULT_COLOR_FILTERS))
+        fl.addRow("", rf)
+        tabs.addTab(fw, "Color filters")
 
         # --- VFX Library
         lw = QWidget()
@@ -1334,6 +1383,7 @@ class SettingsDialog(QDialog):
         cfg["tree_trace_color"] = self.tcolor.currentData()
         cfg["lib_tree_line_color"] = self.lcolor.currentData()
         cfg["color_filters"] = self.cfilters.toPlainText()
+        cfg["system_icons"] = self.sysicons.isChecked()
         cfg["name_rules"] = self.rules.toPlainText()
         cfg["viewer_res"] = self.vres.currentData()
         cfg["viewer_mem"] = self.vmem.value()

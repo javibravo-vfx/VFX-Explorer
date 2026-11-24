@@ -31,7 +31,7 @@ class PipelineBar(QWidget):
                 cb.setMinimumContentsLength(6)
                 cb.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
             else:
-                cb.setMinimumWidth({"proj": 90, "seq": 92, "shot": 150, "dept": 70, "task": 110}[key])
+                cb.setMinimumWidth({"proj": 60, "seq": 60, "shot": 80, "dept": 50, "task": 60}[key])
                 cb.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
                 cb.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
                 cb.setMinimumContentsLength(4)

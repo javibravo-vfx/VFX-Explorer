@@ -11,7 +11,7 @@ if not exist .venv (
 call .venv\Scripts\activate.bat
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt pyinstaller || goto :error
-pyinstaller --noconfirm --clean --windowed --name VFXExplorer --icon assets\icon.ico --collect-all OpenImageIO --exclude-module tkinter main.py || goto :error
+pyinstaller --noconfirm --clean --windowed --name VFXExplorer --icon assets\icon.ico --collect-all OpenImageIO --collect-all pypdfium2 --collect-all pypdfium2_raw --exclude-module tkinter main.py || goto :error
 if not exist dist\VFXExplorer\bin mkdir dist\VFXExplorer\bin
 echo Pone aca ffmpeg.exe y ffprobe.exe para thumbnails e info de video> dist\VFXExplorer\bin\LEEME.txt
 echo.

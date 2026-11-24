@@ -5,7 +5,7 @@ import os
 import time
 
 from PySide6.QtCore import Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, QMimeData, QUrl, QThread, Signal
-from PySide6.QtGui import QColor, QFont
+from PySide6.QtGui import QColor, QFont, QIcon
 
 from .core import (date_group, DATE_GROUPS, scan_dir, entry_matches, resolve_refs, natural_key, human_size, fmt_time, fwd,
                    compress_ranges, Query, list_drives)
@@ -259,7 +259,8 @@ class EntryModel(QAbstractTableModel):
         if role == Qt.DecorationRole and col == C_NAME:
             if e.kind == "dir":
                 return self.app.icons.folder_icon(self.app.entry_color(e), 18)
-            return self.app.icons.badge(e)
+            sp = self.app.sys_icon(e, 18)
+            return QIcon(sp) if sp is not None else self.app.icons.badge(e)
         if role == Qt.ForegroundRole:
             if col == C_MISSING and e.kind == "seq" and e.missing:
                 return QColor("#ff6b6b")

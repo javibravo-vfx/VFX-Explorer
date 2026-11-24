@@ -2,10 +2,11 @@
 """Ventana principal: barra de pipeline, sidebar (favoritos, colecciones, tags, carpetas), paneles e info."""
 
 import os
+import sys
 import subprocess
 
 from PySide6.QtCore import Qt, QSize, QTimer, QByteArray, QDir, QUrl, QEvent, Signal, QRectF, QPointF
-from PySide6.QtGui import QKeySequence, QShortcut, QDesktopServices, QCursor, QAction
+from PySide6.QtGui import QKeySequence, QShortcut, QDesktopServices, QCursor, QAction, QPixmap
 from PySide6.QtWidgets import (QLineEdit, QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QTreeView,
                                QListWidget, QListWidgetItem, QComboBox, QSlider, QToolBar, QLabel, QMenu,
                                QFileSystemModel, QAbstractItemView, QToolButton, QScrollArea, QFrame,
@@ -13,7 +14,7 @@ from PySide6.QtWidgets import (QLineEdit, QApplication, QMainWindow, QWidget, QV
                                QTabBar, QStackedWidget, QTabWidget)
 
 from . import APP_NAME, VERSION
-from .core import (Config, IS_WIN, data_dir, norm_key, fwd, human_size, fmt_time, compress_ranges, find_tool,
+from .core import (AUDIO_EXTS, Config, IS_WIN, data_dir, norm_key, fwd, human_size, fmt_time, compress_ranges, find_tool,
                    same_path, Entry, FILTERS)
 from .library import Library, dir_target
 from .pipeline import Pipeline
@@ -33,6 +34,15 @@ from . import fileops
 # ----------------------------------------------------------------------------
 # Ventana principal
 # ----------------------------------------------------------------------------
+
+DETAILS_MIN_W = 300        # ancho mínimo del panel de detalles (como el de Windows)
+
+
+def soft(t):
+    """Deja cortar rutas y nombres largos en el panel de detalles (espacio de ancho cero tras / \\ _ . -)."""
+    import re as _re
+    return _re.sub(r"([/\\_.\-])", "\\1\u200b", str(t))
+
 
 class ChevronButton(QToolButton):
     """Botón con ícono, texto y flechita hacia abajo, como New / Sort / View del Explorador de Windows 11."""
@@ -203,7 +213,7 @@ class MainWindow(QMainWindow):
         self.ctx_stack.addWidget(pw)
         self.ctx_stack.addWidget(self.tagbar)
         self.ctx_stack.addWidget(QWidget())
-        self.ctx_stack.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.ctx_stack.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)   # no fija el ancho mínimo de la ventana
         self.ctx_stack.setFixedHeight(34)
         self.pipe_frame = self.ctx_stack
 
@@ -473,6 +483,8 @@ class MainWindow(QMainWindow):
         self.center_stack = QStackedWidget()
         self.center_stack.addWidget(self.pane_split)
         self.center_stack.addWidget(self.libpage)
+        self.center_stack.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
+        self.center_stack.setMinimumWidth(220)
 
         # --- detalles
         self.preview = QLabel()
@@ -515,14 +527,33 @@ class MainWindow(QMainWindow):
         tpl.addWidget(self.text_title)
         tpl.addWidget(self.text_view, 1)
         tpl.addWidget(self.text_meta)
+        # PDF: las páginas una debajo de la otra, al ancho del panel
+        self.pdf_area = QScrollArea()
+        self.pdf_area.setWidgetResizable(True)
+        self.pdf_area.setFrameShape(QFrame.NoFrame)
+        self.pdf_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        pw = QWidget()
+        self.pdf_lay = QVBoxLayout(pw)
+        self.pdf_lay.setContentsMargins(8, 8, 8, 8)
+        self.pdf_lay.setSpacing(8)
+        self.pdf_lay.addStretch(1)
+        self.pdf_area.setWidget(pw)
+        self.pdf_pages = []
+        self.pdf_token = 0
         self.details_stack = QStackedWidget()
         self.details_stack.addWidget(sa)
         self.details_stack.addWidget(tp)
+        self.details_stack.addWidget(self.pdf_area)
         self.info_area = QWidget()
         dsl = QVBoxLayout(self.info_area)
         dsl.setContentsMargins(0, 0, 0, 0)
         dsl.addWidget(self.details_stack)
-        self.info_area.setMinimumWidth(240)
+        self.info_area.setMinimumWidth(0)      # el mínimo (DETAILS_MIN_W) lo maneja el splitter
+        self.info.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.preview.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        self.preview.installEventFilter(self)
+        self.pdf_area.viewport().installEventFilter(self)
+        self._preview_pm = None
 
         main = QSplitter(Qt.Horizontal)
         main.addWidget(left)
@@ -532,6 +563,7 @@ class MainWindow(QMainWindow):
         main.setSizes([280, 940, 300])
         main.setCollapsible(0, False)
         main.splitterMoved.connect(lambda *_: self._sync_cmd_left())
+        main.splitterMoved.connect(lambda *_: self._clamp_details())
         self.pane_split.splitterMoved.connect(lambda *_: self._sync_cmd_left())
         for sp in (main, left, self.pane_split, self.libpage.split, lib_page):
             sp.setObjectName("softSplit")
@@ -641,6 +673,7 @@ class MainWindow(QMainWindow):
             #pane {{ border:none; }}
             #paneNav[active="true"] {{ border-bottom:2px solid {ACCENT}; }}
             #paneHeader {{ background:#191919; }}
+            #navHost {{ background:#2b2b2b; border-bottom:1px solid #232323; }}
             #paneTabs {{ background:#191919; }}
             #paneNav {{ background:#2b2b2b; border-bottom:1px solid #232323; }}
             #cmdrow {{ background:#1f1f1f; border-bottom:1px solid #2a2a2a; }}
@@ -792,7 +825,7 @@ class MainWindow(QMainWindow):
         self.cmd_right.setFixedWidth(max(self.cmd_right.layout().sizeHint().width(), rw))
         self.sb_right.setFixedWidth(max(self.sb_right.layout().sizeHint().width(), rw))
         # buscador de ancho fijo (no baila) y, lado a lado, cada cabecera alineada con su panel
-        self.gsearch_box.setFixedWidth(int(min(440, max(240, self.width() * 0.24))))
+        self.gsearch_box.setFixedWidth(int(self.width() * 0.19))     # crece con la ventana
         A, B = self.paneA, self.paneB
         side = B.isVisible() and (self.cfg["dual_orient"] or "h") == "h" and B.tabsrow.parent() is self.tabs_host
         if side:
@@ -816,6 +849,28 @@ class MainWindow(QMainWindow):
     def resizeEvent(self, ev):
         super().resizeEvent(ev)
         QTimer.singleShot(0, self._sync_cmd_left)
+        QTimer.singleShot(0, self._auto_details)
+
+    def _clamp_details(self):
+        """El panel de detalles no se achica arrastrando por debajo de su mínimo."""
+        s = self.main_split.sizes()
+        if self.info_area.isVisible() and len(s) == 3 and 0 < s[2] < DETAILS_MIN_W:
+            d = DETAILS_MIN_W - s[2]
+            self.main_split.setSizes([s[0], max(50, s[1] - d), DETAILS_MIN_W])
+
+    def _auto_details(self):
+        """Si la ventana queda tan angosta que el panel de detalles no entra con su mínimo, se apaga solo
+        (y vuelve cuando hay lugar)."""
+        if not hasattr(self, "main_split"):
+            return
+        s = self.main_split.sizes()
+        need = (s[0] if s else 250) + 320 + DETAILS_MIN_W
+        if self.info_area.isVisible() and (s[2] < DETAILS_MIN_W - 2 or s[1] < 300):
+            self._details_auto_off = True
+            self.toggle_details(False, remember=False)
+        elif getattr(self, "_details_auto_off", False) and self.width() >= need + 40:
+            self._details_auto_off = False
+            self.toggle_details(True, remember=False)
 
     def _palette_icon(self):
         from PySide6.QtGui import QPixmap, QPainter, QColor, QIcon
@@ -942,6 +997,13 @@ class MainWindow(QMainWindow):
             self.quick_stack.setCurrentIndex(i)
 
     def eventFilter(self, obj, ev):
+        if ev.type() == QEvent.Resize:
+            if obj is getattr(self, "preview", None):
+                QTimer.singleShot(0, self._fit_preview)
+            elif hasattr(self, "pdf_area") and obj is self.pdf_area.viewport():
+                w = max(60, self.pdf_area.viewport().width() - 16)
+                for lb in self.pdf_pages[1:]:
+                    self._fit_pdf_page(lb, w)
         if obj is getattr(self, "gsearch", None) and ev.type() == QEvent.KeyPress:
             if ev.key() == Qt.Key_Escape:
                 self.gsearch.clear()
@@ -1107,7 +1169,41 @@ class MainWindow(QMainWindow):
     def save_soon(self):
         self.save_timer.start()
 
+    def reset_all(self, parent=None):
+        """⚙ › Reset all: borra caché y toda la configuración y vuelve a abrir como la primera vez."""
+        r = QMessageBox.question(parent or self, "Reset all",
+                                 "Clear the cache and every setting (Quick access, tabs, folder views, colors, "
+                                 "tags, collections, library folders…) and restart VFX Explorer as the first time?\n\n"
+                                 "Your files are not touched.",
+                                 QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Cancel)
+        if r != QMessageBox.Yes:
+            return
+        self._resetting = True
+        if parent is not None:
+            parent.reject()
+        QTimer.singleShot(0, self.close)
+
+    def _finish_reset(self):
+        import shutil
+        from PySide6.QtCore import QProcess
+        shutil.rmtree(self.data_dir, ignore_errors=True)
+        if getattr(sys, "frozen", False):
+            QProcess.startDetached(sys.executable, sys.argv[1:])
+        else:
+            QProcess.startDetached(sys.executable, sys.argv)
+
     def closeEvent(self, ev):
+        if getattr(self, "_resetting", False):
+            self.save_timer.stop()
+            for p in self.all_panes:
+                p._stop_search()
+            self.thumbs.cancel_pending()
+            self.thumbs.pool.waitForDone(3000)
+            self.dirsizes.clear()
+            self.libpage.shutdown()
+            super().closeEvent(ev)
+            self._finish_reset()
+            return
         self.cfg["geometry"] = bytes(self.saveGeometry().toBase64()).decode()
         self.cfg["splitter"] = bytes(self.main_split.saveState().toBase64()).decode()
         self.cfg["splitter_left3"] = bytes(self.left_split.saveState().toBase64()).decode()
@@ -1128,7 +1224,11 @@ class MainWindow(QMainWindow):
     def toggle_details(self, force=None, remember=True):
         show = (not self.info_area.isVisible()) if force is None else bool(force)
         changed = show != self.info_area.isVisible()
+        if remember:
+            self._details_auto_off = False
         self.info_area.setVisible(show)
+        if show and changed:
+            QTimer.singleShot(0, self._clamp_details)
         self.act_details.setChecked(show)
         QTimer.singleShot(0, self._sync_cmd_left)
         self.cfg["details_visible"] = show
@@ -1582,11 +1682,85 @@ class MainWindow(QMainWindow):
         pm = self.thumbs.get(e)
         if pm is None and e.kind == "dir":
             pm = self.icons.folder(self.lib.color(e.key()), 120)
+        if pm is None:
+            pm = self.sys_icon(e, 128)
+        self._preview_pm = pm
         if pm is not None:
-            w = max(100, self.preview.width() - 8)
-            self.preview.setPixmap(pm.scaled(w, 260, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            self._fit_preview()
         else:
             self.preview.setText("<span style='color:#666'>no preview</span>")
+
+    def _fit_preview(self):
+        """La imagen del panel de detalles se ajusta al ancho elegido del panel."""
+        pm = self._preview_pm
+        if pm is None:
+            return
+        w = max(40, self.preview.width() - 8)
+        h = min(260, max(80, int(w * 0.75)))
+        sp = pm if (pm.width() <= w and pm.height() <= h) else pm.scaled(w, h, Qt.KeepAspectRatio,
+                                                                          Qt.SmoothTransformation)
+        self.preview.setPixmap(sp)
+
+    # ---------------- PDF en el panel de detalles
+    def _pdf_preview(self, e):
+        from .imaging import HAS_PDF, pdf_page_count
+        if e.kind != "file" or e.ext != ".pdf" or not HAS_PDF:
+            return False
+        n = pdf_page_count(e.path)
+        if not n:
+            return False
+        self.pdf_token += 1
+        for lb in self.pdf_pages:
+            lb.deleteLater()
+        self.pdf_pages = []
+        title = QLabel(f"<b>{e.name}</b><br><span style='color:#8b9099'>{n} page(s) · {human_size(e.size)}</span>")
+        title.setWordWrap(True)
+        title.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.pdf_lay.insertWidget(0, title)
+        self.pdf_pages.append(title)
+        for i in range(min(n, 40)):
+            lb = QLabel()
+            lb.setAlignment(Qt.AlignCenter)
+            lb.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+            lb.setFixedHeight(int(max(60, self.pdf_area.viewport().width() - 16) * 1.29))
+            lb.setStyleSheet("background:#ffffff; border-radius:2px;")
+            self.pdf_lay.insertWidget(i + 1, lb)
+            self.pdf_pages.append(lb)
+        self.details_stack.setCurrentIndex(2)
+        self.pdf_area.verticalScrollBar().setValue(0)
+        self.status_right.setText(fwd(e.path))
+        self._pdf_src = (e.path, min(n, 40))
+        QTimer.singleShot(0, lambda t=self.pdf_token: self._pdf_render_next(t, 0))
+        return True
+
+    def _pdf_render_next(self, token, i):
+        """Renderiza de a una página sin trabar la interfaz."""
+        if token != self.pdf_token or not getattr(self, "_pdf_src", None):
+            return
+        path, n = self._pdf_src
+        if i >= n:
+            return
+        from .imaging import pdf_render
+        dpr = self.devicePixelRatioF()
+        w = max(60, self.pdf_area.viewport().width() - 16)
+        img = pdf_render(path, i, int(min(1800, w * dpr * 1.25)))
+        if token != self.pdf_token:
+            return
+        lb = self.pdf_pages[i + 1]
+        if not img.isNull():
+            lb._img = img
+            self._fit_pdf_page(lb, w)
+        QTimer.singleShot(1, lambda: self._pdf_render_next(token, i + 1))
+
+    def _fit_pdf_page(self, lb, w):
+        img = getattr(lb, "_img", None)
+        if img is None:
+            return
+        dpr = self.devicePixelRatioF()
+        pm = QPixmap.fromImage(img.scaledToWidth(int(w * dpr), Qt.SmoothTransformation))
+        pm.setDevicePixelRatio(dpr)
+        lb.setFixedHeight(int(pm.height() / dpr))
+        lb.setPixmap(pm)
 
     TEXT_EXTS = {".txt", ".ini", ".cfg", ".conf", ".json", ".xml", ".yaml", ".yml", ".md", ".log", ".csv", ".tsv",
                  ".py", ".mel", ".ms", ".mcr", ".nk", ".gizmo", ".bat", ".cmd", ".ps1", ".sh", ".lua", ".js", ".html",
@@ -1621,7 +1795,7 @@ class MainWindow(QMainWindow):
 
     def _show_info(self, e):
         self._info_entry = e
-        if self._text_preview(e):
+        if self._text_preview(e) or self._pdf_preview(e):
             return
         self.details_stack.setCurrentIndex(0)
         self._set_preview(e)
@@ -1637,7 +1811,7 @@ class MainWindow(QMainWindow):
         if e.kind != "dir":
             rows.append(("Size", human_size(e.size)))
         rows.append(("Modified", fmt_time(e.mtime)))
-        rows.append(("Folder", fwd(e.dirpath)))
+        rows.append(("Folder", soft(fwd(e.dirpath))))
         r = self.lib.rating(e.key())
         if r:
             rows.append(("Rating", f"<span style='color:#f5c542'>{'★' * r}</span>"))
@@ -1649,7 +1823,7 @@ class MainWindow(QMainWindow):
             rows.append(("Collections", ", ".join(colls)))
         self._info_base = (
             "<style>td{padding:1px 6px 1px 0; vertical-align:top;} td.k{color:#8b9099; white-space:nowrap;}</style>"
-            f"<div style='font-size:10pt; font-weight:bold; color:#eee;'>{e.name}</div><table>"
+            f"<div style='font-size:10pt; font-weight:bold; color:#eee;'>{soft(e.name)}</div><table width='100%'>"
             + "".join(f"<tr><td class='k'>{k}</td><td>{v}</td></tr>" for k, v in rows))
         self.info.setText(self._info_base + "</table>")
         self.status_right.setText(fwd(e.pattern_path("hash")))
@@ -2212,6 +2386,40 @@ class MainWindow(QMainWindow):
         for p in self.all_panes:
             p.list.apply_numbers()
 
+    def sys_icon(self, e, size):
+        """Ícono original del archivo (el del programa / tipo, como en el Explorador) o None.
+        No para imágenes, video, audio ni los que no tienen ícono propio. Se apaga en ⚙ › General."""
+        if not self.cfg["system_icons"] or e.kind != "file" or e.cat in ("image", "video") \
+                or e.ext in AUDIO_EXTS:
+            return None
+        per_file = e.ext in (".exe", ".lnk", ".ico", ".url", ".msi", ".appref-ms", "")
+        key = (e.path if per_file else e.ext, int(size))
+        cache = self.__dict__.setdefault("_sysic", {})
+        if key in cache:
+            return cache[key]
+        from PySide6.QtWidgets import QFileIconProvider
+        from PySide6.QtCore import QFileInfo
+        prov = self.__dict__.setdefault("_iconprov", QFileIconProvider())
+        pm = None
+        try:
+            ic = prov.icon(QFileInfo(e.path))
+            if not ic.isNull():
+                pm = ic.pixmap(int(size), int(size))
+                if pm.isNull():
+                    pm = None
+            if pm is not None:                 # el ícono genérico de "archivo" no sirve: queda el nuestro
+                gk = ("__generic__", int(size))
+                if gk not in cache:
+                    gi = prov.icon(QFileIconProvider.IconType.File)
+                    cache[gk] = gi.pixmap(int(size), int(size)).toImage() if not gi.isNull() else None
+                g = cache[gk]
+                if g is not None and pm.toImage() == g:
+                    pm = None
+        except Exception:
+            pm = None
+        cache[key] = pm
+        return pm
+
     def _toggle_color_filters(self, on):
         self.cfg["color_filters_on"] = bool(on)
         self.cfg.save()
@@ -2285,6 +2493,86 @@ class MainWindow(QMainWindow):
         except Exception as ex:
             self.status.setText(f"Could not open Properties: {ex}")
 
+    # ---------------- WinRAR (si está instalado): extraer / comprimir desde el menú contextual
+    ARCHIVE_EXTS = {".rar", ".zip", ".7z", ".tar", ".gz", ".tgz", ".bz2", ".xz", ".cab", ".iso", ".arj", ".lz", ".zst"}
+
+    def winrar_exe(self):
+        if hasattr(self, "_winrar"):
+            return self._winrar
+        exe = ""
+        if IS_WIN:
+            try:
+                import winreg
+                for hive in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+                    for sub in (r"SOFTWARE\WinRAR", r"SOFTWARE\WOW6432Node\WinRAR"):
+                        try:
+                            with winreg.OpenKey(hive, sub) as k:
+                                for val in ("exe64", "exe32"):
+                                    try:
+                                        v = winreg.QueryValueEx(k, val)[0]
+                                        if v and os.path.isfile(v):
+                                            exe = v
+                                            break
+                                    except OSError:
+                                        pass
+                        except OSError:
+                            pass
+                        if exe:
+                            break
+                    if exe:
+                        break
+            except Exception:
+                pass
+            if not exe:
+                for base in (os.environ.get("ProgramFiles", r"C:\Program Files"),
+                             os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")):
+                    c = os.path.join(base, "WinRAR", "WinRAR.exe")
+                    if os.path.isfile(c):
+                        exe = c
+                        break
+        self._winrar = exe
+        return exe
+
+    def _winrar_run(self, args, refresh=None):
+        try:
+            subprocess.Popen([self.winrar_exe()] + args)
+        except OSError as ex:
+            QMessageBox.warning(self, "WinRAR", str(ex))
+            return
+        if refresh:
+            QTimer.singleShot(2500, lambda: self.refresh_dirs([refresh]))
+
+    def _winrar_menu(self, m, pane, ents):
+        exe = self.winrar_exe()
+        if not exe or not ents:
+            return
+        files = [f for e in ents for f in (e.files if e.kind == "seq" else [e.path])]
+        archives = [e for e in ents if e.kind == "file" and e.ext in self.ARCHIVE_EXTS]
+        from PySide6.QtWidgets import QFileIconProvider
+        from PySide6.QtCore import QFileInfo
+        sub = m.addMenu(QFileIconProvider().icon(QFileInfo(exe)), "WinRAR")
+        if archives:
+            e0 = archives[0]
+            here = e0.dirpath
+            folder = os.path.splitext(e0.name)[0]
+            sub.addAction("Extract files…", lambda: [self._winrar_run(["x", "-ad", a.path, here + os.sep])
+                                                     for a in archives])
+            sub.addAction("Extract here", lambda: [self._winrar_run(["x", "-ibck", "-o-", a.path, here + os.sep],
+                                                                    here) for a in archives])
+            sub.addAction(f"Extract to {folder}\\" if len(archives) == 1 else "Extract each to its own folder",
+                          lambda: [self._winrar_run(["x", "-ibck", "-o-", a.path,
+                                                     os.path.join(here, os.path.splitext(a.name)[0]) + os.sep], here)
+                                   for a in archives])
+            sub.addAction("Open in WinRAR", lambda: self._winrar_run([e0.path]))
+            sub.addSeparator()
+        base = os.path.splitext(ents[0].name)[0] if len(ents) == 1 else os.path.basename(pane.current_dir() or "archive")
+        d = pane.current_dir() or ents[0].dirpath
+        sub.addAction("Add to archive…", lambda: self._winrar_run(["a", "-ep1", os.path.join(d, base + ".rar")] + files))
+        sub.addAction(f"Add to «{base}.rar»", lambda: self._winrar_run(
+            ["a", "-ibck", "-ep1", os.path.join(d, base + ".rar")] + files, d))
+        sub.addAction(f"Add to «{base}.zip»", lambda: self._winrar_run(
+            ["a", "-ibck", "-ep1", "-afzip", os.path.join(d, base + ".zip")] + files, d))
+
     def item_menu(self, pane, view, pos):
         self.set_active(pane)
         ix = view.indexAt(pos)
@@ -2330,6 +2618,7 @@ class MainWindow(QMainWindow):
                 m.addAction("Go to containing folder",
                             lambda: pane.navigate(e.dirpath, select=e.name))
             m.addAction("Show in Windows Explorer", lambda: self.reveal(e))
+            self._winrar_menu(m, pane, ents)
             m.addSeparator()
             m.addAction("Cut\tCtrl+X", lambda: self.op_clip(pane, cut=True))
             m.addAction("Copy\tCtrl+C", lambda: self.op_clip(pane, cut=False))

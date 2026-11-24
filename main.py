@@ -53,6 +53,20 @@ def selftest():
             info = dict(imaging.video_info(mp4, ffprobe))
             log.append(f"video thumb: {vimg.width()}x{vimg.height()} · info: {info.get('Resolution', info)}")
             ok = ok and not vimg.isNull()
+        # PDF (pypdfium2 incluido en el exe)
+        try:
+            import pypdfium2 as pdfium
+            pdf = os.path.join(tempfile.mkdtemp(), "test.pdf")
+            doc = pdfium.PdfDocument.new()
+            doc.new_page(400, 300)
+            doc.save(pdf)
+            doc.close()
+            pimg = imaging.pdf_render(pdf, 0, 200)
+            log.append(f"pdf render: {pimg.width()}x{pimg.height()}")
+            ok = ok and not pimg.isNull()
+        except Exception as ex:
+            ok = False
+            log.append(f"pdf: {ex}")
         from vfxexplorer.mainwindow import MainWindow
         w = MainWindow(tmp)
         w.show()

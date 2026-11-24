@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.14.0
+- **PDF preview** in the Details pane (pages one below the other, at the pane width) and PDF thumbnails in the grid.
+- **Original icons** of programs and documents (exe, zip, pdf, office…), not for images, video or audio; can be turned off in ⚙ › General.
+- **WinRAR** in the right-click menu when it's installed: extract here / to folder / files…, open, add to .rar / .zip.
+- **RAW filter**: camera RAW formats and DNG.
+- **This PC opens in Large icons** and remembers its view if you change it (also when going back to it).
+- **Details pane**: minimum width like Windows; it can't be dragged narrower and turns itself off when the window gets too narrow (and comes back when there's room). Its contents fit the pane width (long names and paths wrap, the preview scales).
+- **⚙ › Reset all**: clears the cache and every setting and restarts as the first time. **Color filters** have their own settings tab; `.zip`, `.rar`, `.7z` in orange by default.
+- Search box a bit narrower (it still grows with the window); the background behind ← → ↑ ⟳ and the search box matches the address bar again.
+- Taller drive bars in This PC.
+- New app icon with yellow folders.
+
 ## 0.13.0
 - **One search box and one ← → ↑ ⟳** for File Explorer: they work on the active pane. In dual pane each pane only has its tabs, address bar and filter.
 - **Dual pane one above the other** (F10) besides side by side (F9); two icon buttons in the toolbar.

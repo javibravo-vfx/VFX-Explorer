@@ -20,6 +20,12 @@ IMAGE_EXTS = {
     ".tga", ".bmp", ".hdr", ".rgbe", ".webp", ".psd", ".psb", ".jp2", ".j2k", ".sgi",
     ".rgb", ".tx", ".jxl", ".dds", ".pfm", ".iff", ".rla", ".pic", ".gif",
 }
+RAW_EXTS = {      # RAW de cámaras de fotos + DNG
+    ".dng", ".cr2", ".cr3", ".crw", ".nef", ".nrw", ".arw", ".srf", ".sr2", ".raf", ".orf", ".rw2", ".rwl",
+    ".pef", ".srw", ".x3f", ".3fr", ".fff", ".iiq", ".erf", ".kdc", ".dcr", ".mrw", ".mos", ".raw", ".gpr",
+}
+IMAGE_EXTS |= RAW_EXTS
+AUDIO_EXTS = {".wav", ".mp3", ".aif", ".aiff", ".flac", ".ogg", ".m4a", ".aac", ".wma", ".opus"}
 VIDEO_EXTS = {
     ".mov", ".mp4", ".m4v", ".mxf", ".avi", ".mkv", ".webm", ".mpg", ".mpeg",
     ".wmv", ".mts", ".m2ts",
@@ -38,6 +44,7 @@ FILTERS = [
     ("Media (no others)", "media"),
     ("Sequences", "seq"),
     ("EXR", "exr"),
+    ("RAW (camera / DNG)", "raw"),
     ("Videos", "video"),
     ("Single images", "image"),
     ("Models / scenes", "model"),
@@ -537,6 +544,9 @@ def entry_matches(e, q, cat, recursive=False, meta=None):
         elif cat == "exr":
             if e.ext != ".exr":
                 return False
+        elif cat == "raw":
+            if e.ext not in RAW_EXTS:
+                return False
         elif c != cat:
             return False
     if q.empty:
@@ -598,6 +608,7 @@ DEFAULT_COLOR_FILTERS = """\
 # Color filters: pattern = text color   (or  = text color, background color)
 # Several patterns with ;  ·  dir: only folders  ·  case-insensitive, * and ? allowed
 *.exe;*.msi;*.bat;*.cmd = #ff5c5c
+*.zip;*.rar;*.7z = #ff9f43
 # *.nk;*.gizmo = #f5a623
 # *.max;*.hip;*.hipnc;*.blend = #4cc2ff
 # *.mov;*.mp4 = #c49bff
@@ -700,6 +711,7 @@ class Config:
         "hidden_sys": [],
         "hidden_drives": [],
         "list_cols": {},
+        "system_icons": True,           # ícono original de programas/documentos (no en imágenes, video, audio)
         "dual_orient": "h",             # doble panel: h = lado a lado (F9) · v = uno arriba del otro (F10)
         "color_filters_on": False,      # pintar nombres por tipo / patrón
         "color_filters": None,          # None = DEFAULT_COLOR_FILTERS

@@ -1,6 +1,6 @@
 # VFX Explorer
 
-![Version](https://img.shields.io/badge/version-0.13.0-informational) ![Platform](https://img.shields.io/badge/platform-Windows-555) ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white) ![Qt](https://img.shields.io/badge/PySide-6-41CD52?logo=qt&logoColor=white) [![Build](https://github.com/javibravo-vfx/VFX-Explorer/actions/workflows/build.yml/badge.svg)](https://github.com/javibravo-vfx/VFX-Explorer/actions/workflows/build.yml)
+![Version](https://img.shields.io/badge/version-0.14.0-informational) ![Platform](https://img.shields.io/badge/platform-Windows-555) ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white) ![Qt](https://img.shields.io/badge/PySide-6-41CD52?logo=qt&logoColor=white) [![Build](https://github.com/javibravo-vfx/VFX-Explorer/actions/workflows/build.yml/badge.svg)](https://github.com/javibravo-vfx/VFX-Explorer/actions/workflows/build.yml)
 
 A **lightweight, portable** file explorer built for VFX, with a clean Windows 11 look and fast, keyboard-friendly folder handling: EXR sequences as a single item, EXR / HDR / TX / video thumbnails, tabs, dual pane, a **VFX Library with a viewer/player**, automatic per-project folder colors and quick pipeline navigation (project › sequence › shot › dept › task).
 
@@ -12,7 +12,7 @@ A **lightweight, portable** file explorer built for VFX, with a clean Windows 11
 
 Get `VFXExplorer-win64.zip` from **[Releases](https://github.com/javibravo-vfx/VFX-Explorer/releases)**, unzip it anywhere (another drive, the NAS, a USB stick) and run `VFXExplorer.exe`. Nothing to install.
 
-**ffmpeg is included** (LGPL build in `bin\`), so video thumbnails, info and playback work out of the box.
+**ffmpeg is included** (LGPL build in `bin\`), so video thumbnails, info and playback work out of the box. PDF previews use pdfium (pypdfium2).
 
 ## Features
 
@@ -26,7 +26,9 @@ Get `VFXExplorer-win64.zip` from **[Releases](https://github.com/javibravo-vfx/V
 | **Quick tags** | In the VFX Library, where the pipeline goes: pills like **Smoke, Fire, Explosion, Sparks, Dust, Water…** that show every element of the branch whose name, folder or tag matches (`Fire: fire, flame, fuego`). Several on = any of them. ＋ adds one, right-click edits, reorders or removes |
 | **Per-folder view** | Details view by default (This PC: tiles, Pictures: large icons). Every folder remembers its view, icon size, sort, grouping and the Details pane. View › «Apply this view to all folders» makes it the default |
 | **Color filters** | Toolbar button that paints file names by pattern (`*.exe = red` by default; text and background colors, `dir:` for folders), set in ⚙ › Colors |
-| **Text preview** | .ini, .txt, .json, .nk, .py… are shown in the whole Details pane, read-only and selectable |
+| **Text & PDF preview** | .ini, .txt, .json, .nk, .py… are shown in the whole Details pane, read-only and selectable; PDFs show their pages (and get a thumbnail in the grid) |
+| **Original icons** | Programs and documents show their own icon (exe, zip, pdf, office…), images/video/audio keep their thumbnails; can be turned off in ⚙ › General |
+| **WinRAR** | If it's installed, the right-click menu can extract archives (here, to a folder, files…) and add files to .rar / .zip |
 | **Row numbers** | Details view numbers its rows (View › Row numbers) |
 | **Context menus** | Right-click the background for View, Sort by, Group by, Paste, New, Pin, Properties… Right-click the Details column headers to choose columns, «Size column to fit» and «Size all columns to fit» |
 | **Thumbnail scrub** | Hover a sequence or video in the grid to scrub through its frames (with the frame number) |
@@ -44,7 +46,7 @@ Get `VFXExplorer-win64.zip` from **[Releases](https://github.com/javibravo-vfx/V
 | **Rename sequences** | **F2** edits the name in place, like a file: `plate_v001.####.exr` → `sh010_plate_v002.####.exr` renames every frame. Changing the number of `#` changes the padding. «Renumber sequence…» (right-click) changes the first frame (e.g. 1 → 1001) |
 | **Folder sizes** | Optional (⚙ › General): computed in the background, shown in grid and list |
 | **Tags / rating / collections** | Off by default; enable them in ⚙ › General. Rating ★1–5 (Ctrl+0…5), tags (Ctrl+E) and collections that group assets from different folders without moving them |
-| **Search** | Name or part, `*wildcards*`, type filter and **Subfolders** to search the whole branch (with tags on: `#tag`, `★3`) |
+| **Search** | Name or part, `*wildcards*`, type filter (including EXR and camera RAW / DNG) and **Subfolders** to search the whole branch (with tags on: `#tag`, `★3`) |
 | **Pipeline** | Project → Sequence → Shot → **Dept** → Task, for a structure like `T:\VFX-{PROJ}\{SEQ}\{SHOT}\{DEPT}\{TASK}\{STAGE}\`. Departments can have tasks (`3D\1_matchmove\1_projects`), go straight to the stages (`Comp\2_review`: the last dropdown becomes «Stage») or just hold folders (`_input\plates`: it becomes «Folder»); set which departments have tasks and the stage names in ⚙ › Pipeline. **Switching shot keeps you in the same place** (dept, task, stage, `_input`…) when it exists in the new shot. The dropdowns go above the center pane (default), in the left pane or hidden. The folder button lists every level and its subfolders. The combos follow you as you navigate and clear outside the pipeline |
 | **Info** | EXR resolution, data window, compression, channels/AOVs, parts, mipmaps and chromaticities; video codec, fps, duration, timecode and pixel format |
 | **Copy path** | `plate.####.exr`, Nuke format `plate.%04d.exr 1001-1100`, Windows path, first frame or folder |
@@ -96,7 +98,7 @@ python tests\test_core.py
 Every push to `main` builds the exe on GitHub Actions; the zip is kept as a workflow artifact. A `v*` tag creates a Release with the zip:
 
 ```bash
-git tag v0.13.0 && git push origin v0.13.0
+git tag v0.14.0 && git push origin v0.14.0
 ```
 
 Layout: `vfxexplorer/core.py` (sequences, search), `imaging.py` (OpenImageIO / Qt / ffmpeg), `viewer.py` (frame player), `library_ui.py` (VFX Library), `colors.py` (automatic colors), `tree.py` (lined tree), `quicklist.py` (Quick access), `tagbar.py` (quick tags), `dirsize.py`, `library.py` (tags, rating, collections), `pipeline.py` (pipeline structure), `fileops.py`, `models.py`, `pane.py`, `widgets.py`, `mainwindow.py`.
