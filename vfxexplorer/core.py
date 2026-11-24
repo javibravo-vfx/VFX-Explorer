@@ -706,7 +706,9 @@ class Config:
         "cfg_version": 10,
         "pipeline_task_depts": None,    # None = "3D": departamentos que tienen tasks
         "pipeline_stages": None,        # None = "1_projects, 2_review, 3_publish"
-        "pipeline_templates": {},       # ＋ del pipeline: tasks de 3D, DMP, Comp (vacío = TEMPLATE_DEFAULTS)
+        "pipeline_templates": {},       # (0.17, reemplazado por pipeline_departments)
+        "pipeline_departments": None,   # None = DEFAULT_DEPTS (o lo que había en la config vieja)
+        "pipeline_only_depts": None,    # el desplegable Dept muestra solo los definidos
         "sys_view_defaults": 0,         # vistas por defecto de Downloads / Videos ya aplicadas
         # 0.7
         "lib_favorites": [],            # acceso rápido de la VFX Library

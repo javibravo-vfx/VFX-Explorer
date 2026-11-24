@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.18.0
+- Settings › Pipeline unified: one list of departments (Department 1, 2…), each with its folder, whether it has tasks, its tasks and its folders. Replaces "Departments", "Departments with tasks", "Stage folders" and the New folders tab (old settings are carried over).
+- Pipeline ＋ works for any department: tasks for departments with tasks, the department with its folders for the others.
+- Option: the Dept dropdown shows only the listed departments.
+- A folder with a PDF opens it in the Details pane by itself (nothing selected).
+
 ## 0.17.0
 - Pipeline ＋: creates a 3D task (with its subfolders), DMP or Comp in the current shot; existing ones are checked off.
 - Settings › New folders: edit the 3D tasks (and what goes inside 1_projects for each), the task folders, DMP and Comp subfolders.

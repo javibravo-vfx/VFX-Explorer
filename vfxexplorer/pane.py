@@ -1332,6 +1332,8 @@ class FilePane(QFrame):
         self._update_status(f"Error: {err}" if err else None)
         self._select_pending()
         self.app.request_dir_sizes(self, entries)
+        if hasattr(self.app, "_sel_changed"):
+            QTimer.singleShot(0, lambda: self.app._sel_changed(self))   # sin selección: PDF de la carpeta
 
     def _sort(self):
         hd = self.list.header()

@@ -38,7 +38,7 @@ class PipelineBar(QWidget):
             self.cbs[key] = cb
         self.add_b = QToolButton()
         self.add_b.setIcon(app.icons.glyph("plus", 16, "#4cc2ff"))
-        self.add_b.setToolTip("Create a 3D task, DMP or Comp for this shot")
+        self.add_b.setToolTip("Create a task or a department folder in this shot")
         self.add_b.setPopupMode(QToolButton.InstantPopup)
         self.add_b.setAutoRaise(True)
         self.add_menu = QMenu(self.add_b)
@@ -230,33 +230,37 @@ class PipelineBar(QWidget):
         if not sh:
             m.addAction("Pick a shot first").setEnabled(False)
             return
-        three = pipe.dept_folder(p, s, sh, "3d")
-        have = {x.lower() for x in pipe.tasks(p, s, sh, os.path.basename(three))} if os.path.isdir(three) else set()
-        sub = m.addMenu(f"{pipe.tpl('3d_name')} task")
-        for task, _inner in pipe.template_tasks():
-            a = sub.addAction(("✓  " if task.lower() in have else "     ") + task)
-            a.setEnabled(task.lower() not in have)
-            a.triggered.connect(lambda c=False, x=task: self._create("task", x))
-        if not pipe.template_tasks():
-            sub.addAction("No tasks (Settings › New folders)").setEnabled(False)
-        for which in ("dmp", "comp"):
-            name = pipe.tpl(which + "_name")
-            exists = os.path.isdir(pipe.dept_folder(p, s, sh, which))
-            a = m.addAction(("✓  " if exists else "") + name)
-            a.setEnabled(not exists)
-            a.setToolTip(name + "\\" + ", ".join(pipe.tpl(which + "_subs").split(",")))
-            a.triggered.connect(lambda c=False, w=which: self._create(w))
+        for dep in pipe.departments():
+            name = dep["name"].strip()
+            path = pipe.dept_path(p, s, sh, name)
+            exists = os.path.isdir(path)
+            if dep.get("has_tasks"):
+                have = {x.lower() for x in pipe.tasks(p, s, sh, os.path.basename(path))} if exists else set()
+                sub = m.addMenu(f"{name} task")
+                for task, _inner in pipe.dept_tasks(name):
+                    a = sub.addAction(("✓  " if task.lower() in have else "     ") + task)
+                    a.setEnabled(task.lower() not in have)
+                    a.triggered.connect(lambda c=False, n=name, x=task: self._create(n, x))
+                if not pipe.dept_tasks(name):
+                    sub.addAction("No tasks (Settings › Pipeline)").setEnabled(False)
+            else:
+                a = m.addAction(("✓  " if exists else "") + name)
+                a.setEnabled(not exists)
+                a.setToolTip(name + " \\ " + ", ".join(pipe.dept_folders(name)))
+                a.triggered.connect(lambda c=False, n=name: self._create(n))
+        if not pipe.departments():
+            m.addAction("No departments (Settings › Pipeline)").setEnabled(False)
         m.addSeparator()
-        m.addAction("Edit templates…", lambda: self.app.open_settings("New folders"))
+        m.addAction("Edit departments…", lambda: self.app.open_settings("Pipeline"))
         m.setToolTipsVisible(True)
 
-    def _create(self, which, task=None):
+    def _create(self, dept, task=None):
         p, s, sh, d, t = self._vals()
         try:
-            if which == "task":
-                target = self.pipe.create_task(p, s, sh, task)
+            if task:
+                target = self.pipe.create_task(p, s, sh, dept, task)
             else:
-                target = self.pipe.create_dept(p, s, sh, which)
+                target = self.pipe.create_dept(p, s, sh, dept)
         except OSError as ex:
             from PySide6.QtWidgets import QMessageBox
             QMessageBox.warning(self, "Pipeline", f"Could not create the folders:\n{ex}")
@@ -309,7 +313,7 @@ class PipelineBar(QWidget):
             m.addSeparator()
             td = pipe.task_dir(p, s, sh, t, d)
             add(f"Task  {t}", td)
-            subs = pipe.subfolders()
+            subs = pipe.dept_folders(d)
             existing = pipe.task_subdirs(p, s, sh, t, d)
             for x in subs + [e for e in existing if e not in subs]:
                 add(x, os.path.join(td, x), 1)

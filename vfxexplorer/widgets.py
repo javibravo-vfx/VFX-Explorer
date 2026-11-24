@@ -3,6 +3,7 @@
 
 import os
 import math
+import json
 
 from PySide6.QtCore import Qt, Signal, QSize, QRect, QRectF, QPointF, QTimer
 from PySide6.QtGui import (QPixmap, QPainter, QColor, QIcon, QPainterPath, QFont, QPen, QPalette,
@@ -1161,6 +1162,148 @@ class RenameDialog(QDialog):
         return self.name.text().strip(), None, None
 
 
+class DeptEditor(QWidget):
+    """Departamentos del pipeline: lista a la izquierda (Department 1, 2…) y su definición a la derecha."""
+
+    def __init__(self, deps):
+        super().__init__()
+        import copy
+        from .pipeline import DEFAULT_DEPTS
+        self._defaults = DEFAULT_DEPTS
+        self.deps = copy.deepcopy(list(deps))
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 4, 0, 4)
+        left = QVBoxLayout()
+        cap = QLabel("DEPARTMENTS")
+        cap.setStyleSheet("color:#4cc2ff; font-weight:bold; font-size:8pt; letter-spacing:1px;")
+        left.addWidget(cap)
+        self.lst = QListWidget()
+        self.lst.setFixedWidth(190)
+        self.lst.currentRowChanged.connect(self._load)
+        left.addWidget(self.lst, 1)
+        bl = QHBoxLayout()
+        for txt, tip, fn in (("＋", "Add a department", self._add), ("－", "Remove", self._remove),
+                             ("▲", "Move up", lambda: self._move(-1)), ("▼", "Move down", lambda: self._move(1))):
+            b = QToolButton()
+            b.setText(txt)
+            b.setToolTip(tip)
+            b.clicked.connect(fn)
+            bl.addWidget(b)
+        bl.addStretch(1)
+        rd = QToolButton()
+        rd.setText("Defaults")
+        rd.setToolTip("Back to 3D (tasks), DMP and Comp")
+        rd.clicked.connect(self._reset)
+        bl.addWidget(rd)
+        left.addLayout(bl)
+        lay.addLayout(left)
+        self.form = QWidget()
+        f = QFormLayout(self.form)
+        f.setContentsMargins(8, 0, 0, 0)
+        self.f_name = QLineEdit()
+        self.f_name.setPlaceholderText("Folder name inside the shot (3D, Comp, DMP…)")
+        f.addRow("Folder:", self.f_name)
+        self.f_has = QCheckBox("Has tasks  (Department › Task › folders)")
+        f.addRow("", self.f_has)
+        self.f_tasks = QPlainTextEdit()
+        self.f_tasks.setPlaceholderText("One task per line; after «:» what goes inside its first folder\n"
+                                        "1_matchmove: footage, textures\n7_fx: textures, cache")
+        self.f_tasks.setMinimumHeight(130)
+        f.addRow("Tasks:", self.f_tasks)
+        self.f_folders = QLineEdit()
+        self.f_folders.setPlaceholderText("1_projects, 2_review, 3_publish")
+        self.l_folders = QLabel("Folders:")
+        f.addRow(self.l_folders, self.f_folders)
+        self.f_hint = _hint("")
+        f.addRow("", self.f_hint)
+        lay.addWidget(self.form, 1)
+        self.f_name.textEdited.connect(self._store)
+        self.f_has.toggled.connect(self._store)
+        self.f_tasks.textChanged.connect(self._store)
+        self.f_folders.textEdited.connect(self._store)
+        self._loading = False
+        self._fill()
+
+    def _label(self, i, d):
+        return f"Department {i + 1}:  {d.get('name') or '—'}" + ("   (tasks)" if d.get("has_tasks") else "")
+
+    def _fill(self, row=0):
+        self.lst.blockSignals(True)
+        self.lst.clear()
+        for i, d in enumerate(self.deps):
+            self.lst.addItem(self._label(i, d))
+        self.lst.blockSignals(False)
+        if self.deps:
+            self.lst.setCurrentRow(max(0, min(row, len(self.deps) - 1)))
+        self._load(self.lst.currentRow())
+
+    def _load(self, row):
+        ok = 0 <= row < len(self.deps)
+        self.form.setEnabled(ok)
+        self._loading = True
+        d = self.deps[row] if ok else {"name": "", "has_tasks": False, "tasks": "", "folders": ""}
+        self.f_name.setText(d.get("name", ""))
+        self.f_has.setChecked(bool(d.get("has_tasks")))
+        self.f_tasks.setPlainText(d.get("tasks", ""))
+        self.f_folders.setText(d.get("folders", ""))
+        self._loading = False
+        self._sync_ui()
+
+    def _sync_ui(self):
+        has = self.f_has.isChecked()
+        self.f_tasks.setEnabled(has)
+        self.l_folders.setText("Folders in each task:" if has else "Folders:")
+        n = self.f_name.text().strip() or "Dept"
+        fl = [x.strip() for x in self.f_folders.text().split(",") if x.strip()]
+        if has:
+            self.f_hint.setText(f"＋ › {n} task creates {n}\\<task>\\" + (", ".join(fl) or "…") +
+                                (f"  (the task's extra folders go inside {fl[0]})" if fl else ""))
+        else:
+            self.f_hint.setText(f"＋ › {n} creates {n}\\" + (", ".join(fl) or "…") +
+                                ". In the dropdowns the last one becomes «Stage».")
+
+    def _store(self, *_):
+        if self._loading:
+            return
+        row = self.lst.currentRow()
+        if not 0 <= row < len(self.deps):
+            return
+        d = self.deps[row]
+        d["name"] = self.f_name.text().strip()
+        d["has_tasks"] = self.f_has.isChecked()
+        d["tasks"] = self.f_tasks.toPlainText().strip()
+        d["folders"] = self.f_folders.text().strip()
+        self.lst.item(row).setText(self._label(row, d))
+        self._sync_ui()
+
+    def _add(self):
+        self.deps.append({"name": "New", "has_tasks": False, "tasks": "", "folders": "1_projects, 2_review, 3_publish"})
+        self._fill(len(self.deps) - 1)
+        self.f_name.setFocus()
+        self.f_name.selectAll()
+
+    def _remove(self):
+        row = self.lst.currentRow()
+        if 0 <= row < len(self.deps):
+            del self.deps[row]
+            self._fill(row)
+
+    def _move(self, k):
+        row = self.lst.currentRow()
+        j = row + k
+        if 0 <= row < len(self.deps) and 0 <= j < len(self.deps):
+            self.deps[row], self.deps[j] = self.deps[j], self.deps[row]
+            self._fill(j)
+
+    def _reset(self):
+        import copy
+        self.deps = copy.deepcopy(self._defaults)
+        self._fill()
+
+    def value(self):
+        return [dict(d) for d in self.deps if d.get("name", "").strip()]
+
+
 class SettingsDialog(QDialog):
     def __init__(self, app, parent=None):
         super().__init__(parent)
@@ -1237,23 +1380,13 @@ class SettingsDialog(QDialog):
         pl.addRow("Root (drive or UNC):", self.p_root)
         pl.addRow("Project prefix:", self.p_prefix)
         pl.addRow("Not sequences:", self.p_excl)
-        pl.addRow("", _hint("Structure: {root}\\{prefix}{PROJECT}\\{SEQ}\\{SHOT}\\{DEPT}\\{TASK}\\…  "
-                            "Sequences are folders starting with a number; shots start with PROJECT_. "
-                            "Dept = folders at the 3D level (3D, Comp, DMP, 2D…)."))
-        self.p_depts = QLineEdit(cfg["pipeline_depts"] or "")
-        self.p_depts.setPlaceholderText("empty = every folder of the shot   (e.g. 3D, Comp, DMP)")
-        pl.addRow("Departments:", self.p_depts)
-        tdv = cfg["pipeline_task_depts"]
-        self.p_taskdepts = QLineEdit("3D" if tdv is None else tdv)
-        self.p_taskdepts.setPlaceholderText("e.g. 3D, FX")
-        pl.addRow("Departments with tasks:", self.p_taskdepts)
-        stv = cfg["pipeline_stages"]
-        self.p_stages = QLineEdit("1_projects, 2_review, 3_publish" if stv is None else stv)
-        pl.addRow("Stage folders:", self.p_stages)
-        pl.addRow("", _hint("Departments with tasks: Dept › Task › Stage (3D\\1_matchmove\\1_projects). "
-                            "The others go straight to the stages (Comp\\2_review) — the last dropdown becomes "
-                            "«Stage» — or, if they have no stage folders (_input), it lists their folders. "
-                            "Switching shot keeps you in the same dept / task / stage / folder when it exists."))
+        pl.addRow("", _hint("Structure: {root}\\{prefix}{PROJECT}\\{SEQ}\\{SHOT}\\{DEPARTMENT}\\…  "
+                            "Sequences are folders starting with a number; shots start with PROJECT_."))
+        self.p_deps = DeptEditor(app.pipeline.departments())
+        pl.addRow(self.p_deps)
+        self.p_only = QCheckBox("Dept dropdown shows only these departments (otherwise every folder of the shot)")
+        self.p_only.setChecked(app.pipeline.only_listed())
+        pl.addRow("", self.p_only)
         self.p_loc = QComboBox()
         for label, key in (("Above the center pane", "center"), ("Left pane", "sidebar"), ("Hidden", "hidden")):
             self.p_loc.addItem(label, key)
@@ -1261,42 +1394,6 @@ class SettingsDialog(QDialog):
             "center" if cfg["pipeline_location"] in (None, "top") else cfg["pipeline_location"])))
         pl.addRow("Show the dropdowns:", self.p_loc)
         tabs.addTab(pw, "Pipeline")
-
-        # --- Plantillas del ＋ del pipeline
-        from .pipeline import TEMPLATE_DEFAULTS
-        tpl = dict(TEMPLATE_DEFAULTS)
-        tpl.update({k: v for k, v in (cfg["pipeline_templates"] or {}).items() if v is not None})
-        nw = QWidget()
-        nl = QFormLayout(nw)
-        nl.addRow("", _hint("The ＋ next to the pipeline dropdowns creates these folders inside the current shot."))
-        self.t_3d = QLineEdit(tpl["3d_name"])
-        nl.addRow("3D folder:", self.t_3d)
-        self.t_tasks = QPlainTextEdit(tpl["3d_tasks"])
-        self.t_tasks.setFixedHeight(150)
-        self.t_tasks.setPlaceholderText("task: folders inside the first task folder\n1_matchmove: footage, textures")
-        nl.addRow("3D tasks:", self.t_tasks)
-        nl.addRow("", _hint("One task per line. After «:» the folders created inside its first folder "
-                            "(e.g. 7_fx: textures, cache → 7_fx\\1_projects\\textures, cache)."))
-        self.t_tsubs = QLineEdit(tpl["3d_task_subs"])
-        nl.addRow("Folders in each task:", self.t_tsubs)
-        self.t_dmp = QLineEdit(tpl["dmp_name"])
-        self.t_dmp_subs = QLineEdit(tpl["dmp_subs"])
-        nl.addRow("DMP folder:", self.t_dmp)
-        nl.addRow("DMP subfolders:", self.t_dmp_subs)
-        self.t_comp = QLineEdit(tpl["comp_name"])
-        self.t_comp_subs = QLineEdit(tpl["comp_subs"])
-        nl.addRow("Comp folder:", self.t_comp)
-        nl.addRow("Comp subfolders:", self.t_comp_subs)
-        tdef = QPushButton("Restore defaults")
-        tdef.clicked.connect(lambda: (self.t_3d.setText(TEMPLATE_DEFAULTS["3d_name"]),
-                                      self.t_tasks.setPlainText(TEMPLATE_DEFAULTS["3d_tasks"]),
-                                      self.t_tsubs.setText(TEMPLATE_DEFAULTS["3d_task_subs"]),
-                                      self.t_dmp.setText(TEMPLATE_DEFAULTS["dmp_name"]),
-                                      self.t_dmp_subs.setText(TEMPLATE_DEFAULTS["dmp_subs"]),
-                                      self.t_comp.setText(TEMPLATE_DEFAULTS["comp_name"]),
-                                      self.t_comp_subs.setText(TEMPLATE_DEFAULTS["comp_subs"])))
-        nl.addRow("", tdef)
-        tabs.addTab(nw, "New folders")
 
         # --- Colores
         from .colors import COLOR_MODES, DEFAULT_NAME_RULES
@@ -1430,7 +1527,7 @@ class SettingsDialog(QDialog):
         cfg = self.app.cfg
         old_t = (cfg["colorspace"], cfg["use_chromaticities"], cfg["ffmpeg"], cfg["sidecar_previews"])
         old_p = (cfg["pipeline_root"], cfg["pipeline_prefix"], cfg["pipeline_seq_exclude"],
-                 cfg["pipeline_depts"], cfg["pipeline_task_depts"], cfg["pipeline_stages"])
+                 json.dumps(cfg["pipeline_departments"]), cfg["pipeline_only_depts"])
         cfg["player"] = self.player.text().strip().strip('"')
         cfg["ffmpeg"] = self.ffmpeg.text().strip().strip('"')
         cfg["colorspace"] = self.cs.currentData()
@@ -1444,19 +1541,11 @@ class SettingsDialog(QDialog):
         cfg["pipeline_seq_exclude"] = self.p_excl.text().strip()
         cfg.save()
         new_t = (cfg["colorspace"], cfg["use_chromaticities"], cfg["ffmpeg"], cfg["sidecar_previews"])
-        cfg["pipeline_depts"] = self.p_depts.text().strip()
-        cfg["pipeline_task_depts"] = self.p_taskdepts.text().strip()
-        cfg["pipeline_stages"] = self.p_stages.text().strip()
+        cfg["pipeline_departments"] = self.p_deps.value()
+        cfg["pipeline_only_depts"] = self.p_only.isChecked()
         cfg["pipeline_location"] = self.p_loc.currentData()
-        from .pipeline import TEMPLATE_DEFAULTS
-        newt = {"3d_name": self.t_3d.text().strip() or "3D", "3d_tasks": self.t_tasks.toPlainText().strip(),
-                "3d_task_subs": self.t_tsubs.text().strip(), "dmp_name": self.t_dmp.text().strip() or "DMP",
-                "dmp_subs": self.t_dmp_subs.text().strip(), "comp_name": self.t_comp.text().strip() or "Comp",
-                "comp_subs": self.t_comp_subs.text().strip()}
-        # solo se guarda lo que difiere del default (así un cambio de default en otra versión se aplica)
-        cfg["pipeline_templates"] = {k: v for k, v in newt.items() if v != TEMPLATE_DEFAULTS[k]}
         new_p = (cfg["pipeline_root"], cfg["pipeline_prefix"], cfg["pipeline_seq_exclude"],
-                 cfg["pipeline_depts"], cfg["pipeline_task_depts"], cfg["pipeline_stages"])
+                 json.dumps(cfg["pipeline_departments"]), cfg["pipeline_only_depts"])
         listing_changed = hidden_changed or cfg["folder_sizes"] != self.fsizes.isChecked()
         cfg["folder_sizes"] = self.fsizes.isChecked()
         cfg["library_features"] = self.feats.isChecked()

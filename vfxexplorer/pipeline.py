@@ -24,18 +24,46 @@ STM_DEFAULTS = {
 }
 
 
-# Plantillas del botón ＋ (editables en Settings › New folders). 3D: una línea por task,
-# «task: subcarpetas dentro de la primera carpeta de trabajo (1_projects)».
-TEMPLATE_DEFAULTS = {
-    "3d_name": "3D",
-    "3d_tasks": "1_matchmove: footage, textures\n2_model: textures\n3_retopo: textures\n4_rigging: textures\n"
-                "5_shaders: textures\n6_animation: textures\n7_fx: textures, cache\n8_lighting: textures, cache, import",
-    "3d_task_subs": "1_projects, 2_review, 3_publish",
-    "dmp_name": "DMP",
-    "dmp_subs": "1_projects, 2_review, 3_publish",
-    "comp_name": "Comp",
-    "comp_subs": "0_assets, 1_projects, 2_prerenders, 3_review, 4_publish",
-}
+# Departamentos (Settings › Pipeline). Cada uno es una carpeta dentro del shot:
+#   · con tasks: Dept\<task>\<folders>; cada línea de tasks es «task: carpetas dentro de la primera folder»
+#   · sin tasks: Dept\<folders> directamente (las «stages»: 1_projects, 2_review…)
+# El ＋ de la barra crea tasks y departamentos con esta plantilla.
+DEFAULT_DEPTS = [
+    {"name": "3D", "has_tasks": True,
+     "tasks": "1_matchmove: footage, textures\n2_model: textures\n3_retopo: textures\n4_rigging: textures\n"
+              "5_shaders: textures\n6_animation: textures\n7_fx: textures, cache\n8_lighting: textures, cache, import",
+     "folders": "1_projects, 2_review, 3_publish"},
+    {"name": "DMP", "has_tasks": False, "tasks": "", "folders": "1_projects, 2_review, 3_publish"},
+    {"name": "Comp", "has_tasks": False, "tasks": "", "folders": "0_assets, 1_projects, 2_prerenders, 3_review, 4_publish"},
+]
+
+
+def legacy_departments(cfg):
+    """Arma la lista de departamentos desde la config de antes de 0.18 (sin perder lo que se había tocado)."""
+    import copy
+    deps = copy.deepcopy(DEFAULT_DEPTS)
+    tpl = cfg["pipeline_templates"] or {}
+    stages = cfg["pipeline_stages"]
+    d3, dmp, comp = deps
+    d3["name"] = tpl.get("3d_name") or d3["name"]
+    d3["tasks"] = tpl.get("3d_tasks", d3["tasks"])
+    d3["folders"] = tpl.get("3d_task_subs") or (stages if stages is not None else d3["folders"])
+    dmp["name"] = tpl.get("dmp_name") or dmp["name"]
+    dmp["folders"] = tpl.get("dmp_subs", dmp["folders"])
+    comp["name"] = tpl.get("comp_name") or comp["name"]
+    comp["folders"] = tpl.get("comp_subs", comp["folders"])
+    stage_f = stages if stages is not None else "1_projects, 2_review, 3_publish"
+    names = {d["name"].lower() for d in deps}
+    td = cfg["pipeline_task_depts"]
+    for n in [x.strip() for x in (td or "").split(",") if x.strip()]:
+        if n.lower() not in names:
+            deps.append({"name": n, "has_tasks": True, "tasks": "", "folders": stage_f})
+            names.add(n.lower())
+    for n in [x.strip() for x in (cfg["pipeline_depts"] or "").split(",") if x.strip()]:
+        if n.lower() not in names:
+            deps.append({"name": n, "has_tasks": False, "tasks": "", "folders": stage_f})
+            names.add(n.lower())
+    return deps
 
 
 def split_list(v):
@@ -91,20 +119,45 @@ class Pipeline:
     def seq_exclude(self):
         return {s.strip().upper() for s in self.data.get("seq_exclude", "").split(",") if s.strip()}
 
-    def subfolders(self):
-        """Stages: las carpetas de trabajo dentro de un task (o directo en un departamento sin tasks)."""
-        v = self.cfg["pipeline_stages"]
+    # ---------------- departamentos
+    def departments(self):
+        v = self.cfg["pipeline_departments"]
         if v is None:
-            v = "1_projects, 2_review, 3_publish"
-        return [x.strip() for x in v.split(",") if x.strip()]
+            return legacy_departments(self.cfg)
+        return [d for d in v if (d.get("name") or "").strip()]
 
-    # ---------------- plantillas del ＋
-    def tpl(self, key):
-        v = (self.cfg["pipeline_templates"] or {}).get(key)
-        return TEMPLATE_DEFAULTS[key] if v is None else v
+    def only_listed(self):
+        """El desplegable Dept muestra solo los departamentos definidos (si no, todas las carpetas del shot)."""
+        v = self.cfg["pipeline_only_depts"]
+        if v is None:
+            return bool((self.cfg["pipeline_depts"] or "").strip())
+        return bool(v)
 
-    def template_tasks(self):
-        return parse_tasks(self.tpl("3d_tasks"))
+    def dept_def(self, dept):
+        for d in self.departments():
+            if d["name"].strip().lower() == (dept or "").lower():
+                return d
+        return None
+
+    def dept_folders(self, dept):
+        d = self.dept_def(dept)
+        return split_list(d["folders"]) if d else self.subfolders()
+
+    def dept_tasks(self, dept):
+        d = self.dept_def(dept)
+        return parse_tasks(d["tasks"]) if d and d.get("has_tasks") else []
+
+    def subfolders(self):
+        """Carpetas de trabajo conocidas (todas las de los departamentos), para reconocer «stages»."""
+        out = []
+        for d in self.departments():
+            for x in split_list(d["folders"]):
+                if x.lower() not in [o.lower() for o in out]:
+                    out.append(x)
+        return out or ["1_projects", "2_review", "3_publish"]
+
+    def task_depts(self):
+        return [d["name"].strip().lower() for d in self.departments() if d.get("has_tasks")]
 
     def _existing(self, parent, name):
         """La carpeta tal como existe (sin importar mayúsculas) o el nombre de la plantilla."""
@@ -113,21 +166,19 @@ class Pipeline:
                 return d
         return name
 
-    def dept_folder(self, project, seq, shot, which):
-        """Ruta de 3D / DMP / Comp en el shot (respeta las mayúsculas de lo que ya exista)."""
+    def dept_path(self, project, seq, shot, name):
+        """Ruta del departamento en el shot (respeta las mayúsculas de lo que ya exista)."""
         sd = self.shot_dir(project, seq, shot)
-        if not sd:
-            return ""
-        return os.path.join(sd, self._existing(sd, self.tpl(which + "_name")))
+        return os.path.join(sd, self._existing(sd, name.strip())) if sd else ""
 
-    def create_task(self, project, seq, shot, task):
-        r"""3D\<task>\1_projects\(footage, textures…) + 2_review, 3_publish."""
-        base = self.dept_folder(project, seq, shot, "3d")
+    def create_task(self, project, seq, shot, dept, task):
+        r"""Dept\<task>\<1ª folder>\(footage, textures…) + las otras folders."""
+        base = self.dept_path(project, seq, shot, dept)
         if not base or not task:
             return ""
         td = os.path.join(base, task)
-        subs = split_list(self.tpl("3d_task_subs"))
-        inner = dict(self.template_tasks()).get(task, [])
+        subs = self.dept_folders(dept)
+        inner = dict(self.dept_tasks(dept)).get(task, [])
         if subs:
             for x in inner or [""]:
                 os.makedirs(os.path.join(td, subs[0], x) if x else os.path.join(td, subs[0]), exist_ok=True)
@@ -137,31 +188,26 @@ class Pipeline:
             os.makedirs(td, exist_ok=True)
         return td
 
-    def create_dept(self, project, seq, shot, which):
-        """DMP o Comp con sus subcarpetas."""
-        d = self.dept_folder(project, seq, shot, which)
+    def create_dept(self, project, seq, shot, dept):
+        """Departamento sin tasks con sus folders (con tasks: solo la carpeta)."""
+        d = self.dept_path(project, seq, shot, dept)
         if not d:
             return ""
         os.makedirs(d, exist_ok=True)
-        for sub in split_list(self.tpl(which + "_subs")):
-            os.makedirs(os.path.join(d, sub), exist_ok=True)
+        dd = self.dept_def(dept)
+        if dd and not dd.get("has_tasks"):
+            for sub in split_list(dd["folders"]):
+                os.makedirs(os.path.join(d, sub), exist_ok=True)
         return d
 
-    def task_depts(self):
-        v = self.cfg["pipeline_task_depts"]
-        if v is None:
-            v = "3D"
-        return [x.strip().lower() for x in v.split(",") if x.strip()]
-
     def dept_kind(self, project, seq, shot, dept):
-        """«task»: el departamento tiene tasks (3D) · «stage»: va directo a projects/review/publish (Comp, DMP)
+        """«task»: el departamento tiene tasks (3D) · «stage»: va directo a sus folders (Comp, DMP)
         · «folder»: carpetas sueltas (_input)."""
         if not dept:
             return "task"
-        if dept.lower() in self.task_depts() or dept.lower() == self.tpl("3d_name").lower():
-            return "task"
-        if dept.lower() in (self.tpl("dmp_name").lower(), self.tpl("comp_name").lower()):
-            return "stage"
+        dd = self.dept_def(dept)
+        if dd:
+            return "task" if dd.get("has_tasks") else "stage"
         kids = {k.lower() for k in _listdirs(self.dept_dir(project, seq, shot, dept))}
         if kids & {x.lower() for x in self.subfolders()}:
             return "stage"
@@ -195,7 +241,7 @@ class Pipeline:
 
     # departamento = carpeta al nivel de 3D dentro del shot (3D, Comp, DMP, 2D…)
     def dept_filter(self):
-        return [d.strip().lower() for d in (self.cfg["pipeline_depts"] or "").split(",") if d.strip()]
+        return [d["name"].strip().lower() for d in self.departments()] if self.only_listed() else []
 
     def depts(self, project, seq, shot):
         dirs = _listdirs(self.shot_dir(project, seq, shot))
