@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.11.0
+- **ffmpeg included** in `bin\` (LGPL build): videos play and get thumbnails/info without downloading anything. The CI selftest now checks video.
+- **Grid names centered** and wrapped on up to two lines, like Windows.
+- **Pipeline without Studio Toolbar**: everything is set in ⚙ › Pipeline (the toolbar settings are imported once).
+- **Departments with or without tasks**: 3D › Task › Stage; Comp / DMP go straight to the stages (the last dropdown becomes «Stage»); `_input` lists its folders («Folder»). Configurable.
+- **Switching shot keeps your place**: same dept / task / stage / `_input` subfolder in the new shot when it exists (falls back to the closest parent).
+
 ## 0.10.0
 - «Folders» mode renamed to **File Explorer**.
 - **Right-click on the background** opens a Windows 11 style menu: View, Sort by, Group by, Refresh, Paste, New, Pin, Copy folder path, Open in Windows Explorer and Properties.

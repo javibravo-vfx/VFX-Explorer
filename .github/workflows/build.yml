@@ -36,10 +36,33 @@ jobs:
           pyinstaller --noconfirm --clean --windowed --name VFXExplorer
           --icon assets/icon.ico --collect-all OpenImageIO --exclude-module tkinter main.py
 
+      - name: Incluir ffmpeg (LGPL, shared) en bin
+        shell: pwsh
+        run: |
+          $urls = @(
+            "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-lgpl-shared-8.1.zip",
+            "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n9.0-latest-win64-lgpl-shared-9.0.zip",
+            "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl-shared.zip"
+          )
+          $ok = $false
+          foreach ($u in $urls) {
+            try { Invoke-WebRequest -Uri $u -OutFile ffmpeg.zip -UseBasicParsing; $ok = $true; Write-Host "OK $u"; break }
+            catch { Write-Host "no: $u" }
+          }
+          if (-not $ok) { throw "no se pudo bajar ffmpeg" }
+          Expand-Archive ffmpeg.zip -DestinationPath ffmpeg_x -Force
+          $root = Get-ChildItem ffmpeg_x -Directory | Select-Object -First 1
+          $bin = "dist\VFXExplorer\bin"
+          New-Item -ItemType Directory -Force $bin | Out-Null
+          Get-ChildItem "$($root.FullName)\bin" | Where-Object { $_.Name -ne "ffplay.exe" } | Copy-Item -Destination $bin
+          Copy-Item "$($root.FullName)\LICENSE.txt" "$bin\FFMPEG-LICENSE.txt" -ErrorAction SilentlyContinue
+          Set-Content "$bin\README-ffmpeg.txt" "FFmpeg (LGPL build by BtbN, https://github.com/BtbN/FFmpeg-Builds). Source: https://ffmpeg.org"
+          Get-ChildItem $bin | Format-Table Name, Length
+
       - name: Selftest del exe
         shell: pwsh
         run: |
-          $p = Start-Process -FilePath "dist\VFXExplorer\VFXExplorer.exe" -ArgumentList "--selftest" -Wait -PassThru
+          $p = Start-Process -FilePath "dist\VFXExplorer\VFXExplorer.exe" -ArgumentList "--selftest","--require-ffmpeg" -Wait -PassThru
           Get-Content "$env:TEMP\vfxexplorer_selftest.log"
           if ($p.ExitCode -ne 0) { throw "selftest falló ($($p.ExitCode))" }
 
@@ -47,8 +70,6 @@ jobs:
         shell: pwsh
         run: |
           Remove-Item -Recurse -Force "dist\VFXExplorer\VFXExplorer_data" -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Force "dist\VFXExplorer\bin" | Out-Null
-          Set-Content "dist\VFXExplorer\bin\LEEME.txt" "Pone aca ffmpeg.exe y ffprobe.exe para thumbnails e info de video."
           Copy-Item README.md "dist\VFXExplorer\"
           Compress-Archive -Path "dist\VFXExplorer" -DestinationPath "VFXExplorer-win64.zip"
 

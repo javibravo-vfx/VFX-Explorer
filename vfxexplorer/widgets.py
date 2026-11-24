@@ -439,8 +439,33 @@ class Icons:
 # Delegate de la grilla
 # ----------------------------------------------------------------------------
 
+def wrap_name(text, fm, width, max_lines=2):
+    """Parte el nombre en hasta 2 líneas como el Explorador: corta en espacios, _ . - si puede, si no por letra;
+    la última línea se recorta con … al medio (para no perder la extensión ni el ####)."""
+    if fm.horizontalAdvance(text) <= width:
+        return [text]
+    lines, rest = [], text
+    while rest and len(lines) < max_lines - 1:
+        cut = 0
+        for i in range(1, len(rest) + 1):
+            if fm.horizontalAdvance(rest[:i]) > width:
+                break
+            cut = i
+        cut = max(cut, 1)
+        if cut >= len(rest):
+            break
+        soft = max((rest.rfind(ch, 0, cut) for ch in " _.-"), default=-1)
+        if soft >= cut // 2:
+            cut = soft + 1
+        lines.append(rest[:cut].rstrip())
+        rest = rest[cut:].lstrip()
+    if rest:
+        lines.append(fm.elidedText(rest, Qt.ElideMiddle, width))
+    return lines
+
+
 class GridDelegate(QStyledItemDelegate):
-    TEXT_H = 50
+    TEXT_H = 64
 
     def __init__(self, app, view):
         super().__init__(view)
@@ -624,14 +649,19 @@ class GridDelegate(QStyledItemDelegate):
             p.setBrush(QColor(tag))
             p.drawRoundedRect(QRectF(r.x() + 6, r.bottom() - 4, r.width() - 12, 3), 1.5, 1.5)
 
-        # línea 1: nombre
-        tr = QRect(r.x() + 6, th.bottom() + 4, r.width() - 12, 16)
+        # nombre: centrado, hasta 2 líneas (como el Explorador de Windows)
         f = QFont(opt.font)
         f.setPointSizeF(9.0)
         p.setFont(f)
+        fm = QFontMetrics(f)
         p.setPen(QColor("#e8e8e8"))
-        p.drawText(tr, Qt.AlignLeft | Qt.AlignVCenter, QFontMetrics(f).elidedText(e.name, Qt.ElideMiddle, tr.width()))
-        # línea 2: meta + rating
+        lh = fm.height()
+        y = th.bottom() + 4
+        for line in wrap_name(e.name, fm, r.width() - 12):
+            p.drawText(QRect(r.x() + 6, y, r.width() - 12, lh), Qt.AlignHCenter | Qt.AlignVCenter, line)
+            y += lh
+        tr = QRect(r.x() + 6, y - lh, r.width() - 12, lh)
+        # meta + rating
         mr = QRect(tr.x(), tr.bottom() + 1, tr.width(), 14)
         f2 = QFont(opt.font)
         f2.setPointSizeF(7.8)
@@ -654,8 +684,8 @@ class GridDelegate(QStyledItemDelegate):
         else:
             meta = human_size(e.size)
         p.setPen(QColor("#9aa0a8"))
-        mr2 = mr.adjusted(0, 0, -sw, 0)
-        p.drawText(mr2, Qt.AlignLeft | Qt.AlignVCenter, fm2.elidedText(meta, Qt.ElideMiddle, mr2.width()))
+        mr2 = mr.adjusted(sw, 0, -sw, 0)
+        p.drawText(mr2, Qt.AlignHCenter | Qt.AlignVCenter, fm2.elidedText(meta, Qt.ElideMiddle, mr2.width()))
         # línea 3: subcarpeta (en búsquedas / vista de subcarpetas) o tags
         model = index.model().sourceModel() if hasattr(index.model(), "sourceModel") else None
         tg = QRect(tr.x(), mr.bottom() + 1, tr.width(), 14)
@@ -663,12 +693,12 @@ class GridDelegate(QStyledItemDelegate):
             folder = model.folder_text(e) if model.root else e.dirpath
             folder = "(this folder)" if folder == "." else "↳ " + folder
             p.setPen(QColor(ACCENT))
-            p.drawText(tg, Qt.AlignLeft | Qt.AlignVCenter, fm2.elidedText(folder, Qt.ElideLeft, tg.width()))
+            p.drawText(tg, Qt.AlignHCenter | Qt.AlignVCenter, fm2.elidedText(folder, Qt.ElideLeft, tg.width()))
         elif feats:
             tags = lib.tags(key)
             if tags:
                 p.setPen(QColor("#8fb3ff"))
-                p.drawText(tg, Qt.AlignLeft | Qt.AlignVCenter,
+                p.drawText(tg, Qt.AlignHCenter | Qt.AlignVCenter,
                            fm2.elidedText("  ".join("#" + t for t in tags), Qt.ElideRight, tg.width()))
         p.restore()
 
@@ -1090,12 +1120,6 @@ class SettingsDialog(QDialog):
         # --- Pipeline
         pw = QWidget()
         pl = QFormLayout(pw)
-        from .pipeline import STM_CONFIG
-        self.use_stm = QCheckBox("Use the Studio Toolbar settings")
-        self.use_stm.setChecked(bool(cfg["pipeline_use_stm"]))
-        pl.addRow("", self.use_stm)
-        pl.addRow("", _hint(f"{fwd(STM_CONFIG)} — " + ("found" if os.path.isfile(STM_CONFIG) else
-                                                      "not found: using the values below")))
         self.p_root = QLineEdit(cfg["pipeline_root"])
         self.p_prefix = QLineEdit(cfg["pipeline_prefix"])
         self.p_excl = QLineEdit(cfg["pipeline_seq_exclude"])
@@ -1108,6 +1132,17 @@ class SettingsDialog(QDialog):
         self.p_depts = QLineEdit(cfg["pipeline_depts"] or "")
         self.p_depts.setPlaceholderText("empty = every folder of the shot   (e.g. 3D, Comp, DMP)")
         pl.addRow("Departments:", self.p_depts)
+        tdv = cfg["pipeline_task_depts"]
+        self.p_taskdepts = QLineEdit("3D" if tdv is None else tdv)
+        self.p_taskdepts.setPlaceholderText("e.g. 3D, FX")
+        pl.addRow("Departments with tasks:", self.p_taskdepts)
+        stv = cfg["pipeline_stages"]
+        self.p_stages = QLineEdit("1_projects, 2_review, 3_publish" if stv is None else stv)
+        pl.addRow("Stage folders:", self.p_stages)
+        pl.addRow("", _hint("Departments with tasks: Dept › Task › Stage (3D\\1_matchmove\\1_projects). "
+                            "The others go straight to the stages (Comp\\2_review) — the last dropdown becomes "
+                            "«Stage» — or, if they have no stage folders (_input), it lists their folders. "
+                            "Switching shot keeps you in the same dept / task / stage / folder when it exists."))
         self.p_loc = QComboBox()
         for label, key in (("Above the center pane", "center"), ("Left pane", "sidebar"), ("Hidden", "hidden")):
             self.p_loc.addItem(label, key)
@@ -1227,8 +1262,8 @@ class SettingsDialog(QDialog):
         """Guarda. Devuelve (cambió_thumbs, cambió_listado, cambió_pipeline)."""
         cfg = self.app.cfg
         old_t = (cfg["colorspace"], cfg["use_chromaticities"], cfg["ffmpeg"], cfg["sidecar_previews"])
-        old_p = (cfg["pipeline_use_stm"], cfg["pipeline_root"], cfg["pipeline_prefix"], cfg["pipeline_seq_exclude"],
-                 cfg["pipeline_depts"])
+        old_p = (cfg["pipeline_root"], cfg["pipeline_prefix"], cfg["pipeline_seq_exclude"],
+                 cfg["pipeline_depts"], cfg["pipeline_task_depts"], cfg["pipeline_stages"])
         cfg["player"] = self.player.text().strip().strip('"')
         cfg["ffmpeg"] = self.ffmpeg.text().strip().strip('"')
         cfg["colorspace"] = self.cs.currentData()
@@ -1237,16 +1272,17 @@ class SettingsDialog(QDialog):
         cfg["threads"] = self.threads.value()
         hidden_changed = cfg["show_hidden"] != self.hidden.isChecked()
         cfg["show_hidden"] = self.hidden.isChecked()
-        cfg["pipeline_use_stm"] = self.use_stm.isChecked()
         cfg["pipeline_root"] = self.p_root.text().strip()
         cfg["pipeline_prefix"] = self.p_prefix.text().strip()
         cfg["pipeline_seq_exclude"] = self.p_excl.text().strip()
         cfg.save()
         new_t = (cfg["colorspace"], cfg["use_chromaticities"], cfg["ffmpeg"], cfg["sidecar_previews"])
         cfg["pipeline_depts"] = self.p_depts.text().strip()
+        cfg["pipeline_task_depts"] = self.p_taskdepts.text().strip()
+        cfg["pipeline_stages"] = self.p_stages.text().strip()
         cfg["pipeline_location"] = self.p_loc.currentData()
-        new_p = (cfg["pipeline_use_stm"], cfg["pipeline_root"], cfg["pipeline_prefix"], cfg["pipeline_seq_exclude"],
-                 cfg["pipeline_depts"])
+        new_p = (cfg["pipeline_root"], cfg["pipeline_prefix"], cfg["pipeline_seq_exclude"],
+                 cfg["pipeline_depts"], cfg["pipeline_task_depts"], cfg["pipeline_stages"])
         listing_changed = hidden_changed or cfg["folder_sizes"] != self.fsizes.isChecked()
         cfg["folder_sizes"] = self.fsizes.isChecked()
         cfg["library_features"] = self.feats.isChecked()

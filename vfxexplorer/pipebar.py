@@ -118,14 +118,46 @@ class PipelineBar(QWidget):
         elif level == "shot":
             self._fill("dept", pipe.depts(p, s, sh))
             self._fill("task", [])
-            target = pipe.shot_dir(p, s, sh)
+            target = self._same_place(p, s, sh) or pipe.shot_dir(p, s, sh)
         elif level == "dept":
             self._fill("task", pipe.tasks(p, s, sh, d))
+            self._task_label(p, s, sh, d)
             target = pipe.dept_dir(p, s, sh, d)
         else:
             target = pipe.task_dir(p, s, sh, t, d)
         if target and os.path.isdir(target):
             self.app.open_in_explorer(target)
+
+    def _same_place(self, p, s, sh):
+        """Al cambiar de shot, entrar al mismo lugar (depto, task, stage, _input…) si existe en el shot nuevo."""
+        cur = self.app.explorer_active.current_dir()
+        info = self.pipe.parse(cur) if cur else None
+        if not info or not info["shot"] or info["shot"] == sh:
+            return ""
+        old = self.pipe.shot_dir(info["project"], info["seq"], info["shot"])
+        try:
+            rel = os.path.relpath(cur, old)
+        except ValueError:
+            return ""
+        if rel in (".", "") or rel.startswith(".."):
+            return ""
+        new = self.pipe.shot_dir(p, s, sh)
+        parts = [x.replace(info["shot"], sh) for x in rel.split(os.sep)]
+        while parts:
+            cand = os.path.join(new, *parts)
+            if os.path.isdir(cand):
+                return cand
+            parts.pop()
+        return ""
+
+    def _task_label(self, p, s, sh, d):
+        kind = self.pipe.dept_kind(p, s, sh, d) if d else "task"
+        cb = self.cbs["task"]
+        cb.setPlaceholderText({"task": "Task", "stage": "Stage", "folder": "Folder"}[kind])
+        cb.setToolTip({"task": "Tasks of the department",
+                       "stage": "This department has no tasks: projects / review / publish",
+                       "folder": "Folders of " + d}[kind] if d else "Task")
+        return kind
 
     def sync(self, path):
         """Pone los combos según la carpeta actual (sin navegar)."""
@@ -151,6 +183,7 @@ class PipelineBar(QWidget):
         self._fill("dept", pipe.depts(p, s, sh) if sh else [], info["dept"])
         d = self._v("dept")
         self._fill("task", pipe.tasks(p, s, sh, d) if d else [], info["task"])
+        self._task_label(p, s, sh, d)
 
     def clear(self):
         """Carpeta fuera del pipeline: combos vacíos (la lista de proyectos queda para elegir)."""
@@ -160,6 +193,7 @@ class PipelineBar(QWidget):
         cb.blockSignals(False)
         for k in ("seq", "shot", "dept", "task"):
             self._fill(k, [])
+        self.cbs["task"].setPlaceholderText("Task")
 
     def _fill_menu(self):
         m = self.menu
@@ -193,7 +227,14 @@ class PipelineBar(QWidget):
             add(f"Dept  {d}", dd)
             for x in pipe.tasks(p, s, sh, d):
                 add(x, os.path.join(dd, x), 1)
-        if t:
+        kind = pipe.dept_kind(p, s, sh, d) if d else "task"
+        if t and kind != "task":
+            m.addSeparator()
+            td = pipe.task_dir(p, s, sh, t, d)
+            add(f"{'Stage' if kind == 'stage' else 'Folder'}  {t}", td)
+            for x in pipe.task_subdirs(p, s, sh, t, d):
+                add(x, os.path.join(td, x), 1)
+        elif t:
             m.addSeparator()
             td = pipe.task_dir(p, s, sh, t, d)
             add(f"Task  {t}", td)

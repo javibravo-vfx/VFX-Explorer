@@ -36,6 +36,23 @@ def selftest():
             img = imaging.load_thumbnail(e, settings, tmp, imaging.DirIndex())
             log.append(f"thumb {e.name}: {img.width()}x{img.height()}")
             ok = ok and not img.isNull()
+        # video: con el ffmpeg incluido en bin\ (en CI es obligatorio: --require-ffmpeg)
+        ffmpeg = core.find_tool(None, "ffmpeg")
+        ffprobe = core.find_tool(None, "ffprobe")
+        log.append(f"ffmpeg: {ffmpeg or '-'} · ffprobe: {ffprobe or '-'}")
+        if "--require-ffmpeg" in sys.argv and not (ffmpeg and ffprobe):
+            ok = False
+            log.append("ffmpeg/ffprobe missing in bin\\")
+        if ffmpeg and ffprobe:
+            import subprocess
+            vdir = tempfile.mkdtemp()
+            mp4 = os.path.join(vdir, "test.mp4")
+            subprocess.run([ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=320x180:rate=24",
+                            "-t", "1", "-c:v", "mpeg4", mp4], timeout=60, creationflags=imaging.NO_WINDOW)
+            vimg = imaging.video_thumb(mp4, ffmpeg)
+            info = dict(imaging.video_info(mp4, ffprobe))
+            log.append(f"video thumb: {vimg.width()}x{vimg.height()} · info: {info.get('Resolution', info)}")
+            ok = ok and not vimg.isNull()
         from vfxexplorer.mainwindow import MainWindow
         w = MainWindow(tmp)
         w.show()

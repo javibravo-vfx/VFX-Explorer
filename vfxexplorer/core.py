@@ -604,7 +604,7 @@ class Config:
         "threads": 4,
         "show_hidden": False,
         "sidecar_previews": True,
-        "pipeline_use_stm": True,
+        "pipeline_use_stm": False,      # obsoleto (0.11): se importa una vez
         "pipeline_root": "T:",
         "pipeline_prefix": "VFX-",
         "pipeline_seq_exclude": "3D,SOURCE,FOOTAGE,AUDIO,RENDER",
@@ -645,7 +645,9 @@ class Config:
         # 0.6
         "folder_color": "yellow",       # yellow (Windows) | blue
         "splitter_left2": "",
-        "cfg_version": 7,
+        "cfg_version": 8,
+        "pipeline_task_depts": None,    # None = "3D": departamentos que tienen tasks
+        "pipeline_stages": None,        # None = "1_projects, 2_review, 3_publish"
         # 0.7
         "lib_favorites": [],            # acceso rápido de la VFX Library
         "quick_tags": None,             # None = pastillas por defecto (DEFAULT_QUICK_TAGS)
@@ -670,8 +672,34 @@ class Config:
             if int(saved.get("cfg_version", 0)) < 6:
                 self.data["pipeline_location"] = "center"   # 0.6: nuevo lugar por defecto
                 self.data["cfg_version"] = 6
+            if int(saved.get("cfg_version", 0)) < 8:
+                self._import_studio_toolbar()
+                self.data["cfg_version"] = 8
         except Exception:
             pass
+
+    def _import_studio_toolbar(self):
+        """0.11: el pipeline ya no lee la config de Studio Toolbar; si se usaba, se copia una vez."""
+        if not self.data.get("pipeline_use_stm", True):
+            return
+        self.data["pipeline_use_stm"] = False
+        p = os.path.join(os.path.expanduser("~"), ".studio-toolbar", "pipeline_config.ini")
+        try:
+            with open(p, "r") as f:
+                stm = json.load(f)
+        except Exception:
+            return
+        if stm.get("root_drive"):
+            self.data["pipeline_root"] = stm["root_drive"]
+        if stm.get("project_prefix"):
+            self.data["pipeline_prefix"] = stm["project_prefix"]
+        if stm.get("seq_exclude") is not None:
+            self.data["pipeline_seq_exclude"] = stm["seq_exclude"]
+        subs = [stm.get(k, "").strip() for k in ("sub_projects", "sub_review", "sub_publish")]
+        subs += [x.strip() for x in stm.get("extra_subs", "").split(",")]
+        subs = [x for x in subs if x]
+        if subs:
+            self.data["pipeline_stages"] = ", ".join(subs)
 
     def __getitem__(self, k):
         return self.data.get(k, self.DEFAULTS.get(k))

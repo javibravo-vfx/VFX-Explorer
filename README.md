@@ -1,6 +1,6 @@
 # VFX Explorer
 
-![Version](https://img.shields.io/badge/version-0.10.0-informational) ![Platform](https://img.shields.io/badge/platform-Windows-555) ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white) ![Qt](https://img.shields.io/badge/PySide-6-41CD52?logo=qt&logoColor=white) [![Build](https://github.com/javibravo-vfx/VFX-Explorer/actions/workflows/build.yml/badge.svg)](https://github.com/javibravo-vfx/VFX-Explorer/actions/workflows/build.yml)
+![Version](https://img.shields.io/badge/version-0.11.0-informational) ![Platform](https://img.shields.io/badge/platform-Windows-555) ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white) ![Qt](https://img.shields.io/badge/PySide-6-41CD52?logo=qt&logoColor=white) [![Build](https://github.com/javibravo-vfx/VFX-Explorer/actions/workflows/build.yml/badge.svg)](https://github.com/javibravo-vfx/VFX-Explorer/actions/workflows/build.yml)
 
 A **lightweight, portable** file explorer built for VFX, with the look of the **Windows 11 File Explorer** and the folder handling of **XYplorer**: EXR sequences as a single item, EXR / HDR / TX / video thumbnails, tabs, dual pane, a **VFX Library with a viewer/player**, automatic per-project folder colors and the pipeline navigation of [Studio Toolbar](https://github.com/javibravo-vfx/StudioToolbar-max).
 
@@ -12,7 +12,7 @@ A **lightweight, portable** file explorer built for VFX, with the look of the **
 
 Get `VFXExplorer-win64.zip` from **[Releases](https://github.com/javibravo-vfx/VFX-Explorer/releases)**, unzip it anywhere (another drive, the NAS, a USB stick) and run `VFXExplorer.exe`. Nothing to install.
 
-For video thumbnails and info, copy `ffmpeg.exe` and `ffprobe.exe` into the `bin\` folder.
+**ffmpeg is included** (LGPL build in `bin\`), so video thumbnails, info and playback work out of the box.
 
 ## Features
 
@@ -27,6 +27,7 @@ For video thumbnails and info, copy `ffmpeg.exe` and `ffprobe.exe` into the `bin
 | **Per-folder view** | Every folder remembers its view, sort and grouping. View › «Apply this view to all folders» makes it the default |
 | **Context menus** | Right-click the background for View, Sort by, Group by, Paste, New, Pin, Properties… Right-click the Details column headers to choose columns, «Size column to fit» and «Size all columns to fit» |
 | **Thumbnail scrub** | Hover a sequence or video in the grid to scrub through its frames (with the frame number) |
+| **Grid** | Names centered and wrapped on up to two lines, like Windows (long names keep their end: extension, `####`) |
 | **Grouping** | Sort › Group by: **date modified** (Today, Yesterday, Last week… like Windows 11), type or folder. With **Subfolders** it groups by folder automatically, like Found's «expand all folders»: the whole branch on one screen, by subfolder |
 | **Subfolders** | (Ctrl+B) No text: shows **every file** of the folder and its subfolders; with text it searches the whole branch. A blue bar tells you you're seeing subfolders and each item shows its subfolder (↳ renders) |
 | **Automatic colors** | **By project** (each pipeline project gets a color, lighter on sequences and shots), **By name** (rules like `3D = blue`, `comp = orange`, editable in ⚙ › Colors) or both. Manual color always wins |
@@ -41,7 +42,7 @@ For video thumbnails and info, copy `ffmpeg.exe` and `ffprobe.exe` into the `bin
 | **Folder sizes** | Optional (⚙ › General): computed in the background, shown in grid and list |
 | **Tags / rating / collections** | Off by default; enable them in ⚙ › General. Rating ★1–5 (Ctrl+0…5), tags (Ctrl+E) and collections that group assets from different folders without moving them |
 | **Search** | Name or part, `*wildcards*`, type filter and **Subfolders** to search the whole branch (with tags on: `#tag`, `★3`) |
-| **Pipeline** | Project → Sequence → Shot → **Dept** (3D, Comp, DMP, 2D…) → Task, with the Studio Toolbar structure (`T:\VFX-{PROJ}\{SEQ}\{SHOT}\{DEPT}\{TASK}\`). The dropdowns go above the center pane (default), in the left pane or hidden (⚙ › Pipeline), and you can limit which folders count as departments. Picking a level navigates there; the folder button goes to the shot, the task or its subfolders (`1_projects`, `2_review`, `3_publish`…). The combos follow you as you navigate and clear outside the pipeline |
+| **Pipeline** | Project → Sequence → Shot → **Dept** → Task, for a structure like `T:\VFX-{PROJ}\{SEQ}\{SHOT}\{DEPT}\{TASK}\{STAGE}\`. Departments can have tasks (`3D\1_matchmove\1_projects`), go straight to the stages (`Comp\2_review`: the last dropdown becomes «Stage») or just hold folders (`_input\plates`: it becomes «Folder»); set which departments have tasks and the stage names in ⚙ › Pipeline. **Switching shot keeps you in the same place** (dept, task, stage, `_input`…) when it exists in the new shot. The dropdowns go above the center pane (default), in the left pane or hidden. The folder button lists every level and its subfolders. The combos follow you as you navigate and clear outside the pipeline |
 | **Info** | EXR resolution, data window, compression, channels/AOVs, parts, mipmaps and chromaticities; video codec, fps, duration, timecode and pixel format |
 | **Copy path** | `plate.####.exr`, Nuke format `plate.%04d.exr 1001-1100`, Windows path, first frame or folder |
 
@@ -75,7 +76,7 @@ In ⚙:
 - **EXR color space**: ACEScg by default (also used by the viewer).
 - **Colors**: folder color (yellow like Windows, or light blue), automatic mode, name rules and tree lines.
 - **VFX Library**: viewer resolution, frame memory (how much of the loop stays cached), autoplay and loop.
-- **Pipeline**: by default reads `%USERPROFILE%\.studio-toolbar\pipeline_config.ini`, the same settings as the toolbar. Otherwise it uses the root, prefix and exclusions you set here.
+- **Pipeline**: root, project prefix, folders that aren't sequences, departments, departments with tasks and stage folders. It doesn't need Studio Toolbar (if you used its settings, they're imported once).
 
 Everything (Quick access, tabs, colors, tags, collections, thumbnail cache) is stored in `VFXExplorer_data\` next to the exe. If that folder isn't writable it goes to `%APPDATA%\VFX Explorer`.
 
@@ -92,7 +93,7 @@ python tests\test_core.py
 Every push to `main` builds the exe on GitHub Actions; the zip is kept as a workflow artifact. A `v*` tag creates a Release with the zip:
 
 ```bash
-git tag v0.10.0 && git push origin v0.10.0
+git tag v0.11.0 && git push origin v0.11.0
 ```
 
 Layout: `vfxexplorer/core.py` (sequences, search), `imaging.py` (OpenImageIO / Qt / ffmpeg), `viewer.py` (frame player), `library_ui.py` (VFX Library), `colors.py` (automatic colors), `tree.py` (lined tree), `quicklist.py` (Quick access), `tagbar.py` (quick tags), `dirsize.py`, `library.py` (tags, rating, collections), `pipeline.py` (Studio Toolbar), `fileops.py`, `models.py`, `pane.py`, `widgets.py`, `mainwindow.py`.

@@ -163,6 +163,13 @@ def test_pipeline(tmp):
     assert p.tasks("MOR", "101", "MOR_1001A_930", "Comp") == ["v001"]
     info = p.parse(sd)
     assert info == {"project": "MOR", "seq": "101", "shot": "MOR_1001A_930", "dept": "3D", "task": "8_lighting"}, info
+    # tipos de departamento: con tasks (3D), directo a stages (Comp), carpetas sueltas (_input)
+    shot = os.path.join(root, "VFX-MOR", "101", "MOR_1001A_930")
+    os.makedirs(os.path.join(shot, "Comp", "2_review"))
+    os.makedirs(os.path.join(shot, "_input", "plates"))
+    assert p.dept_kind("MOR", "101", "MOR_1001A_930", "3D") == "task"
+    assert p.dept_kind("MOR", "101", "MOR_1001A_930", "Comp") == "stage"
+    assert p.dept_kind("MOR", "101", "MOR_1001A_930", "_input") == "folder"
 
 
 def test_quick_tag_pills():

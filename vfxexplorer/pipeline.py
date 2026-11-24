@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
-"""Estructura de pipeline compatible con Studio Toolbar:
-   {root}\\{prefix}{PROJECT}\\{SEQ}\\{SHOT}\\3D\\{TASK}\\{subcarpetas}
+"""Estructura de pipeline:
+   {root}\\{prefix}{PROJECT}\\{SEQ}\\{SHOT}\\{DEPT}\\{TASK}\\{stages}
 
-Lee la misma configuración que la toolbar (%USERPROFILE%\\.studio-toolbar\\pipeline_config.ini)."""
+Los departamentos pueden tener tasks (3D\\1_matchmove\\1_projects…), ir directo a los stages
+(Comp\\1_projects, 2_review, 3_publish) o tener carpetas sueltas (_input\\plates…).
+Se configura todo en VFX Explorer (ya no depende de Studio Toolbar; su config se importa una vez)."""
 
 import os
 import json
@@ -40,14 +42,6 @@ class Pipeline:
     def reload(self):
         self.data = dict(STM_DEFAULTS)
         self.source = "VFX Explorer"
-        if self.cfg["pipeline_use_stm"] and os.path.isfile(STM_CONFIG):
-            try:
-                with open(STM_CONFIG, "r") as f:
-                    self.data.update(json.load(f))
-                self.source = "Studio Toolbar"
-                return
-            except Exception:
-                pass
         self.data["root_drive"] = self.cfg["pipeline_root"] or "T:"
         self.data["project_prefix"] = self.cfg["pipeline_prefix"] or "VFX-"
         self.data["seq_exclude"] = self.cfg["pipeline_seq_exclude"] or ""
@@ -67,9 +61,31 @@ class Pipeline:
         return {s.strip().upper() for s in self.data.get("seq_exclude", "").split(",") if s.strip()}
 
     def subfolders(self):
-        subs = [self.data.get(k, "").strip() for k in ("sub_projects", "sub_review", "sub_publish")]
-        subs += [s.strip() for s in self.data.get("extra_subs", "").split(",")]
-        return [s for s in subs if s]
+        """Stages: las carpetas de trabajo dentro de un task (o directo en un departamento sin tasks)."""
+        v = self.cfg["pipeline_stages"]
+        if v is None:
+            v = "1_projects, 2_review, 3_publish"
+        return [x.strip() for x in v.split(",") if x.strip()]
+
+    def task_depts(self):
+        v = self.cfg["pipeline_task_depts"]
+        if v is None:
+            v = "3D"
+        return [x.strip().lower() for x in v.split(",") if x.strip()]
+
+    def dept_kind(self, project, seq, shot, dept):
+        """«task»: el departamento tiene tasks (3D) · «stage»: va directo a projects/review/publish (Comp, DMP)
+        · «folder»: carpetas sueltas (_input)."""
+        if not dept:
+            return "task"
+        if dept.lower() in self.task_depts():
+            return "task"
+        kids = {k.lower() for k in _listdirs(self.dept_dir(project, seq, shot, dept))}
+        if kids & {x.lower() for x in self.subfolders()}:
+            return "stage"
+        if not self.task_depts() and not dept.startswith("_"):
+            return "task"
+        return "folder"
 
     def available(self):
         return os.path.isdir(self.base())
