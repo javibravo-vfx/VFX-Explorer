@@ -94,8 +94,8 @@ class MainWindow(QMainWindow):
         pw = QWidget()
         pwl = QHBoxLayout(pw)
         pwl.setContentsMargins(0, 0, 0, 0)
-        pwl.addWidget(self.pipebar_top)
-        pwl.addStretch(1)
+        pwl.setContentsMargins(8, 0, 8, 0)
+        pwl.addWidget(self.pipebar_top, 1)
         self.ctx_stack.addWidget(pw)
         self.ctx_stack.addWidget(self.tagbar)
         self.ctx_stack.addWidget(QWidget())
@@ -120,8 +120,42 @@ class MainWindow(QMainWindow):
         b_new.setAutoRaise(True)
         b_new.setPopupMode(QToolButton.InstantPopup)
         b_new.setMenu(self.m_new)
-        b_new.setStyleSheet("QToolButton::menu-indicator{image:none;}")
+        self._popfix(b_new)
         cll.addWidget(b_new)
+        sepl = QFrame()
+        sepl.setFrameShape(QFrame.VLine)
+        sepl.setStyleSheet("color:#333;")
+        cll.addWidget(sepl)
+
+        def vbtn(glyph, tip, menu=None, slot=None, checkable=False):
+            b = QToolButton()
+            b.setIcon(ic.glyph(glyph, 16))
+            b.setToolTip(tip)
+            b.setAutoRaise(True)
+            b.setCheckable(checkable)
+            if menu is not None:
+                b.setMenu(menu)
+                b.setPopupMode(QToolButton.InstantPopup)
+            self._popfix(b)
+            if slot:
+                b.clicked.connect(slot)
+            cll.addWidget(b)
+            return b
+        self.b_sub = vbtn("branch", "Subcarpetas (Ctrl+B)\nSin texto: todos los archivos de la rama.\n"
+                                    "Con texto: busca en toda la rama.", slot=lambda: self.active.rec.toggle(),
+                          checkable=True)
+        self.m_filter = QMenu(self)
+        self.m_filter.aboutToShow.connect(self._fill_filter_menu)
+        self.b_filter = vbtn("filter", "Filtrar: mostrar solo un tipo de archivo", self.m_filter)
+        self.m_sort = QMenu(self)
+        self.m_sort.aboutToShow.connect(self._fill_sort_menu)
+        vbtn("sort", "Ordenar y agrupar", self.m_sort)
+        self.m_view = QMenu(self)
+        self.m_view.aboutToShow.connect(self._fill_view_menu)
+        vbtn("grid", "Ver: tamaño de íconos, detalles, ocultos…", self.m_view)
+        self.m_more = QMenu(self)
+        self.m_more.aboutToShow.connect(self._fill_more_menu)
+        vbtn("more", "Más: seleccionar, copiar ruta…", self.m_more)
         cll.addStretch(1)
         ch.addWidget(self.cmd_left)
         ch.addWidget(self.ctx_stack, 1)
@@ -143,8 +177,14 @@ class MainWindow(QMainWindow):
         a_set = QAction(ic.glyph("gear", 16), "", self)
         a_set.setToolTip("Configuración")
         a_set.triggered.connect(lambda: self.open_settings())
+        self.cmd_right = QWidget()
+        crr = QHBoxLayout(self.cmd_right)
+        crr.setContentsMargins(6, 0, 0, 0)
+        crr.setSpacing(2)
+        crr.addStretch(1)
         for a in (self.act_dual, self.act_details, a_set):
-            ch.addWidget(tool(a))
+            crr.addWidget(tool(a))
+        ch.addWidget(self.cmd_right)
 
         # --- sidebar: ACCESO RÁPIDO (de cada modo) arriba, y abajo los tabs CARPETAS / VFX LIBRARY
         self.favs = self._mk_list(self._favs_menu, lambda it: self.open_in_explorer(it.data(Qt.UserRole)))
@@ -188,10 +228,32 @@ class MainWindow(QMainWindow):
         self.quick_stack.addWidget(self.lib_favs)
         self.quick_title = self._section("ACCESO RÁPIDO")
         quick = QWidget()
+        quick.setObjectName("quickBox")
         ql = QVBoxLayout(quick)
         ql.setContentsMargins(0, 0, 0, 0)
         ql.setSpacing(1)
-        ql.addWidget(self.quick_title)
+        qh = QHBoxLayout()
+        qh.setContentsMargins(0, 0, 4, 0)
+        qh.setSpacing(0)
+        qh.addWidget(self.quick_title, 1)
+        self.b_eye = QToolButton()
+        self.b_eye.setIcon(ic.eye(16))
+        self.b_eye.setAutoRaise(True)
+        self.b_eye.setPopupMode(QToolButton.InstantPopup)
+        self.m_eye = QMenu(self)
+        self.m_eye.aboutToShow.connect(self._fill_eye_menu)
+        self.b_eye.setMenu(self.m_eye)
+        self.b_eye.setToolTip("Mostrar u ocultar Escritorio, Descargas, Imágenes y Videos")
+        self._popfix(self.b_eye)
+        self.b_quick_add = QToolButton()
+        self.b_quick_add.setIcon(ic.glyph("plus", 14))
+        self.b_quick_add.setAutoRaise(True)
+        self.b_quick_add.setToolTip("Agregar la carpeta actual a Acceso rápido")
+        self.b_quick_add.clicked.connect(self._quick_add)
+        self._popfix(self.b_quick_add)
+        qh.addWidget(self.b_eye)
+        qh.addWidget(self.b_quick_add)
+        ql.addLayout(qh)
         ql.addWidget(self.quick_stack, 1)
         self.side_boxes["favs"] = quick
 
@@ -239,7 +301,7 @@ class MainWindow(QMainWindow):
         self.b_colors.setIcon(self._palette_icon())
         self.b_colors.setAutoRaise(True)
         self.b_colors.setPopupMode(QToolButton.InstantPopup)
-        self.b_colors.setStyleSheet("QToolButton::menu-indicator{image:none;}")
+        self._popfix(self.b_colors)
         self.m_colors = QMenu(self)
         self.m_colors.aboutToShow.connect(self._fill_colors_menu)
         self.b_colors.setMenu(self.m_colors)
@@ -248,6 +310,8 @@ class MainWindow(QMainWindow):
         self.b_side_add.setIcon(ic.glyph("plus", 14))
         self.b_side_add.setAutoRaise(True)
         self.b_side_add.clicked.connect(self._side_add)
+        self.b_side_add.setToolTip("Agregar carpeta a la VFX Library")
+        self._popfix(self.b_side_add)
         crl.addWidget(self.b_colors)
         crl.addWidget(self.b_side_add)
         self.sidetabs.setCornerWidget(corner, Qt.TopRightCorner)
@@ -329,6 +393,10 @@ class MainWindow(QMainWindow):
         main.setSizes([280, 940, 300])
         main.setCollapsible(0, False)
         main.splitterMoved.connect(lambda *_: self._sync_cmd_left())
+        self.pane_split.splitterMoved.connect(lambda *_: self._sync_cmd_left())
+        for sp in (main, left, self.pane_split, self.libpage.split, lib_page):
+            sp.setObjectName("softSplit")
+            sp.setHandleWidth(3)
         self.main_split = main
 
         # --- arriba: pestañas + dirección (del panel visible) a todo el ancho, después la fila de herramientas
@@ -338,13 +406,9 @@ class MainWindow(QMainWindow):
         rl.setSpacing(0)
         self.head_host = QWidget()
         self.head_host.setObjectName("headHost")
-        hh = QVBoxLayout(self.head_host)
+        hh = QHBoxLayout(self.head_host)
         hh.setContentsMargins(0, 0, 0, 0)
         hh.setSpacing(0)
-        self.modecorner = QWidget()          # se usa en doble panel (cuando cada panel tiene su cabecera)
-        mcl = QHBoxLayout(self.modecorner)
-        mcl.setContentsMargins(6, 3, 6, 0)
-        mcl.addStretch(1)
         rl.addWidget(self.head_host)
         rl.addWidget(cmd)
         rl.addWidget(main, 1)
@@ -355,39 +419,16 @@ class MainWindow(QMainWindow):
         self.status = QLabel()
         sb.addWidget(self.status, 1)
 
-        def sbtn(glyph, tip, menu=None, slot=None, checkable=False):
+        def sbtn(glyph, tip, slot=None, checkable=False):
             b = QToolButton()
             b.setIcon(ic.glyph(glyph, 16))
             b.setToolTip(tip)
             b.setAutoRaise(True)
             b.setCheckable(checkable)
-            if menu is not None:
-                b.setMenu(menu)
-                b.setPopupMode(QToolButton.InstantPopup)
-                b.setStyleSheet("QToolButton::menu-indicator{image:none;}")
             if slot:
                 b.clicked.connect(slot)
             sb.addPermanentWidget(b)
             return b
-        self.b_sub = sbtn("branch", "Subcarpetas (Ctrl+B)\nSin texto: todos los archivos de la rama.\n"
-                                    "Con texto: busca en toda la rama.", slot=lambda: self.active.rec.toggle(),
-                          checkable=True)
-        self.m_filter = QMenu(self)
-        self.m_filter.aboutToShow.connect(self._fill_filter_menu)
-        self.b_filter = sbtn("filter", "Filtrar: mostrar solo un tipo de archivo", self.m_filter)
-        self.m_sort = QMenu(self)
-        self.m_sort.aboutToShow.connect(self._fill_sort_menu)
-        sbtn("sort", "Ordenar y agrupar", self.m_sort)
-        self.m_view = QMenu(self)
-        self.m_view.aboutToShow.connect(self._fill_view_menu)
-        sbtn("grid", "Ver: tamaño de íconos, detalles, ocultos…", self.m_view)
-        self.m_more = QMenu(self)
-        self.m_more.aboutToShow.connect(self._fill_more_menu)
-        sbtn("more", "Más: seleccionar, copiar ruta…", self.m_more)
-        sep = QFrame()
-        sep.setFrameShape(QFrame.VLine)
-        sep.setStyleSheet("color:#333;")
-        sb.addPermanentWidget(sep)
         self.status_right = QLabel()
         self.status_right.setMaximumWidth(260)
         sb.addPermanentWidget(self.status_right)
@@ -427,6 +468,13 @@ class MainWindow(QMainWindow):
             #modebar::tab {{ padding:5px 16px; min-width:100px; border-radius:6px; margin:0 2px 2px 2px; }}
             #modebar::tab:selected {{ background:#2d2d2d; color:#ffffff; }}
             QStatusBar QToolButton {{ padding:2px; }}
+            #paneTabs QTabBar::tab {{ padding:6px 10px; margin:4px 1px 0 1px; min-width:0; max-width:1000px; }}
+            #paneTabs QTabBar::tab:selected {{ font-weight:bold; }}
+            #softSplit::handle {{ background:#1c1c1c; }}
+            #softSplit::handle:horizontal {{ border-left:1px solid #2c2c2c; }}
+            #softSplit::handle:vertical {{ border-top:1px solid #2c2c2c; }}
+            #cmdrow {{ border-top:1px solid #2a2a2a; }}
+            QStatusBar {{ border-top:1px solid #2a2a2a; }}
             QListWidget, QTreeWidget, QTreeView {{ background:#191919; }}
         """)
         QShortcut(QKeySequence("F9"), self, self.toggle_dual)
@@ -434,6 +482,7 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+Shift+E"), self, lambda: self.set_mode("explorer"))
         QShortcut(QKeySequence("Ctrl+Shift+L"), self, lambda: self.set_mode("library"))
         QShortcut(QKeySequence("Alt+Shift+P"), self, self.toggle_details)
+        QApplication.instance().installEventFilter(self)
         self._reload_sidebar()
         self.apply_features()
         self._place_headers()
@@ -441,42 +490,55 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ cabeceras / sidebar
     def _place_headers(self):
-        """Con un solo panel, sus pestañas y su dirección van arriba a todo el ancho (como el Explorador de
-        Windows 11) y el selector de modo queda a la derecha de las pestañas. En doble panel cada panel tiene
-        su propia cabecera."""
-        lib = self.mode() == "library"
-        dual = self.paneB.isVisible() and not lib
-        hosted = None if dual else (self.libpane if lib else self.paneA)
+        """Las pestañas y la dirección de Carpetas van siempre arriba, a todo el ancho (como el Explorador de
+        Windows 11); en doble panel, una al lado de la otra, alineadas con cada panel. La VFX Library tiene sus
+        pestañas en el centro, entre el viewer y los elementos. El selector de modo va a la derecha."""
+        dual = bool(self.cfg["dual"]) if self.mode() == "library" else self.paneB.isVisible()
         hl = self.head_host.layout()
+        for p in self.panes:
+            if p.header.parent() is not self.head_host:
+                p.layout().removeWidget(p.header)
+                hl.addWidget(p.header)
+        hl.setStretch(0, 0 if dual else 1)
+        hl.setStretch(1, 1)
+        self.paneB.header.setVisible(dual)
+        self.paneA.header.show()
+        lp = self.libpane
+        if lp.header.parent() is not lp:
+            lp.layout().insertWidget(0, lp.header)
+        (self.paneB if dual else self.paneA).corner.addWidget(self.modebar)
         for p in self.all_panes:
-            if p is not hosted and p.header.parent() is not p:
-                hl.removeWidget(p.header)
-                p.layout().insertWidget(0, p.header)
-        if dual:
-            if self.modecorner.parent() is not self.head_host:
-                hl.addWidget(self.modecorner)
-            self.modecorner.layout().addWidget(self.modebar)
-            self.modecorner.show()
-        else:
-            if self.modecorner.parent() is self.head_host:
-                hl.removeWidget(self.modecorner)
-                self.modecorner.hide()
-            if hosted.header.parent() is not self.head_host:
-                hosted.layout().removeWidget(hosted.header)
-                hl.addWidget(hosted.header)
-            hosted.corner.addWidget(self.modebar)
-        self.head_host.setVisible(True)
-        for p in self.all_panes:
-            p.header.show()
-            p.footer.setVisible(dual)          # con un panel la cantidad ya está en la barra de estado
+            p.footer.setVisible(dual and p is not lp)
         self.modebar.ensurePolished()
         QTimer.singleShot(0, lambda: self.modebar.setMinimumWidth(
             sum(self.modebar.tabRect(i).width() for i in range(self.modebar.count())) + 8))
+        QTimer.singleShot(0, self._sync_cmd_left)
 
     def _sync_cmd_left(self):
+        """Alinea la fila de herramientas y las cabeceras con las columnas de abajo."""
         s = self.main_split.sizes()
-        if s and s[0] > 0:
-            self.cmd_left.setFixedWidth(s[0] + self.main_split.handleWidth())
+        hw = self.main_split.handleWidth()
+        if not s or s[0] <= 0:
+            return
+        self.cmd_left.setFixedWidth(s[0] + hw)
+        if self.info_area.isVisible() and s[2] > 0:
+            self.cmd_right.setFixedWidth(max(self.cmd_right.sizeHint().width(), s[2] + hw))
+        else:
+            self.cmd_right.setFixedWidth(self.cmd_right.sizeHint().width())
+        if self.paneB.header.isVisible():
+            ps = self.pane_split.sizes()
+            if ps and ps[0] > 0:
+                self.paneA.header.setFixedWidth(s[0] + hw + ps[0] + self.pane_split.handleWidth() // 2)
+        else:
+            self.paneA.header.setMinimumWidth(0)
+            self.paneA.header.setMaximumWidth(16777215)
+
+    def _popfix(self, b):
+        """Botones de ícono que no se corren al pasar el mouse."""
+        b.setStyleSheet("QToolButton{border:none;padding:3px;border-radius:4px;}"
+                        "QToolButton:hover{background:#2d2d2d;} QToolButton:checked{background:#383838;}"
+                        "QToolButton::menu-indicator{image:none;width:0px;}")
+        b.setFixedSize(28, 26)
 
     def resizeEvent(self, ev):
         super().resizeEvent(ev)
@@ -516,23 +578,58 @@ class MainWindow(QMainWindow):
         self._reload_sidebar()
 
     def _side_add(self):
-        if self.sidetabs.currentIndex() == 1:
-            self.libside.add_root()
+        self.libside.add_root()
+
+    def _quick_add(self):
+        lib = self.quick_stack.currentIndex() == 1
+        d = (self.libpane if lib else self.explorer_active).current_dir()
+        if d:
+            self.add_favorites([d], lib=lib)
+
+    SYS_FOLDERS = (("desktop", "Escritorio"), ("downloads", "Descargas"), ("pictures", "Imágenes"),
+                   ("videos", "Videos"))
+
+    def _sys_path(self, kind):
+        from PySide6.QtCore import QStandardPaths as SP
+        loc = {"desktop": SP.DesktopLocation, "downloads": SP.DownloadLocation,
+               "pictures": SP.PicturesLocation, "videos": SP.MoviesLocation}[kind]
+        p = SP.writableLocation(loc)
+        return os.path.normpath(p) if p and os.path.isdir(p) else ""
+
+    def _fill_eye_menu(self):
+        m = self.m_eye
+        m.clear()
+        m.addSection("Mostrar en Acceso rápido")
+        hidden = set(self.cfg["hidden_sys"] or [])
+        for kind, label in self.SYS_FOLDERS:
+            a = m.addAction(self.icons.sysfolder(kind, 16), label, lambda k=kind: self._toggle_sys(k))
+            a.setCheckable(True)
+            a.setChecked(kind not in hidden)
+            a.setEnabled(bool(self._sys_path(kind)))
+
+    def _toggle_sys(self, kind):
+        hidden = list(self.cfg["hidden_sys"] or [])
+        if kind in hidden:
+            hidden.remove(kind)
         else:
-            d = self.explorer_active.current_dir()
-            if d:
-                self.add_favorites([d], lib=False)
+            hidden.append(kind)
+        self.cfg["hidden_sys"] = hidden
+        self.cfg.save()
+        self._reload_sidebar()
 
     def _side_tooltip(self, i):
-        self.b_side_add.setToolTip("Agregar carpeta a la VFX Library" if i == 1 else
-                                   "Agregar la carpeta actual a Acceso rápido")
+        self.b_side_add.setVisible(i == 1)
+        self.b_eye.setVisible(i == 0)
 
     def _sidetab_changed(self, i):
+        """Los tabs del panel izquierdo solo cambian el árbol (y el acceso rápido): el modo del centro cambia
+        recién al hacer click en una carpeta."""
         self._side_tooltip(i)
-        if not self._peek:
-            self.set_mode("library" if i == 1 else "explorer")
+        self.quick_stack.setCurrentIndex(i)
 
     def eventFilter(self, obj, ev):
+        if ev.type() == QEvent.MouseButtonPress and isinstance(obj, QWidget) and hasattr(self, "panes"):
+            self._header_press(obj)
         if hasattr(self, "sidetabs") and obj is self.sidetabs.tabBar():
             t = ev.type()
             if t == QEvent.DragEnter:
@@ -549,6 +646,24 @@ class MainWindow(QMainWindow):
                 return True
         return super().eventFilter(obj, ev)
 
+    def _header_press(self, w):
+        """Click en las pestañas o la dirección de un panel de Carpetas: activa ese panel (y si estamos en la
+        VFX Library, vuelve a Carpetas). El selector de modo queda afuera."""
+        x = w
+        while x is not None:
+            if x is self.modebar:
+                return
+            for p in self.panes:
+                if x is p.header:
+                    if self.mode() == "library":
+                        self.set_mode("explorer")
+                    if p is not self.active:
+                        self.set_active(p)
+                    return
+            if x is self:
+                return
+            x = x.parentWidget()
+
     def _peek_side(self, i):
         """Mientras se arrastra, mostrar el árbol del otro tab sin cambiar de modo (para soltar ahí)."""
         self._peek = True
@@ -558,17 +673,10 @@ class MainWindow(QMainWindow):
         self.peek_timer.start()
 
     def _peek_check(self):
-        if QApplication.mouseButtons() == Qt.NoButton:
-            self.end_peek()
+        self.peek_timer.stop()
 
     def end_peek(self):
         self.peek_timer.stop()
-        i = 1 if self.mode() == "library" else 0
-        if self.sidetabs.currentIndex() != i:
-            self._peek = True
-            self.sidetabs.setCurrentIndex(i)
-            self.quick_stack.setCurrentIndex(i)
-            self._peek = False
 
     def _fill_new_menu(self):
         m = self.m_new
@@ -673,6 +781,7 @@ class MainWindow(QMainWindow):
         show = (not self.info_area.isVisible()) if force is None else bool(force)
         self.info_area.setVisible(show)
         self.act_details.setChecked(show)
+        QTimer.singleShot(0, self._sync_cmd_left)
         self.cfg["details_visible"] = show
         self.save_soon()
 
@@ -803,12 +912,8 @@ class MainWindow(QMainWindow):
             self.modebar.setCurrentIndex(1 if lib else 0)
             self.modebar.blockSignals(False)
         self.center_stack.setCurrentIndex(1 if lib else 0)
-        self.peek_timer.stop()
-        self._peek = True
         self.sidetabs.setCurrentIndex(1 if lib else 0)
-        self.quick_stack.setCurrentIndex(1 if lib else 0)
-        self._peek = False
-        self._side_tooltip(1 if lib else 0)
+        self._sidetab_changed(1 if lib else 0)
         self.act_dual.setEnabled(not lib)
         self._place_headers()
         self.apply_pipeline_location()
@@ -974,6 +1079,17 @@ class MainWindow(QMainWindow):
             w = sum(self.pane_split.sizes())
             self.pane_split.setSizes([w // 2, w // 2])
         self.save_soon()
+
+    def close_pane(self, pane):
+        """Cerrar la única pestaña de un panel en doble panel cierra ese panel."""
+        if pane not in self.panes or not self.paneB.isVisible():
+            return
+        if pane is self.paneA:
+            st = self.paneB.state()
+            self.paneA.clear_tabs()
+            self.paneA.restore(st, self.paneB.tab_path() or os.path.expanduser("~"))
+        self.toggle_dual(False)
+        self.set_active(self.paneA)
 
     def switch_pane(self):
         o = self.other(self.active)
@@ -1444,6 +1560,18 @@ class MainWindow(QMainWindow):
     def _reload_sidebar(self):
         for w, key in ((self.favs, "favorites"), (self.lib_favs, "lib_favorites")):
             w.clear()
+            if w is self.favs:
+                hidden = set(self.cfg["hidden_sys"] or [])
+                for kind, label in self.SYS_FOLDERS:
+                    sp = self._sys_path(kind)
+                    if not sp or kind in hidden:
+                        continue
+                    it = QListWidgetItem(self.icons.sysfolder(kind, 16), label)
+                    it.setData(Qt.UserRole, sp)
+                    it.setData(Qt.UserRole + 1, kind)
+                    it.setToolTip(sp)
+                    it.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+                    w.addItem(it)
             for p in self.cfg[key] or []:
                 name = os.path.basename(p.rstrip("\\/")) or p
                 it = QListWidgetItem(self.icons.folder_icon(self.dir_color(p), 16), name)
@@ -1494,7 +1622,7 @@ class MainWindow(QMainWindow):
 
     def _favs_reordered(self, *_):
         for w, key in ((self.favs, "favorites"), (self.lib_favs, "lib_favorites")):
-            vals = [w.item(i).data(Qt.UserRole) for i in range(w.count())]
+            vals = [w.item(i).data(Qt.UserRole) for i in range(w.count()) if not w.item(i).data(Qt.UserRole + 1)]
             vals = [v for v in vals if v]
             if vals or key == "favorites":
                 self.cfg[key] = vals
@@ -1531,6 +1659,7 @@ class MainWindow(QMainWindow):
         if not it:
             return
         p = it.data(Qt.UserRole)
+        sysk = it.data(Qt.UserRole + 1)
         m = QMenu(self)
         m.addAction("Abrir", lambda: self.open_in_explorer(p))
         m.addAction("Abrir en pestaña nueva", lambda: self.open_in_explorer(p, new_tab=True))
@@ -1544,7 +1673,10 @@ class MainWindow(QMainWindow):
             self.cfg["favorites"] = [x for x in self.cfg["favorites"] if norm_key(x) != norm_key(p)]
             self.cfg.save()
             self._reload_sidebar()
-        m.addAction("Quitar de acceso rápido", remove)
+        if sysk:
+            m.addAction(self.icons.eye(16, on=False), "Ocultar", lambda: self._toggle_sys(sysk))
+        else:
+            m.addAction("Quitar de acceso rápido", remove)
         m.exec(w.viewport().mapToGlobal(pos))
 
     def _colls_menu(self, w, pos):

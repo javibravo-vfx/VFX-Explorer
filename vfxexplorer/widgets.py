@@ -110,6 +110,84 @@ class Icons:
         self._c[key] = pm
         return pm
 
+    def sysfolder(self, kind, size=16):
+        """Íconos tipo Windows 11 para Escritorio, Descargas, Imágenes y Videos."""
+        key = ("sys", kind, size)
+        if key in self._c:
+            return self._c[key]
+        S = 64
+        pm = QPixmap(S, S)
+        pm.fill(Qt.transparent)
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setPen(Qt.NoPen)
+        if kind == "desktop":
+            p.setBrush(QColor("#2f8fe0"))
+            p.drawRoundedRect(QRectF(6, 10, 52, 34), 5, 5)
+            p.setBrush(QColor("#7cc4ff"))
+            p.drawRoundedRect(QRectF(10, 14, 44, 26), 3, 3)
+            p.setBrush(QColor("#9aa4b0"))
+            p.drawRect(QRectF(28, 44, 8, 7))
+            p.drawRoundedRect(QRectF(18, 50, 28, 5), 2, 2)
+        elif kind == "downloads":
+            p.setPen(QPen(QColor("#2ec4a0"), 6, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            p.drawLine(32, 8, 32, 40)
+            p.drawLine(18, 27, 32, 41)
+            p.drawLine(46, 27, 32, 41)
+            p.drawLine(12, 54, 52, 54)
+        elif kind == "pictures":
+            p.setBrush(QColor("#3a8ee6"))
+            p.drawRoundedRect(QRectF(6, 10, 52, 44), 6, 6)
+            p.setBrush(QColor("#b9e2ff"))
+            p.drawRoundedRect(QRectF(10, 14, 44, 36), 3, 3)
+            p.setBrush(QColor("#ffd24a"))
+            p.drawEllipse(QPointF(42, 24), 5, 5)
+            m = QPainterPath()
+            m.moveTo(10, 50); m.lineTo(26, 30); m.lineTo(36, 42); m.lineTo(42, 36); m.lineTo(54, 50)
+            m.closeSubpath()
+            p.fillPath(m, QColor("#2f9a5a"))
+        elif kind == "videos":
+            p.setBrush(QColor("#8b5cf6"))
+            p.drawRoundedRect(QRectF(6, 10, 52, 44), 6, 6)
+            p.setBrush(QColor("#c4b0ff"))
+            for y in (14, 24, 34, 44):
+                p.drawRect(QRectF(9, y, 5, 5))
+                p.drawRect(QRectF(50, y, 5, 5))
+            tri = QPainterPath()
+            tri.moveTo(26, 22); tri.lineTo(42, 32); tri.lineTo(26, 42); tri.closeSubpath()
+            p.fillPath(tri, QColor("#ffffff"))
+        elif kind == "documents":
+            p.setBrush(QColor("#5b8def"))
+            p.drawRoundedRect(QRectF(14, 6, 36, 52), 4, 4)
+            p.setBrush(QColor("#e8f0ff"))
+            for y in (18, 28, 38):
+                p.drawRoundedRect(QRectF(20, y, 24, 4), 2, 2)
+        p.end()
+        ic = QIcon(pm.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        self._c[key] = ic
+        return ic
+
+    def eye(self, size=16, on=True, color="#c9ccd1"):
+        key = ("eye", size, on, color)
+        if key in self._c:
+            return self._c[key]
+        S = 64
+        pm = QPixmap(S, S)
+        pm.fill(Qt.transparent)
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setPen(QPen(QColor(color), 5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        e = QPainterPath()
+        e.moveTo(6, 32); e.quadTo(32, 4, 58, 32); e.quadTo(32, 60, 6, 32)
+        p.drawPath(e)
+        p.drawEllipse(QPointF(32, 32), 8, 8)
+        if not on:
+            p.drawLine(12, 54, 52, 10)
+        p.end()
+        ic = QIcon(pm.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        self._c[key] = ic
+        return ic
+
     def folder_icon(self, color=None, size=20):
         key = ("fi", color, size)
         if key not in self._c:

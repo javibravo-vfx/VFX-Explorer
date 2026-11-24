@@ -4,14 +4,14 @@
 import os
 
 from PySide6.QtCore import (Qt, Signal, QSize, QTimer, QEvent, QItemSelectionModel, QRect, QPersistentModelIndex,
-                            QModelIndex)
-from PySide6.QtGui import QKeySequence, QShortcut, QCursor
-from PySide6.QtWidgets import (QFrame, QVBoxLayout, QHBoxLayout, QTabBar, QToolButton, QLineEdit, QComboBox,
+                            QModelIndex, QRectF)
+from PySide6.QtGui import QKeySequence, QShortcut, QCursor, QPainter, QPainterPath, QColor
+from PySide6.QtWidgets import (QSizePolicy, QFrame, QVBoxLayout, QHBoxLayout, QTabBar, QToolButton, QLineEdit, QComboBox,
                                QCheckBox, QListView, QTreeView, QStackedWidget, QAbstractItemView, QHeaderView,
                                QLabel, QMenu, QWidget)
 
 from .core import IS_WIN, FILTERS, parse_query, norm_key, same_path, THISPC
-from .fileops import is_subpath
+from .fileops import is_subpath, is_network_path
 from .models import (EntryModel, EntryProxy, ScanWorker, SearchWorker, ResolveWorker, DrivesWorker, ROLE_ENTRY, COLS,
                      C_FOLDER, C_TAGS, C_RATING)
 from .widgets import GridDelegate, BreadcrumbBar, ListNameDelegate
@@ -129,6 +129,112 @@ class ListView(_ViewMixin, QTreeView):
     pass
 
 
+class WinTabBar(QTabBar):
+    """Pestañas como las del Explorador de Windows 11: ancho fijo, se achican solo cuando no entran,
+    el ＋ va pegado a la última pestaña."""
+    TAB_W = 240
+    MIN_W = 96
+
+    def __init__(self):
+        super().__init__()
+        self.plus = QToolButton(self)
+        self.plus.setAutoRaise(True)
+        self.plus.setFixedSize(30, 28)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+    def _avail(self):
+        return max(self.MIN_W, self.width() - self.plus.width() - 10)
+
+    def tabSizeHint(self, i):
+        s = super().tabSizeHint(i)
+        n = max(1, self.count())
+        w = max(self.MIN_W, min(self.TAB_W, self._avail() // n))
+        return QSize(w, max(s.height(), 34))
+
+    def minimumTabSizeHint(self, i):
+        return QSize(self.MIN_W, self.tabSizeHint(i).height())
+
+    def minimumSizeHint(self):
+        return QSize(self.MIN_W + 40, 34)
+
+    def sizeHint(self):
+        return QSize(self.TAB_W + 40, 34)
+
+    def _place_plus(self):
+        if self.count():
+            r = self.tabRect(self.count() - 1)
+            x = min(r.right() + 6, self.width() - self.plus.width())
+        else:
+            x = 4
+        self.plus.move(x, (self.height() - self.plus.height()) // 2)
+        self.plus.raise_()
+
+    def tabLayoutChange(self):
+        super().tabLayoutChange()
+        self._place_plus()
+
+    def resizeEvent(self, ev):
+        super().resizeEvent(ev)
+        QTimer.singleShot(0, self._place_plus)
+
+    def tabInserted(self, i):
+        super().tabInserted(i)
+        QTimer.singleShot(0, self._place_plus)
+
+    def tabRemoved(self, i):
+        super().tabRemoved(i)
+        QTimer.singleShot(0, self._place_plus)
+
+    def paintEvent(self, ev):
+        """Como Windows 11: ícono y texto alineados a la izquierda, la activa en negrita y unida a la barra."""
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        cur = self.currentIndex()
+        mouse = self.mapFromGlobal(QCursor.pos())
+        for i in range(self.count()):
+            r = self.tabRect(i).adjusted(1, 4, -1, 0)
+            sel = i == cur
+            hover = r.contains(mouse) and not sel
+            if sel or hover:
+                path = QPainterPath()
+                rr = QRectF(r).adjusted(0, 0, 0, 8)
+                path.addRoundedRect(rr, 7, 7)
+                p.save()
+                p.setClipRect(r)
+                p.fillPath(path, QColor("#2b2b2b" if sel else "#262626"))
+                p.restore()
+            elif i + 1 != cur and i < self.count() - 1:
+                p.setPen(QColor("#3a3a3a"))
+                p.drawLine(r.right() + 1, r.top() + 8, r.right() + 1, r.bottom() - 6)
+            x = r.left() + 10
+            ic = self.tabIcon(i)
+            if not ic.isNull():
+                ic.paint(p, QRect(x, r.center().y() - 8, 16, 16))
+                x += 24
+            f = self.font()
+            f.setBold(sel)
+            p.setFont(f)
+            btn = self.tabButton(i, QTabBar.RightSide)
+            right = (btn.geometry().left() - 4) if btn is not None and btn.isVisible() else r.right() - 8
+            tr = QRect(x, r.top(), max(0, right - x), r.height())
+            p.setPen(QColor("#ffffff" if sel else "#c5c5c5"))
+            p.drawText(tr, Qt.AlignVCenter | Qt.AlignLeft,
+                       p.fontMetrics().elidedText(self.tabText(i), Qt.ElideRight, tr.width()))
+        p.end()
+
+    def enterEvent(self, ev):
+        self.setMouseTracking(True)
+        super().enterEvent(ev)
+
+    def mouseMoveEvent(self, ev):
+        super().mouseMoveEvent(ev)
+        self.update()
+
+    def leaveEvent(self, ev):
+        super().leaveEvent(ev)
+        self.update()
+
+
 class FilePane(QFrame):
     focused = Signal(object)
     selection_changed = Signal(object)
@@ -182,21 +288,22 @@ class FilePane(QFrame):
         trow = QHBoxLayout(tabsrow)
         trow.setContentsMargins(6, 4, 6, 0)
         trow.setSpacing(2)
-        self.tabbar = QTabBar()
+        self.tabbar = WinTabBar()
         self.tabbar.setTabsClosable(False)
         self.tabbar.setMovable(True)
         self.tabbar.setExpanding(False)
         self.tabbar.setDocumentMode(True)
         self.tabbar.setDrawBase(False)
-        self.tabbar.setElideMode(Qt.ElideMiddle)
+        self.tabbar.setElideMode(Qt.ElideRight)
         self.tabbar.setUsesScrollButtons(True)
-        self.tabbar.setMinimumWidth(80)
+        self.tabbar.setIconSize(QSize(16, 16))
+        self.tabbar.setAcceptDrops(True)
         self.tabbar.currentChanged.connect(self._tab_changed)
         self.tabbar.tabMoved.connect(self._tab_moved)
         self.tabbar.installEventFilter(self)
         self.tabbar.setContextMenuPolicy(Qt.CustomContextMenu)
         self.tabbar.customContextMenuRequested.connect(self._tab_menu)
-        trow.addWidget(self.tabbar, 0)
+        trow.addWidget(self.tabbar, 1)
 
         def tb(glyph, tip, slot, row, size=16):
             b = QToolButton()
@@ -206,8 +313,10 @@ class FilePane(QFrame):
             b.clicked.connect(slot)
             row.addWidget(b)
             return b
-        tb("plus", "Pestaña nueva (Ctrl+T)", lambda: self.add_tab(self.current_dir() or self.tab_path()), trow)
-        trow.addStretch(1)
+        self.tabbar.plus.setIcon(ic.glyph("plus", 16))
+        self.tabbar.plus.setToolTip("Pestaña nueva (Ctrl+T)")
+        self.tabbar.plus.clicked.connect(lambda: self.add_tab(self.current_dir() or self.tab_path()))
+        self.tabsrow = tabsrow
         self.corner = QHBoxLayout()        # acá va el selector de modo (Carpetas / VFX Library)
         self.corner.setContentsMargins(0, 0, 0, 0)
         trow.addLayout(self.corner)
@@ -367,7 +476,32 @@ class FilePane(QFrame):
         sc("Ctrl+2", lambda: self.set_view("list"))
         sc("Ctrl+B", self.rec.toggle)
 
+    def _tab_drop_target(self, ev):
+        i = self.tabbar.tabAt(ev.position().toPoint())
+        if i < 0 or i >= len(self.tabs) or self.tabs[i]["virtual"]:
+            return None
+        p = self.tabs[i]["path"]
+        return p if os.path.isdir(p) else None
+
     def eventFilter(self, obj, ev):
+        if obj is self.tabbar and ev.type() in (QEvent.DragEnter, QEvent.DragMove):
+            if ev.mimeData().hasUrls():
+                ev.accept()
+                if ev.type() == QEvent.DragMove and not self._tab_drop_target(ev):
+                    ev.ignore()
+            else:
+                ev.ignore()
+            return True
+        if obj is self.tabbar and ev.type() == QEvent.Drop:
+            target = self._tab_drop_target(ev)
+            paths = [os.path.normpath(u.toLocalFile()) for u in ev.mimeData().urls() if u.isLocalFile()]
+            mods = ev.modifiers()
+            ev.setDropAction(Qt.CopyAction)
+            ev.accept()
+            if target and paths:
+                pos = QCursor.pos()
+                QTimer.singleShot(0, lambda: self.app.handle_drop(self, paths, target, mods, pos))
+            return True
         if obj is self.tabbar and ev.type() == QEvent.MouseButtonRelease and ev.button() == Qt.MiddleButton:
             i = self.tabbar.tabAt(ev.position().toPoint())
             if i >= 0:
@@ -465,6 +599,7 @@ class FilePane(QFrame):
             t = self.tabs[-1]
             t["virtual"] = {"title": "Este equipo", "kind": "thispc", "name": ""}
             self.tabbar.setTabText(len(self.tabs) - 1, "Este equipo")
+            self.tabbar.setTabIcon(len(self.tabs) - 1, self._tab_icon(t))
             if self.tabs[self.ti] is t:
                 self._show_location()
                 self._load_virtual()
@@ -479,7 +614,7 @@ class FilePane(QFrame):
         t = {"path": os.path.normpath(path), "history": [os.path.normpath(path)], "hpos": 0, "virtual": None}
         self.tabs.append(t)
         self.tabbar.blockSignals(True)
-        i = self.tabbar.addTab(self._tab_title(t))
+        i = self.tabbar.addTab(self._tab_icon(t), self._tab_title(t))
         self.tabbar.setTabToolTip(i, t["path"])
         close = QToolButton()
         close.setText("×")
@@ -498,7 +633,10 @@ class FilePane(QFrame):
         self.app.save_soon()
 
     def close_tab(self, i):
-        if len(self.tabs) <= 1 or not (0 <= i < len(self.tabs)):
+        if len(self.tabs) <= 1 and 0 <= i < len(self.tabs):
+            self.app.close_pane(self)          # en doble panel, cerrar la única pestaña cierra ese panel
+            return
+        if not (0 <= i < len(self.tabs)):
             return
         self.tabs.pop(i)
         self.tabbar.blockSignals(True)
@@ -530,6 +668,20 @@ class FilePane(QFrame):
             self._show_location()
             self._load()
 
+    def _tab_icon(self, t):
+        ic = self.app.icons
+        v = t.get("virtual")
+        if v:
+            if v["kind"] == "thispc":
+                return ic.glyph("pc", 16, "#4cc2ff")
+            if v["kind"] in ("tag", "rating"):
+                return ic.glyph("search", 16, "#c9ccd1")
+            return ic.glyph("library", 16, "#b98cff")
+        p = t["path"]
+        if os.path.dirname(p.rstrip("\\/")) in ("", p.rstrip("\\/")) or len(p.rstrip("\\/")) <= 2:
+            return ic.drive_icon("network" if is_network_path(p) else "local", 16)
+        return ic.folder_icon(self.app.dir_color(p), 16)
+
     def _tab_title(self, t):
         if t.get("virtual"):
             return t["virtual"]["title"]
@@ -540,6 +692,7 @@ class FilePane(QFrame):
         t = self.tab()
         if t:
             self.tabbar.setTabText(self.ti, self._tab_title(t))
+            self.tabbar.setTabIcon(self.ti, self._tab_icon(t))
             self.tabbar.setTabToolTip(self.ti, t["virtual"]["title"] if t["virtual"] else t["path"])
 
     def _tab_menu(self, pos):
@@ -562,6 +715,14 @@ class FilePane(QFrame):
         tabs = [{"path": THISPC if (t["virtual"] and t["virtual"]["kind"] == "thispc") else t["path"]}
                 for t in self.tabs]
         return {"tabs": tabs, "current": self.ti, "view": self.view_mode, "group": self.group_mode}
+
+    def clear_tabs(self):
+        self.tabbar.blockSignals(True)
+        while self.tabbar.count():
+            self.tabbar.removeTab(0)
+        self.tabbar.blockSignals(False)
+        self.tabs = []
+        self.ti = -1
 
     def restore(self, st, fallback):
         tabs = [t.get("path") for t in (st or {}).get("tabs", []) if t.get("path")]

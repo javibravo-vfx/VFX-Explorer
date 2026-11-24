@@ -30,8 +30,10 @@ class PipelineBar(QWidget):
                 cb.setMinimumContentsLength(6)
                 cb.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
             else:
-                cb.setMinimumWidth({"proj": 90, "seq": 80, "shot": 170, "dept": 80, "task": 120}[key])
-                cb.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+                cb.setMinimumWidth({"proj": 90, "seq": 70, "shot": 150, "dept": 70, "task": 110}[key])
+                cb.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+                cb.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+                cb.setMinimumContentsLength(4)
             self.cbs[key] = cb
         self.folder = QToolButton()
         self.folder.setIcon(app.icons.glyph("folder", 16))
@@ -61,8 +63,15 @@ class PipelineBar(QWidget):
             lbl = QLabel("PIPELINE")
             lbl.setStyleSheet("color:#b98cff; font-weight:bold; font-size:8pt; letter-spacing:1px;")
             lay.addWidget(lbl)
-            for key, _ in LEVELS:
-                lay.addWidget(self.cbs[key])
+            lay.addSpacing(6)
+            stretch = {"proj": 3, "seq": 2, "shot": 4, "dept": 2, "task": 3}
+            for n, (key, _) in enumerate(LEVELS):
+                if n:
+                    d = QLabel("›")
+                    d.setStyleSheet("color:#5f6368; font-size:13pt; padding:0 2px 2px 2px;")
+                    lay.addWidget(d)
+                lay.addWidget(self.cbs[key], stretch[key])
+            lay.addSpacing(4)
             lay.addWidget(self.folder)
         self.reload()
 

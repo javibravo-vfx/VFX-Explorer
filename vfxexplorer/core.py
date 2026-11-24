@@ -621,6 +621,7 @@ class Config:
         "quick_tags": None,             # None = pastillas por defecto (DEFAULT_QUICK_TAGS)
         "lib_tree_line_color": "#8d6fd1",
         "splitter_left3": "",
+        "hidden_sys": [],               # Escritorio/Descargas/Imágenes/Videos ocultos en Acceso rápido
     }
 
     def __init__(self, path):
