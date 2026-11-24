@@ -2407,13 +2407,26 @@ class MainWindow(QMainWindow):
                 pm = ic.pixmap(int(size), int(size))
                 if pm.isNull():
                     pm = None
-            if pm is not None:                 # el ícono genérico de "archivo" no sirve: queda el nuestro
+            if pm is not None:                 # los íconos genéricos ("archivo" / tipo desconocido) no sirven
                 gk = ("__generic__", int(size))
                 if gk not in cache:
+                    gens = []
                     gi = prov.icon(QFileIconProvider.IconType.File)
-                    cache[gk] = gi.pixmap(int(size), int(size)).toImage() if not gi.isNull() else None
-                g = cache[gk]
-                if g is not None and pm.toImage() == g:
+                    if not gi.isNull():
+                        gens.append(gi.pixmap(int(size), int(size)).toImage())
+                    try:
+                        import tempfile
+                        probe = os.path.join(tempfile.gettempdir(), "vfxexplorer_probe.vfxunknownext")
+                        if not os.path.exists(probe):
+                            open(probe, "w").close()
+                        ui = prov.icon(QFileInfo(probe))
+                        if not ui.isNull():
+                            gens.append(ui.pixmap(int(size), int(size)).toImage())
+                    except OSError:
+                        pass
+                    cache[gk] = gens
+                img = pm.toImage()
+                if any(img == g for g in cache[gk]):
                     pm = None
         except Exception:
             pm = None

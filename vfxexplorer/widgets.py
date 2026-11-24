@@ -630,8 +630,10 @@ class GridDelegate(QStyledItemDelegate):
                 # ícono original del archivo (programa / documento), como en el Explorador
                 p.setBrush(QColor("#1c1c1c") if not (sel or hov) else QColor("#333333" if sel else "#262626"))
                 p.drawRoundedRect(QRectF(th), 4, 4)
-                p.drawPixmap(th.x() + (th.width() - sysic.width()) // 2, th.y() + (th.height() - sysic.height()) // 2,
-                             sysic)
+                dpr = sysic.devicePixelRatio() or 1.0
+                sw, sh = sysic.width() / dpr, sysic.height() / dpr          # tamaño lógico (pantallas con escala)
+                p.drawPixmap(QRectF(th.x() + (th.width() - sw) / 2, th.y() + (th.height() - sh) / 2, sw, sh),
+                             sysic, QRectF(sysic.rect()))
             else:
                 f = QFont(opt.font)
                 f.setPointSizeF(max(8.0, th.height() / 6.5))

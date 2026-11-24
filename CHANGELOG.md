@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.14.1
+- Original file icons are centered in the grid on scaled displays (125%, 150%…); generic "unknown type" icons fall back to the type badge.
+- Bigger tab close button (×), further from the edge.
+
 ## 0.14.0
 - **PDF preview** in the Details pane (pages one below the other, at the pane width) and PDF thumbnails in the grid.
 - **Original icons** of programs and documents (exe, zip, pdf, office…), not for images, video or audio; can be turned off in ⚙ › General.

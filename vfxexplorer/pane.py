@@ -188,6 +188,29 @@ class ListView(_ViewMixin, QTreeView):
         p.restore()
 
 
+class TabCloseButton(QToolButton):
+    """× de la pestaña: grande y fino, con fondo al pasar el mouse (como Windows 11)."""
+
+    def __init__(self):
+        super().__init__()
+        self.setFixedSize(30, 28)
+        self.setToolTip("Close tab (Ctrl+W · middle click)")
+        self.setCursor(Qt.ArrowCursor)
+        self.setStyleSheet("QToolButton{border:none;background:transparent;border-radius:5px;}"
+                           "QToolButton:hover{background:#3a3a3a;}")
+
+    def paintEvent(self, ev):
+        super().paintEvent(ev)
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setPen(QPen(QColor("#ffffff" if self.underMouse() else "#c5c5c5"), 1.3, Qt.SolidLine, Qt.RoundCap))
+        c = QPointF(self.width() / 2, self.height() / 2)
+        k = 6.0
+        p.drawLine(QPointF(c.x() - k, c.y() - k), QPointF(c.x() + k, c.y() + k))
+        p.drawLine(QPointF(c.x() + k, c.y() - k), QPointF(c.x() - k, c.y() + k))
+        p.end()
+
+
 class FilterButton(QToolButton):
     """Filtro de tipo de archivo entre la dirección y el buscador. Ancho fijo (no corre nada); cuando hay un
     filtro se resalta y muestra un dibujito del tipo (o «EXR»)."""
@@ -953,14 +976,13 @@ class FilePane(QFrame):
         self.tabbar.blockSignals(True)
         i = self.tabbar.addTab(self._tab_icon(t), self._tab_title(t))
         self.tabbar.setTabToolTip(i, t["path"])
-        close = QToolButton()
-        close.setText("×")
-        close.setAutoRaise(True)
-        close.setFixedSize(16, 16)
-        close.setToolTip("Close tab (Ctrl+W · middle click)")
-        close.setStyleSheet("QToolButton{border:none;color:#7d8590;font-size:12pt;padding:0 0 2px 0;}"
-                            "QToolButton:hover{color:#fff;background:#4a4d55;border-radius:3px;}")
-        close.clicked.connect(lambda c=False, b=close: self._close_by_button(b))
+        close = QWidget()                       # contenedor: deja aire a la derecha, como Windows
+        close.setFixedSize(42, 32)
+        cl = QHBoxLayout(close)
+        cl.setContentsMargins(0, 0, 10, 0)
+        btn = TabCloseButton()
+        btn.clicked.connect(lambda c=False, b=close: self._close_by_button(b))
+        cl.addWidget(btn, 0, Qt.AlignRight | Qt.AlignVCenter)
         self.tabbar.setTabButton(i, QTabBar.RightSide, close)
         self.tabbar.blockSignals(False)
         if activate or len(self.tabs) == 1:
