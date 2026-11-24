@@ -22,9 +22,9 @@ CAT_COLORS = {
     "image": "#3ecf8e", "model": "#f06595", "other": "#7d8590",
 }
 TAG_COLORS = [
-    ("Rojo", "#e5484d"), ("Naranja", "#f76b15"), ("Amarillo", "#f5d90a"), ("Verde", "#30a46c"),
-    ("Celeste", "#0ac5f5"), ("Azul", "#3e63dd"), ("Violeta", "#8e4ec6"), ("Rosa", "#e93d82"),
-    ("Gris", "#8b8d98"),
+    ("Red", "#e5484d"), ("Orange", "#f76b15"), ("Yellow", "#f5d90a"), ("Green", "#30a46c"),
+    ("Light blue", "#0ac5f5"), ("Blue", "#3e63dd"), ("Violet", "#8e4ec6"), ("Pink", "#e93d82"),
+    ("Gray", "#8b8d98"),
 ]
 ACCENT = "#4cc2ff"          # acento de Windows 11 (modo oscuro)
 
@@ -162,6 +162,26 @@ class Icons:
             p.setBrush(QColor("#e8f0ff"))
             for y in (18, 28, 38):
                 p.drawRoundedRect(QRectF(20, y, 24, 4), 2, 2)
+        p.end()
+        ic = QIcon(pm.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        self._c[key] = ic
+        return ic
+
+    def new_icon(self, size=18):
+        """⊕ con el aro celeste, como el «New» del Explorador."""
+        key = ("new", size)
+        if key in self._c:
+            return self._c[key]
+        S = 64
+        pm = QPixmap(S, S)
+        pm.fill(Qt.transparent)
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setPen(QPen(QColor("#4cc2ff"), 4.5))
+        p.drawEllipse(QPointF(32, 32), 25, 25)
+        p.setPen(QPen(QColor("#f3f3f3"), 4.5, Qt.SolidLine, Qt.RoundCap))
+        p.drawLine(32, 19, 32, 45)
+        p.drawLine(19, 32, 45, 32)
         p.end()
         ic = QIcon(pm.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         self._c[key] = ic
@@ -464,7 +484,7 @@ class GridDelegate(QStyledItemDelegate):
         f2.setPointSizeF(8.6)
         p.setFont(f2)
         p.setPen(QColor("#c5c5c5"))
-        txt = f"{human_size(free)} libres de {human_size(total)}" if total else "sin acceso"
+        txt = f"{human_size(free)} free of {human_size(total)}" if total else "no access"
         p.drawText(QRect(x, int(bar.bottom()) + 4, w, 18), Qt.AlignLeft | Qt.AlignVCenter, txt)
         p.restore()
 
@@ -585,7 +605,7 @@ class GridDelegate(QStyledItemDelegate):
                     p.setPen(QColor("#ffffff"))
                     p.drawText(lr, Qt.AlignCenter, scrub_label)
             if e.kind == "seq" and e.missing:
-                warn = f"faltan {len(e.missing)}"
+                warn = f"missing {len(e.missing)}"
                 bw2 = fm.horizontalAdvance(warn) + 10
                 wr = QRect(th.right() - bw2 - 4, th.y() + 4, bw2, fm.height() + 2)
                 p.setPen(Qt.NoPen)
@@ -636,7 +656,7 @@ class GridDelegate(QStyledItemDelegate):
         tg = QRect(tr.x(), mr.bottom() + 1, tr.width(), 14)
         if model is not None and model.virtual and model.group_mode != "folder":
             folder = model.folder_text(e) if model.root else e.dirpath
-            folder = "(esta carpeta)" if folder == "." else "↳ " + folder
+            folder = "(this folder)" if folder == "." else "↳ " + folder
             p.setPen(QColor(ACCENT))
             p.drawText(tg, Qt.AlignLeft | Qt.AlignVCenter, fm2.elidedText(folder, Qt.ElideLeft, tg.width()))
         elif feats:
@@ -757,7 +777,7 @@ class BreadcrumbBar(QWidget):
         super().__init__(parent)
         self.path = ""
         self.virtual_title = ""
-        self.setFixedHeight(32)
+        self.setFixedHeight(36)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.stack = QStackedLayout(self)
         self.stack.setContentsMargins(0, 0, 0, 0)
@@ -778,10 +798,11 @@ class BreadcrumbBar(QWidget):
         self.stack.addWidget(self.crumbs)
         self.stack.addWidget(self.edit)
         self.setStyleSheet("""
-            #crumbs { background:#2d2d2d; border:1px solid #3a3a3a; border-radius:4px; }
-            #crumbs QToolButton { border:none; padding:3px 6px; color:#f3f3f3; border-radius:4px; }
+            #crumbs { background:#2d2d2d; border:1px solid #333333; border-radius:5px; }
+            #crumbs QToolButton { border:none; padding:4px 9px; color:#f3f3f3; border-radius:4px; font-size:10.5pt; }
             #crumbs QToolButton:hover { background:#3d3d3d; }
-            #crumbs QToolButton[arrow="true"] { color:#9d9d9d; padding:3px 2px; }
+            #crumbs QToolButton[arrow="true"] { color:#c5c5c5; padding:4px 5px; }
+            QLineEdit { font-size:10.5pt; }
             #crumbs QToolButton::menu-indicator { image:none; width:0; }
         """)
 
@@ -839,7 +860,7 @@ class BreadcrumbBar(QWidget):
             except OSError:
                 dirs = []
             if not dirs:
-                m.addAction("(sin subcarpetas)").setEnabled(False)
+                m.addAction("(no subfolders)").setEnabled(False)
             for d in dirs[:400]:
                 full = os.path.join(path, d)
                 m.addAction(d, lambda p=full: self.navigate.emit(p))
@@ -852,7 +873,7 @@ class BreadcrumbBar(QWidget):
             w = it.widget()
             if w:
                 w.deleteLater()
-        if self.virtual_title:
+        if self.virtual_title and self.virtual_title != "This PC":
             b = self._btn(self.virtual_title)
             b.setStyleSheet("color:#f5c542; font-weight:bold;")
             self.cl.addWidget(b)
@@ -861,10 +882,10 @@ class BreadcrumbBar(QWidget):
         if not self.path:
             self.cl.addStretch(1)
             return
-        segs = path_segments(self.path)
+        segs = [] if self.virtual_title == "This PC" else path_segments(self.path)
         root = getattr(self, "root", None)
         if not root:
-            segs = [("Este equipo", "::thispc")] + segs
+            segs = [("This PC", "::thispc")] + segs
         if root:
             from .core import same_path
             for i, (_, sp) in enumerate(segs):
@@ -884,7 +905,7 @@ class BreadcrumbBar(QWidget):
             total += widths[start]
         start = min(start, len(segs) - 1)
         if start > 0:
-            more = self._btn("«", "Carpetas anteriores")
+            more = self._btn("«", "Parent folders")
             m = QMenu(more)
             for lbl, p in reversed(segs[:start]):
                 m.addAction(lbl, lambda p=p: self.navigate.emit(p))
@@ -895,7 +916,7 @@ class BreadcrumbBar(QWidget):
             b = self._btn(lbl, p)
             b.clicked.connect(lambda c=False, p=p: self.navigate.emit(p))
             self.cl.addWidget(b)
-            a = self._btn("›", "Subcarpetas")
+            a = self._btn("›", "Subfolders")
             a.setProperty("arrow", True)
             a.setMenu(self._sub_menu(p, a))
             a.setPopupMode(QToolButton.InstantPopup)
@@ -920,14 +941,14 @@ class TagDialog(QDialog):
         self.setWindowTitle("Tags")
         self.setMinimumWidth(420)
         lay = QVBoxLayout(self)
-        lay.addWidget(QLabel(f"Tags para {n_items} elemento(s), separados por coma:"))
+        lay.addWidget(QLabel(f"Tags for {n_items} item(s), comma separated:"))
         self.edit = QLineEdit(", ".join(common))
         lay.addWidget(self.edit)
         if n_items > 1:
-            lay.addWidget(_hint("Se muestran los tags que tienen todos. Los que agregues se suman a cada uno; "
-                                "los que borres de esta lista se quitan de todos."))
+            lay.addWidget(_hint("Shows the tags they all have. Tags you add go to each one; "
+                                "tags you delete from this list are removed from all of them."))
         if all_tags:
-            lay.addWidget(QLabel("Tags existentes (click para agregar):"))
+            lay.addWidget(QLabel("Existing tags (click to add):"))
             lst = QListWidget()
             lst.setMaximumHeight(160)
             for t, n in all_tags:
@@ -959,27 +980,27 @@ class RenameDialog(QDialog):
     def __init__(self, e, parent=None):
         super().__init__(parent)
         self.e = e
-        self.setWindowTitle("Renombrar secuencia" if e.kind == "seq" else "Renombrar")
+        self.setWindowTitle("Rename sequence" if e.kind == "seq" else "Rename")
         self.setMinimumWidth(460)
         lay = QFormLayout(self)
         if e.kind == "seq":
             base, sep = split_head(e.head)
             self.name = QLineEdit(base)
             self.sep = QComboBox()
-            for s, lbl in ((".", "punto  ."), ("_", "guión bajo  _"), ("-", "guión  -"), ("", "nada")):
+            for s, lbl in ((".", "dot  ."), ("_", "underscore  _"), ("-", "dash  -"), ("", "none")):
                 self.sep.addItem(lbl, s)
             self.sep.setCurrentIndex(max(0, self.sep.findData(sep)))
             self.start = QSpinBox()
             self.start.setRange(0, 99999999)
             self.start.setValue(e.first)
-            lay.addRow("Nombre:", self.name)
-            lay.addRow("Separador:", self.sep)
-            lay.addRow("Primer frame:", self.start)
+            lay.addRow("Name:", self.name)
+            lay.addRow("Separator:", self.sep)
+            lay.addRow("First frame:", self.start)
             self.preview = QLabel()
             self.preview.setStyleSheet("color:#8fb3ff;")
-            lay.addRow("Resultado:", self.preview)
-            lay.addRow("", _hint(f"{len(e.frames)} archivos. Cambiar el primer frame renumera toda la secuencia "
-                                 f"(ej: 1 → 1001)."))
+            lay.addRow("Result:", self.preview)
+            lay.addRow("", _hint(f"{len(e.frames)} files. Changing the first frame renumbers the whole sequence "
+                                 f"(e.g. 1 → 1001)."))
             for w in (self.name,):
                 w.textChanged.connect(self._update)
             self.sep.currentIndexChanged.connect(self._update)
@@ -987,7 +1008,7 @@ class RenameDialog(QDialog):
             self._update()
         else:
             self.name = QLineEdit(e.name)
-            lay.addRow("Nombre:", self.name)
+            lay.addRow("Name:", self.name)
             stem = os.path.splitext(e.name)[0] if e.kind == "file" else e.name
             QTimer.singleShot(0, lambda: self.name.setSelection(0, len(stem)))
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -1013,7 +1034,7 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.app = app
         cfg = app.cfg
-        self.setWindowTitle("Configuración")
+        self.setWindowTitle("Settings")
         self.setMinimumWidth(600)
         outer = QVBoxLayout(self)
         tabs = QTabWidget()
@@ -1022,72 +1043,72 @@ class SettingsDialog(QDialog):
         # --- General
         g = QWidget()
         lay = QFormLayout(g)
-        exe_f = "Ejecutables (*.exe)" if IS_WIN else "Todos (*)"
-        w, self.player = self._path_row(cfg["player"], "Reproductor (mrv2, DJV, RV…)", exe_f)
-        lay.addRow("Reproductor:", w)
-        lay.addRow("", _hint("Para abrir secuencias y videos con doble click. Vacío = programa por defecto."))
+        exe_f = "Executables (*.exe)" if IS_WIN else "All (*)"
+        w, self.player = self._path_row(cfg["player"], "Player (mrv2, DJV, RV…)", exe_f)
+        lay.addRow("Player:", w)
+        lay.addRow("", _hint("Opens sequences and videos on double click. Empty = default app."))
         w, self.ffmpeg = self._path_row(cfg["ffmpeg"], "ffmpeg.exe", exe_f)
         lay.addRow("ffmpeg:", w)
         found = find_tool(cfg["ffmpeg"], "ffmpeg")
-        lay.addRow("", _hint(f"Thumbnails e info de videos. Detectado: {found or 'no encontrado'}. "
-                             "También sirve poner ffmpeg.exe y ffprobe.exe en la carpeta <b>bin</b>."))
+        lay.addRow("", _hint(f"Video thumbnails and info. Found: {found or 'not found'}. "
+                             "You can also put ffmpeg.exe and ffprobe.exe in the <b>bin</b> folder."))
         self.cs = QComboBox()
         for label, key in COLORSPACES:
             self.cs.addItem(label, key)
         self.cs.setCurrentIndex(max(0, self.cs.findData(cfg["colorspace"])))
-        lay.addRow("Espacio de color EXR:", self.cs)
-        self.chroma = QCheckBox("Usar chromaticities del EXR si están en el header")
+        lay.addRow("EXR color space:", self.cs)
+        self.chroma = QCheckBox("Use EXR chromaticities when present in the header")
         self.chroma.setChecked(bool(cfg["use_chromaticities"]))
         lay.addRow("", self.chroma)
-        self.sidecar = QCheckBox("Previews de modelos y carpetas (JPG/PNG con el mismo nombre, thumbnail.jpg…)")
+        self.sidecar = QCheckBox("Model and folder previews (JPG/PNG with the same name, thumbnail.jpg…)")
         self.sidecar.setChecked(bool(cfg["sidecar_previews"]))
         lay.addRow("", self.sidecar)
         self.threads = QSpinBox()
         self.threads.setRange(1, 16)
         self.threads.setValue(int(cfg["threads"]))
-        lay.addRow("Threads de thumbnails:", self.threads)
-        self.hidden = QCheckBox("Mostrar archivos y carpetas ocultos")
+        lay.addRow("Thumbnail threads:", self.threads)
+        self.hidden = QCheckBox("Show hidden files and folders")
         self.hidden.setChecked(bool(cfg["show_hidden"]))
         lay.addRow("", self.hidden)
-        self.fsizes = QCheckBox("Calcular el tamaño de las carpetas (en segundo plano)")
+        self.fsizes = QCheckBox("Calculate folder sizes (in the background)")
         self.fsizes.setChecked(bool(cfg["folder_sizes"]))
         lay.addRow("", self.fsizes)
-        self.feats = QCheckBox("Tags, rating y colecciones")
+        self.feats = QCheckBox("Tags, rating and collections")
         self.feats.setChecked(bool(cfg["library_features"]))
         lay.addRow("", self.feats)
-        clr = QPushButton(f"Borrar caché de thumbnails ({human_size(app.thumbs.disk_usage())})")
-        clr.clicked.connect(lambda: (app.thumbs.clear_disk(), clr.setText("Caché borrada"), app.refresh_views()))
+        clr = QPushButton(f"Clear thumbnail cache ({human_size(app.thumbs.disk_usage())})")
+        clr.clicked.connect(lambda: (app.thumbs.clear_disk(), clr.setText("Cache cleared"), app.refresh_views()))
         lay.addRow("", clr)
-        lay.addRow("", _hint(f"Datos portables en: {fwd(app.data_dir)}"))
+        lay.addRow("", _hint(f"Portable data in: {fwd(app.data_dir)}"))
         tabs.addTab(g, "General")
 
         # --- Pipeline
         pw = QWidget()
         pl = QFormLayout(pw)
         from .pipeline import STM_CONFIG
-        self.use_stm = QCheckBox("Usar la configuración de Studio Toolbar")
+        self.use_stm = QCheckBox("Use the Studio Toolbar settings")
         self.use_stm.setChecked(bool(cfg["pipeline_use_stm"]))
         pl.addRow("", self.use_stm)
-        pl.addRow("", _hint(f"{fwd(STM_CONFIG)} — " + ("encontrado" if os.path.isfile(STM_CONFIG) else
-                                                      "no encontrado: se usan los valores de abajo")))
+        pl.addRow("", _hint(f"{fwd(STM_CONFIG)} — " + ("found" if os.path.isfile(STM_CONFIG) else
+                                                      "not found: using the values below")))
         self.p_root = QLineEdit(cfg["pipeline_root"])
         self.p_prefix = QLineEdit(cfg["pipeline_prefix"])
         self.p_excl = QLineEdit(cfg["pipeline_seq_exclude"])
-        pl.addRow("Raíz (unidad o UNC):", self.p_root)
-        pl.addRow("Prefijo de proyecto:", self.p_prefix)
-        pl.addRow("No son secuencias:", self.p_excl)
-        pl.addRow("", _hint("Estructura: {raíz}\\{prefijo}{PROYECTO}\\{SEQ}\\{SHOT}\\{DEPTO}\\{TASK}\\…  "
-                            "Las secuencias son carpetas que empiezan con un número; los shots empiezan con PROYECTO_. "
-                            "Depto = carpetas al nivel de 3D (3D, Comp, DMP, 2D…)."))
+        pl.addRow("Root (drive or UNC):", self.p_root)
+        pl.addRow("Project prefix:", self.p_prefix)
+        pl.addRow("Not sequences:", self.p_excl)
+        pl.addRow("", _hint("Structure: {root}\\{prefix}{PROJECT}\\{SEQ}\\{SHOT}\\{DEPT}\\{TASK}\\…  "
+                            "Sequences are folders starting with a number; shots start with PROJECT_. "
+                            "Dept = folders at the 3D level (3D, Comp, DMP, 2D…)."))
         self.p_depts = QLineEdit(cfg["pipeline_depts"] or "")
-        self.p_depts.setPlaceholderText("vacío = todas las carpetas del shot   (ej: 3D, Comp, DMP)")
-        pl.addRow("Departamentos:", self.p_depts)
+        self.p_depts.setPlaceholderText("empty = every folder of the shot   (e.g. 3D, Comp, DMP)")
+        pl.addRow("Departments:", self.p_depts)
         self.p_loc = QComboBox()
-        for label, key in (("Sobre el panel central", "center"), ("Panel izquierdo", "sidebar"), ("Oculta", "hidden")):
+        for label, key in (("Above the center pane", "center"), ("Left pane", "sidebar"), ("Hidden", "hidden")):
             self.p_loc.addItem(label, key)
         self.p_loc.setCurrentIndex(max(0, self.p_loc.findData(
             "center" if cfg["pipeline_location"] in (None, "top") else cfg["pipeline_location"])))
-        pl.addRow("Mostrar los dropdowns en:", self.p_loc)
+        pl.addRow("Show the dropdowns:", self.p_loc)
         tabs.addTab(pw, "Pipeline")
 
         # --- Colores
@@ -1098,39 +1119,39 @@ class SettingsDialog(QDialog):
         for label, key in COLOR_MODES:
             self.cmode.addItem(label, key)
         self.cmode.setCurrentIndex(max(0, self.cmode.findData(cfg["color_mode"])))
-        cl.addRow("Colores automáticos:", self.cmode)
-        cl.addRow("", _hint("Por proyecto: cada proyecto del pipeline tiene un color (o el que le pongas a mano) y "
-                            "se aclara en secuencias y shots. Por nombre: las reglas de abajo. "
-                            "El color manual siempre gana. También se cambia con el botón de colores del panel izquierdo."))
+        cl.addRow("Automatic colors:", self.cmode)
+        cl.addRow("", _hint("By project: each pipeline project gets a color (or the one you set by hand) and "
+                            "it gets lighter on sequences and shots. By name: the rules below. "
+                            "Manual color always wins. Also changed with the colors button in the left pane."))
         self.fcolor = QComboBox()
-        self.fcolor.addItem("Amarillo (como Windows)", "yellow")
-        self.fcolor.addItem("Celeste", "blue")
+        self.fcolor.addItem("Yellow (like Windows)", "yellow")
+        self.fcolor.addItem("Light blue", "blue")
         self.fcolor.setCurrentIndex(max(0, self.fcolor.findData(cfg["folder_color"] or "yellow")))
-        cl.addRow("Color de las carpetas:", self.fcolor)
-        self.tlines = QCheckBox("Líneas del árbol con el color de la carpeta")
+        cl.addRow("Folder color:", self.fcolor)
+        self.tlines = QCheckBox("Tree lines take the folder color")
         self.tlines.setChecked(bool(cfg["tree_line_colors"]))
         cl.addRow("", self.tlines)
         self.tstyle = QComboBox()
-        self.tstyle.addItem("Sólidas (como XYplorer)", "solid")
-        self.tstyle.addItem("Punteadas", "dotted")
+        self.tstyle.addItem("Solid (like XYplorer)", "solid")
+        self.tstyle.addItem("Dotted", "dotted")
         self.tstyle.setCurrentIndex(max(0, self.tstyle.findData(cfg["tree_lines_style"])))
-        cl.addRow("Líneas del árbol:", self.tstyle)
-        self.ttrace = QCheckBox("Tree Path Tracing: marcar el camino hasta la carpeta actual")
+        cl.addRow("Tree lines:", self.tstyle)
+        self.ttrace = QCheckBox("Tree Path Tracing: mark the path to the current folder")
         self.ttrace.setChecked(bool(cfg["tree_trace"]))
         cl.addRow("", self.ttrace)
         self.twidth = QSpinBox()
         self.twidth.setRange(1, 6)
         self.twidth.setSuffix(" px")
         self.twidth.setValue(int(cfg["tree_trace_width"] or 2))
-        cl.addRow("Grosor del trazo:", self.twidth)
+        cl.addRow("Trace width:", self.twidth)
         self.tcolor = QComboBox()
-        self.tcolor.addItem("Color de acento", "accent")
-        self.tcolor.addItem("Color de la carpeta actual", "folder")
+        self.tcolor.addItem("Accent color", "accent")
+        self.tcolor.addItem("Current folder color", "folder")
         self.tcolor.setCurrentIndex(max(0, self.tcolor.findData(cfg["tree_trace_color"])))
-        cl.addRow("Color del trazo:", self.tcolor)
+        cl.addRow("Trace color:", self.tcolor)
         self.lcolor = QComboBox()
-        for label, hexc in (("Violeta", "#8d6fd1"), ("Rosa", "#d16fa8"), ("Verde", "#3ecf8e"),
-                            ("Naranja", "#ff9f43"), ("Celeste", "#4cc2ff"), ("Gris (como Carpetas)", "#5f6368")):
+        for label, hexc in (("Violet", "#8d6fd1"), ("Pink", "#d16fa8"), ("Green", "#3ecf8e"),
+                            ("Orange", "#ff9f43"), ("Light blue", "#4cc2ff"), ("Gray (like Folders)", "#5f6368")):
             self.lcolor.addItem(app.icons.swatch(hexc), label, hexc)
         i = self.lcolor.findData(cfg["lib_tree_line_color"])
         if i < 0:
@@ -1138,16 +1159,16 @@ class SettingsDialog(QDialog):
                                 cfg["lib_tree_line_color"])
             i = self.lcolor.count() - 1
         self.lcolor.setCurrentIndex(i)
-        cl.addRow("Líneas de VFX Library:", self.lcolor)
+        cl.addRow("VFX Library lines:", self.lcolor)
         from PySide6.QtWidgets import QPlainTextEdit
         self.rules = QPlainTextEdit(cfg["name_rules"] or DEFAULT_NAME_RULES)
         self.rules.setMinimumHeight(220)
         self.rules.setStyleSheet("font-family:Consolas,monospace; font-size:9pt;")
-        cl.addRow("Reglas por nombre:", self.rules)
-        rb = QPushButton("Restaurar reglas por defecto")
+        cl.addRow("Name rules:", self.rules)
+        rb = QPushButton("Restore default rules")
         rb.clicked.connect(lambda: self.rules.setPlainText(DEFAULT_NAME_RULES))
         cl.addRow("", rb)
-        tabs.addTab(cw, "Colores")
+        tabs.addTab(cw, "Colors")
 
         # --- VFX Library
         lw = QWidget()
@@ -1156,23 +1177,23 @@ class SettingsDialog(QDialog):
         for v in ("960", "1280", "1920", "2560"):
             self.vres.addItem(f"{v} px", int(v))
         self.vres.setCurrentIndex(max(0, self.vres.findData(int(cfg["viewer_res"] or 1280))))
-        ll.addRow("Resolución del viewer:", self.vres)
+        ll.addRow("Viewer resolution:", self.vres)
         self.vmem = QSpinBox()
         self.vmem.setRange(128, 32768)
         self.vmem.setSingleStep(256)
         self.vmem.setSuffix(" MB")
         self.vmem.setValue(int(cfg["viewer_mem"] or 1024))
-        ll.addRow("Memoria para frames:", self.vmem)
-        ll.addRow("", _hint("Cuántos frames decodificados se guardan para que el loop corra fluido. "
-                            "1280 px ≈ 2,7 MB por frame → 1024 MB ≈ 370 frames."))
-        self.vauto = QCheckBox("Reproducir automáticamente al seleccionar")
+        ll.addRow("Frame memory:", self.vmem)
+        ll.addRow("", _hint("How many decoded frames are kept so the loop plays smoothly. "
+                            "1280 px ≈ 2.7 MB per frame → 1024 MB ≈ 370 frames."))
+        self.vauto = QCheckBox("Autoplay on selection")
         self.vauto.setChecked(bool(cfg["viewer_autoplay"]))
         ll.addRow("", self.vauto)
-        self.vloop = QCheckBox("Loop por defecto")
+        self.vloop = QCheckBox("Loop by default")
         self.vloop.setChecked(bool(cfg["viewer_loop"]))
         ll.addRow("", self.vloop)
-        ll.addRow("", _hint("Las carpetas de la librería se agregan con el ＋ de «VFX LIBRARY» en el panel izquierdo. "
-                            "Los videos se reproducen con el ffmpeg configurado en General."))
+        ll.addRow("", _hint("Library folders are added with the ＋ of «VFX LIBRARY» in the left pane. "
+                            "Videos play with the ffmpeg set in General."))
         tabs.addTab(lw, "VFX Library")
 
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)

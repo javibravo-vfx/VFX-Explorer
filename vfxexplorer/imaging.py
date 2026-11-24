@@ -29,8 +29,8 @@ THUMB_RES = 320
 COLORSPACES = [
     ("ACEScg", "acescg"),
     ("ACES2065-1 (AP0)", "aces"),
-    ("Lineal Rec.709 / sRGB", "lin709"),
-    ("Ya es sRGB (sin conversión)", "srgb"),
+    ("Linear Rec.709 / sRGB", "lin709"),
+    ("Already sRGB (no conversion)", "srgb"),
 ]
 M_ACESCG_TO_709 = np.array([
     [1.70505, -0.62179, -0.08326],
@@ -182,7 +182,7 @@ def exr_layers(path):
         low = pre.lower().split(".")[-1] if pre else ""
         is_data = (len(sel) == 1 and "a" not in suf) or any(low == h or low.startswith(h) for h in DATA_HINTS) \
             or all(c.rsplit(".", 1)[-1].lower() in "xyzuvw" for c in sel)
-        label = pre or "(sin capa)"
+        label = pre or "(no layer)"
         if pre == "" and sel[:3] == [suf.get("r"), suf.get("g"), suf.get("b")]:
             continue        # ya está como Beauty
         tag = "".join(c.rsplit(".", 1)[-1] for c in sel) if all(len(c.rsplit(".", 1)[-1]) == 1 for c in sel) else ""
@@ -657,20 +657,20 @@ class ThumbManager(QObject):
 def oiio_info(path):
     inp = oiio.ImageInput.open(path)
     if not inp:
-        return [("Error", oiio.geterror() or "no se pudo abrir")]
+        return [("Error", oiio.geterror() or "could not open")]
     rows = []
     try:
         spec = inp.spec()
         W, H = spec.width, spec.height
         fw, fh = spec.full_width or W, spec.full_height or H
-        rows.append(("Resolución", f"{fw} × {fh}"))
+        rows.append(("Resolution", f"{fw} × {fh}"))
         if (fw, fh) != (W, H) or spec.x != spec.full_x or spec.y != spec.full_y:
             rows.append(("Data window", f"{W} × {H}  ({spec.x},{spec.y})"))
         comp = spec.get_string_attribute("compression")
         if comp:
-            rows.append(("Compresión", comp.upper()))
+            rows.append(("Compression", comp.upper()))
         fmts = [str(t) for t in spec.channelformats] if len(spec.channelformats) else [str(spec.format)]
-        rows.append(("Tipo", ", ".join(sorted(set(fmts)))))
+        rows.append(("Type", ", ".join(sorted(set(fmts)))))
         names = list(spec.channelnames)
         layers = OrderedDict()
         for n in names:
@@ -679,19 +679,19 @@ def oiio_info(path):
         order = {"R": 0, "G": 1, "B": 2, "A": 3, "X": 0, "Y": 1, "Z": 2}
         for k in layers:
             layers[k].sort(key=lambda c: (order.get(c.upper(), 9), c))
-        rows.append(("Canales", f"{len(names)} en {len(layers)} capa(s)"))
+        rows.append(("Channels", f"{len(names)} in {len(layers)} layer(s)"))
         if len(layers) > 1 or names[:3] != ["R", "G", "B"]:
-            rows.append(("Capas", "<br>".join(
+            rows.append(("Layers", "<br>".join(
                 f"{k} <span style='color:#888'>[{''.join(v) if all(len(x) == 1 for x in v) else ','.join(v)}]</span>"
                 for k, v in layers.items())))
         nsub = spec.get_int_attribute("oiio:subimages", 1)
         if nsub > 1:
-            rows.append(("Partes", str(nsub)))
+            rows.append(("Parts", str(nsub)))
         mips = 1
         while inp.seek_subimage(0, mips):
             mips += 1
         if mips > 1:
-            rows.append(("Mipmaps", f"{mips} niveles"))
+            rows.append(("Mipmaps", f"{mips} levels"))
         if spec.tile_width:
             rows.append(("Tiles", f"{spec.tile_width}×{spec.tile_height}"))
         cs = detect_cs_from_chroma(spec.getattribute("chromaticities"))
@@ -700,8 +700,8 @@ def oiio_info(path):
         ocs = spec.get_string_attribute("oiio:ColorSpace")
         if ocs:
             rows.append(("ColorSpace", ocs))
-        for attr, label in (("FramesPerSecond", "FPS"), ("Software", "Software"), ("DateTime", "Fecha"),
-                            ("HostComputer", "Equipo")):
+        for attr, label in (("FramesPerSecond", "FPS"), ("Software", "Software"), ("DateTime", "Date"),
+                            ("HostComputer", "Host")):
             v = spec.getattribute(attr)
             if v not in (None, ""):
                 if attr == "FramesPerSecond":
@@ -717,7 +717,7 @@ def oiio_info(path):
 
 def video_info(path, ffprobe):
     if not ffprobe:
-        return [("Info", "ffprobe no encontrado (ver Configuración)")]
+        return [("Info", "ffprobe not found (see Settings)")]
     cmd = [ffprobe, "-v", "error", "-print_format", "json", "-show_format", "-show_streams", path]
     r = subprocess.run(cmd, capture_output=True, timeout=20, creationflags=NO_WINDOW)
     d = json.loads(r.stdout.decode("utf-8", "replace") or "{}")
@@ -726,7 +726,7 @@ def video_info(path, ffprobe):
     aus = [s for s in d.get("streams", []) if s.get("codec_type") == "audio"]
     if vs:
         s = vs[0]
-        rows.append(("Resolución", f"{s.get('width')} × {s.get('height')}"))
+        rows.append(("Resolution", f"{s.get('width')} × {s.get('height')}"))
         prof = s.get("profile")
         rows.append(("Codec", f"{s.get('codec_name', '')}" + (f" ({prof})" if prof else "")))
         try:
@@ -746,10 +746,10 @@ def video_info(path, ffprobe):
     fmt = d.get("format", {})
     if fmt.get("duration"):
         dur = float(fmt["duration"])
-        rows.append(("Duración", f"{int(dur // 60):02d}:{dur % 60:05.2f}"))
+        rows.append(("Duration", f"{int(dur // 60):02d}:{dur % 60:05.2f}"))
     if fmt.get("bit_rate"):
         rows.append(("Bitrate", f"{int(fmt['bit_rate']) / 1e6:.1f} Mb/s"))
-    rows.append(("Audio", f"{len(aus)} pista(s)" if aus else "no"))
+    rows.append(("Audio", f"{len(aus)} track(s)" if aus else "no"))
     return rows
 
 
@@ -758,10 +758,10 @@ def qt_info(path):
     sz = r.size()
     rows = []
     if sz.isValid():
-        rows.append(("Resolución", f"{sz.width()} × {sz.height()}"))
+        rows.append(("Resolution", f"{sz.width()} × {sz.height()}"))
     fmt = bytes(r.format()).decode() if r.format() else ""
     if fmt:
-        rows.append(("Formato", fmt.upper()))
+        rows.append(("Format", fmt.upper()))
     return rows
 
 

@@ -212,7 +212,7 @@ class DecodeThread(QThread):
                     else:
                         self.bad.add(target)
                         if first and len(self.bad) >= min(3, n):
-                            self.failed.emit("No se pudo decodificar")
+                            self.failed.emit("Could not decode")
                             break
                     continue
                 with self.lock:
@@ -280,7 +280,7 @@ class Canvas(QWidget):
             p.drawText(QRect(r.width() - w - 2, 11, w, fm.height()), Qt.AlignLeft, self.corner)
         if self.buffering:
             p.setPen(QColor("#f5c542"))
-            p.drawText(QRect(14, r.height() - fm.height() - 12, 300, fm.height() + 4), Qt.AlignLeft, "cargando…")
+            p.drawText(QRect(14, r.height() - fm.height() - 12, 300, fm.height() + 4), Qt.AlignLeft, "loading…")
         p.end()
 
 
@@ -320,9 +320,9 @@ class Viewer(QWidget):
                 b.clicked.connect(slot)
             bl.addWidget(b)
             return b
-        btn("prev", "Frame anterior (,)", lambda: self.step(-1))
-        self.b_play = btn("play", "Play / pausa (Espacio)", self.toggle)
-        btn("next", "Frame siguiente (.)", lambda: self.step(1))
+        btn("prev", "Previous frame (,)", lambda: self.step(-1))
+        self.b_play = btn("play", "Play / pause (Space)", self.toggle)
+        btn("next", "Next frame (.)", lambda: self.step(1))
         self.slider = QSlider(Qt.Horizontal)
         self.slider.setRange(0, 0)
         self.slider.sliderMoved.connect(self.seek)
@@ -333,7 +333,7 @@ class Viewer(QWidget):
         self.lbl.setStyleSheet("color:#c9ccd1; font-family:Consolas,monospace;")
         bl.addWidget(self.lbl)
         self.layer_cb = QComboBox()
-        self.layer_cb.setToolTip("Capa / AOV del EXR (beauty, alpha, depth, normales…)")
+        self.layer_cb.setToolTip("EXR layer / AOV (beauty, alpha, depth, normals…)")
         self.layer_cb.setMinimumContentsLength(14)
         self.layer_cb.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
         self.layer_cb.activated.connect(self._layer_changed)
@@ -344,7 +344,7 @@ class Viewer(QWidget):
         self.fps_cb = QComboBox()
         self.fps_cb.addItems(FPS_CHOICES)
         self.fps_cb.setCurrentText(self._fps_text(self.fps))
-        self.fps_cb.setToolTip("Velocidad de las secuencias (fps). Los videos usan la suya.")
+        self.fps_cb.setToolTip("Sequence speed (fps). Videos use their own.")
         self.fps_cb.currentTextChanged.connect(self._fps_changed)
         bl.addWidget(self.fps_cb)
         self.b_loop = btn("loop", "Loop", None, checkable=True)
@@ -354,7 +354,7 @@ class Viewer(QWidget):
         self.b_auto.setText("Auto")
         self.b_auto.setCheckable(True)
         self.b_auto.setAutoRaise(True)
-        self.b_auto.setToolTip("Reproducir automáticamente al seleccionar")
+        self.b_auto.setToolTip("Autoplay on selection")
         self.b_auto.setChecked(bool(app.cfg["viewer_autoplay"]))
         self.b_auto.toggled.connect(lambda v: self._save("viewer_autoplay", v))
         bl.addWidget(self.b_auto)
@@ -364,8 +364,8 @@ class Viewer(QWidget):
         self.timer.setTimerType(Qt.PreciseTimer)
         self.timer.timeout.connect(self._tick)
         self._set_interval()
-        self.show_message("Elegí un elemento de la librería abajo.\n"
-                          "Con las flechas te movés y se reproduce solo (en loop).")
+        self.show_message("Pick a library element below.\n"
+                          "Move with the arrow keys and it plays by itself (looped).")
 
     # ---------------- util
     @staticmethod
@@ -467,15 +467,15 @@ class Viewer(QWidget):
             ffmpeg = find_tool(cfg["ffmpeg"], "ffmpeg")
             ffprobe = find_tool(cfg["ffmpeg"], "ffprobe")
             if not ffmpeg or not ffprobe:
-                self.show_message(f"{e.name}\n\nPara reproducir videos poné ffmpeg.exe y ffprobe.exe en la carpeta "
-                                  f"bin\\ de VFX Explorer (o indicá la ruta en ⚙ Configuración).")
+                self.show_message(f"{e.name}\n\nTo play videos put ffmpeg.exe and ffprobe.exe in the "
+                                  f"bin\\ folder of VFX Explorer (or set the path in ⚙ Settings).")
                 return
             try:
                 info = probe_video(e.path, ffprobe)
             except Exception:
                 info = None
             if not info:
-                self.show_message(f"{e.name}\n\nNo se pudo leer el video.")
+                self.show_message(f"{e.name}\n\nCould not read the video.")
                 return
             src = VideoSource(e.path, ffmpeg, info, maxdim)
         elif e.cat == "image" or (e.cat in ("model", "dir") and self.app.cfg["sidecar_previews"]):
@@ -485,7 +485,7 @@ class Viewer(QWidget):
             if path and imaging.can_decode(os.path.splitext(path)[1]):
                 src = StillSource(path, settings, max(maxdim, 1600))
         if src is None:
-            self.show_message(f"{e.name}\n\n" + ("Carpeta" if e.kind == "dir" else "Sin preview para este tipo"))
+            self.show_message(f"{e.name}\n\n" + ("Folder" if e.kind == "dir" else "No preview for this type"))
             return
         self.n = src.n
         self.labels = src.labels
@@ -573,7 +573,7 @@ class Viewer(QWidget):
         if self.n == 1:
             img = self.canvas.image
             txt = f"{img.width()}×{img.height()}" if img is not None else ""
-            self.lbl.setText("imagen")
+            self.lbl.setText("image")
         else:
             first, last = self.labels[0], self.labels[min(len(self.labels), self.n) - 1]
             txt = f"{lab}  [{first}-{last}]"

@@ -38,9 +38,9 @@ class QuickTagBar(QWidget):
         lay.setSpacing(6)
         lbl = QLabel("TAGS")
         lbl.setStyleSheet("color:#b98cff; font-weight:bold; font-size:8pt; letter-spacing:1px;")
-        lbl.setToolTip("Tags rápidos: filtran toda la rama de la carpeta actual de la librería.\n"
-                       "Coinciden con el nombre del archivo, el de sus carpetas o sus tags.\n"
-                       "Varias prendidas = cualquiera de ellas. Clic derecho para editar.")
+        lbl.setToolTip("Quick tags: filter the whole branch of the current library folder.\n"
+                       "They match the file name, its folder names or its tags.\n"
+                       "Several on = any of them. Right-click to edit.")
         lay.addWidget(lbl)
         self.inner = QWidget()
         self.il = QHBoxLayout(self.inner)
@@ -86,7 +86,7 @@ class QuickTagBar(QWidget):
             b.setCheckable(True)
             b.setChecked(label in active)
             b.setCursor(Qt.PointingHandCursor)
-            b.setToolTip("Coincide con: " + ", ".join(kws))
+            b.setToolTip("Matches: " + ", ".join(kws))
             b.setProperty("kws", kws)
             b.setProperty("spec_i", i)
             b.toggled.connect(self._emit)
@@ -97,13 +97,13 @@ class QuickTagBar(QWidget):
         add = QToolButton()
         add.setObjectName("pillAdd")
         add.setText("＋")
-        add.setToolTip("Agregar un tag rápido")
+        add.setToolTip("Add a quick tag")
         add.clicked.connect(self.add)
         self.il.addWidget(add)
         self.clear_b = QToolButton()
         self.clear_b.setObjectName("pillClear")
-        self.clear_b.setText("✕ Limpiar")
-        self.clear_b.setToolTip("Apagar todos los tags rápidos")
+        self.clear_b.setText("✕ Clear")
+        self.clear_b.setToolTip("Turn off all quick tags")
         self.clear_b.clicked.connect(self.clear)
         self.il.addWidget(self.clear_b)
         self.il.addStretch(1)
@@ -133,12 +133,12 @@ class QuickTagBar(QWidget):
 
     # ---------------- edición
     def _ask(self, title, text=""):
-        t, ok = QInputDialog.getText(self, title, "Nombre: palabras que tiene que tener (separadas por coma)\n"
-                                                  "Ej.  Fuego: fire, flame, llama", text=text)
+        t, ok = QInputDialog.getText(self, title, "Name: words to match (comma separated)\n"
+                                                  "E.g.  Fire: fire, flame, fuego", text=text)
         return t.strip() if ok and t.strip() and parse_pill(t)[0] else None
 
     def add(self):
-        t = self._ask("Tag rápido nuevo")
+        t = self._ask("New quick tag")
         if t:
             self._save(self.specs() + [t])
 
@@ -148,7 +148,7 @@ class QuickTagBar(QWidget):
         m = QMenu(self)
 
         def edit():
-            t = self._ask("Editar tag rápido", specs[i])
+            t = self._ask("Edit quick tag", specs[i])
             if t:
                 specs[i] = t
                 self._save(specs)
@@ -168,12 +168,12 @@ class QuickTagBar(QWidget):
                 x.setChecked(x is b)
                 x.blockSignals(False)
             self._emit()
-        m.addAction("Solo este", solo)
+        m.addAction("Only this one", solo)
         m.addSeparator()
-        m.addAction("Editar…", edit)
-        m.addAction("Mover a la izquierda", lambda: move(-1)).setEnabled(i > 0)
-        m.addAction("Mover a la derecha", lambda: move(1)).setEnabled(i < len(specs) - 1)
-        m.addAction("Quitar", remove)
+        m.addAction("Edit…", edit)
+        m.addAction("Move left", lambda: move(-1)).setEnabled(i > 0)
+        m.addAction("Move right", lambda: move(1)).setEnabled(i < len(specs) - 1)
+        m.addAction("Remove", remove)
         m.addSeparator()
-        m.addAction("Restaurar los de fábrica", lambda: self._save(list(DEFAULT_QUICK_TAGS)))
+        m.addAction("Restore defaults", lambda: self._save(list(DEFAULT_QUICK_TAGS)))
         m.exec(b.mapToGlobal(b.rect().bottomLeft()))

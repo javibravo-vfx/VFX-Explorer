@@ -26,6 +26,12 @@ class FolderTreeDelegate(QStyledItemDelegate):
 
     def initStyleOption(self, option, index):
         super().initStyleOption(option, index)
+        if not index.parent().isValid():
+            hidden = self.app.cfg["hidden_drives"] or []
+            if hidden:
+                from .core import norm_key
+                if norm_key(self.app.fs.filePath(index)) in {norm_key(x) for x in hidden}:
+                    option.palette.setColor(option.palette.ColorRole.Text, QColor("#6a6a6a"))
         if index.parent().isValid():
             c = self.app.dir_color(self.app.fs.filePath(index))
             option.icon = self.app.icons.folder_icon(c, 18)
@@ -78,6 +84,11 @@ class _LinedMixin:
         ix = self.indexAt(ev.position().toPoint())
         p = self.path_of(ix) if ix.isValid() else ""
         return ix, (p if p and os.path.isdir(p) else "")
+
+    def startDrag(self, actions):
+        # solo "copiar" para Qt: así nunca saca filas del árbol; mover o copiar lo decide el destino
+        super().startDrag(Qt.CopyAction)
+        self.app.drag_finished()
 
     def dragEnterEvent(self, ev):
         if ev.mimeData().hasUrls():
@@ -270,6 +281,19 @@ class LibTree(_LinedMixin, QTreeWidget):
         self._make_item, self._expand_item = make_item, expand_item
         self.setItemDelegate(_LibDelegate(self))
         self.setHeaderHidden(True)
+        self.setDragEnabled(True)
+
+    def mimeTypes(self):
+        return ["text/uri-list"]
+
+    def mimeData(self, items):
+        from PySide6.QtCore import QMimeData, QUrl
+        md = QMimeData()
+        md.setUrls([QUrl.fromLocalFile(it.data(0, Qt.UserRole)) for it in items if it.data(0, Qt.UserRole)])
+        return md
+
+    def supportedDropActions(self):
+        return Qt.CopyAction | Qt.MoveAction
 
     def path_of(self, index):
         return index.data(Qt.UserRole) or "" if index.isValid() else ""

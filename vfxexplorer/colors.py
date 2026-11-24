@@ -10,14 +10,14 @@ from PySide6.QtGui import QColor
 from .core import norm_key
 
 COLOR_MODES = [
-    ("Solo manual", "manual"),
-    ("Por proyecto", "project"),
-    ("Por nombre", "name"),
-    ("Proyecto + nombre", "both"),
+    ("Manual only", "manual"),
+    ("By project", "project"),
+    ("By name", "name"),
+    ("Project + name", "both"),
 ]
 
 DEFAULT_NAME_RULES = """\
-# patrón = color   (sin distinguir mayúsculas; vale * y ?)
+# pattern = color   (case-insensitive; * and ? allowed)
 3D = #3e63dd
 2D = #30a46c
 comp = #f76b15

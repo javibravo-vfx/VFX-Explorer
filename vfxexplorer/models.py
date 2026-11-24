@@ -13,7 +13,7 @@ from .core import (scan_dir, entry_matches, resolve_refs, natural_key, human_siz
 ROLE_ENTRY = Qt.UserRole + 1
 ROLE_SORT = Qt.UserRole + 2
 
-COLS = ["Nombre", "Tipo", "Rango", "Frames", "Faltan", "Tamaño", "Modificado", "Rating", "Tags", "Carpeta"]
+COLS = ["Name", "Type", "Range", "Frames", "Missing", "Size", "Modified", "Rating", "Tags", "Folder"]
 C_NAME, C_TYPE, C_RANGE, C_FRAMES, C_MISSING, C_SIZE, C_MTIME, C_RATING, C_TAGS, C_FOLDER = range(10)
 
 
@@ -21,7 +21,7 @@ def entry_tooltip(e, lib=None):
     if e.kind == "seq":
         t = f"{e.name}\nFrames {e.first}-{e.last} ({len(e.frames)})"
         if e.missing:
-            t += f"\nFaltan {len(e.missing)}: {compress_ranges(e.missing)[:300]}"
+            t += f"\nMissing {len(e.missing)}: {compress_ranges(e.missing)[:300]}"
         t += f"\n{human_size(e.size)}"
     else:
         t = e.name
@@ -56,8 +56,8 @@ class EntryModel(QAbstractTableModel):
         return [e for e in self.entries if e.kind != "header"]
 
     # ---------------- grupos (encabezados por carpeta o por tipo)
-    TYPE_GROUPS = [("dir", "Carpetas"), ("seq", "Secuencias"), ("video", "Videos"), ("image", "Imágenes"),
-                   ("model", "Escenas / modelos 3D"), ("other", "Otros")]
+    TYPE_GROUPS = [("dir", "Folders"), ("seq", "Sequences"), ("video", "Videos"), ("image", "Pictures"),
+                   ("model", "3D scenes / models"), ("other", "Other")]
 
     def regroup(self, mode):
         self.beginResetModel()
@@ -76,15 +76,15 @@ class EntryModel(QAbstractTableModel):
             if self.group_mode == "drives":
                 net = getattr(e, "drive_kind", "local") == "network"
                 key = (1 if net else 0,)
-                label = "Ubicaciones de red" if net else "Dispositivos y unidades"
+                label = "Network locations" if net else "Devices and drives"
             elif self.group_mode == "type":
                 c = e.cat
                 key = (order.get(c, 99),)
-                label = labels.get(c, "Otros")
+                label = labels.get(c, "Other")
             else:
                 rel = self.folder_text(e) if self.root else e.dirpath
                 key = tuple(natural_key(rel if rel != "." else ""))
-                label = "(esta carpeta)" if rel == "." else rel
+                label = "(this folder)" if rel == "." else rel
             e._g = key
             g = groups.setdefault(key, [label, 0, 0])
             g[1] += 1
@@ -186,14 +186,14 @@ class EntryModel(QAbstractTableModel):
                 if col == C_SIZE:
                     return human_size(e.size)
                 if col == C_RANGE:
-                    return f"{human_size(getattr(e, 'free', 0))} libres"
+                    return f"{human_size(getattr(e, 'free', 0))} free"
                 return ""
             if role == Qt.DecorationRole and col == C_NAME:
                 return self.app.icons.drive_icon(getattr(e, "drive_kind", "local"), 18)
             if role == ROLE_SORT:
                 return natural_key(e.path) if col == C_NAME else (e.size if col == C_SIZE else 0)
             if role == Qt.ToolTipRole:
-                return f"{e.name}\n{getattr(e, 'unc', '') or e.path}\n{human_size(getattr(e, 'free', 0))} libres de {human_size(e.size)}"
+                return f"{e.name}\n{getattr(e, 'unc', '') or e.path}\n{human_size(getattr(e, 'free', 0))} free of {human_size(e.size)}"
             return None
         if e.kind == "header":
             if role == Qt.DisplayRole:

@@ -139,26 +139,29 @@ class WinTabBar(QTabBar):
         super().__init__()
         self.plus = QToolButton(self)
         self.plus.setAutoRaise(True)
-        self.plus.setFixedSize(30, 28)
+        self.plus.setFixedSize(36, 32)
+        self.plus.setIconSize(QSize(18, 18))
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        f = self.font()
+        f.setPointSizeF(10)
+        self.setFont(f)
 
     def _avail(self):
         return max(self.MIN_W, self.width() - self.plus.width() - 10)
 
     def tabSizeHint(self, i):
-        s = super().tabSizeHint(i)
         n = max(1, self.count())
         w = max(self.MIN_W, min(self.TAB_W, self._avail() // n))
-        return QSize(w, max(s.height(), 34))
+        return QSize(w, 40)
 
     def minimumTabSizeHint(self, i):
         return QSize(self.MIN_W, self.tabSizeHint(i).height())
 
     def minimumSizeHint(self):
-        return QSize(self.MIN_W + 40, 34)
+        return QSize(self.MIN_W + 40, 40)
 
     def sizeHint(self):
-        return QSize(self.TAB_W + 40, 34)
+        return QSize(self.TAB_W + 40, 40)
 
     def _place_plus(self):
         if self.count():
@@ -206,7 +209,7 @@ class WinTabBar(QTabBar):
             elif i + 1 != cur and i < self.count() - 1:
                 p.setPen(QColor("#3a3a3a"))
                 p.drawLine(r.right() + 1, r.top() + 8, r.right() + 1, r.bottom() - 6)
-            x = r.left() + 10
+            x = r.left() + 12
             ic = self.tabIcon(i)
             if not ic.isNull():
                 ic.paint(p, QRect(x, r.center().y() - 8, 16, 16))
@@ -305,8 +308,10 @@ class FilePane(QFrame):
         self.tabbar.customContextMenuRequested.connect(self._tab_menu)
         trow.addWidget(self.tabbar, 1)
 
-        def tb(glyph, tip, slot, row, size=16):
+        def tb(glyph, tip, slot, row, size=18):
             b = QToolButton()
+            b.setFixedSize(38, 34)
+            b.setIconSize(QSize(size, size))
             b.setIcon(ic.glyph(glyph, size))
             b.setToolTip(tip)
             b.setAutoRaise(True)
@@ -314,8 +319,8 @@ class FilePane(QFrame):
             row.addWidget(b)
             return b
         self.tabbar.plus.setIcon(ic.glyph("plus", 16))
-        self.tabbar.plus.setToolTip("Pestaña nueva (Ctrl+T)")
-        self.tabbar.plus.clicked.connect(lambda: self.add_tab(self.current_dir() or self.tab_path()))
+        self.tabbar.plus.setToolTip("New tab (Ctrl+T)")
+        self.tabbar.plus.clicked.connect(self.new_tab)
         self.tabsrow = tabsrow
         self.corner = QHBoxLayout()        # acá va el selector de modo (Carpetas / VFX Library)
         self.corner.setContentsMargins(0, 0, 0, 0)
@@ -327,29 +332,32 @@ class FilePane(QFrame):
         navrow.setObjectName("paneNav")
         self.navrow = navrow
         nrow = QHBoxLayout(navrow)
-        nrow.setContentsMargins(6, 6, 8, 6)
-        nrow.setSpacing(2)
-        self.b_back = tb("back", "Atrás (Alt+←)", self.go_back, nrow)
-        self.b_fwd = tb("fwd", "Adelante (Alt+→)", self.go_forward, nrow)
-        tb("up", "Subir (Alt+↑ · Backspace)", self.go_up, nrow)
-        tb("reload", "Actualizar (F5)", self.refresh, nrow)
-        nrow.addSpacing(6)
+        nrow.setContentsMargins(8, 7, 10, 7)
+        nrow.setSpacing(6)
+        self.b_back = tb("back", "Back (Alt+←)", self.go_back, nrow)
+        self.b_fwd = tb("fwd", "Forward (Alt+→)", self.go_forward, nrow)
+        tb("up", "Up (Alt+↑ · Backspace)", self.go_up, nrow)
+        tb("reload", "Refresh (F5)", self.refresh, nrow)
+        nrow.addSpacing(10)
         self.crumb = BreadcrumbBar(self.app.fs)
         self.crumb.setMinimumWidth(140)
         self.crumb.navigate.connect(self.navigate)
-        nrow.addWidget(self.crumb, 4)
-        nrow.addSpacing(6)
+        nrow.addWidget(self.crumb, 7)
+        nrow.addSpacing(4)
         self.search = QLineEdit()
         self.search.setObjectName("paneSearch")
-        self.search.setToolTip("Nombre o parte · *comodines* · (con tags activos: #tag, ★3)\n"
-                               "Con «Subcarpetas» prendido busca en toda la rama · Ctrl+F · Esc limpia")
+        self.search.setToolTip("Name or part · *wildcards* · (with tags on: #tag, ★3)\n"
+                               "With «Subfolders» on it searches the whole branch · Ctrl+F · Esc clears")
         self.search.setClearButtonEnabled(True)
         self.search.addAction(ic.glyph("search", 16, "#c5c5c5"), QLineEdit.TrailingPosition)
         self.search.setMinimumWidth(150)
-        self.search.setMaximumWidth(300)
+        self.search.setFixedHeight(36)
+        self.search.setStyleSheet("QLineEdit{font-size:10.5pt; padding:4px 10px; border-radius:5px;"
+                                  "border:1px solid #333333; background:#2d2d2d;}"
+                                  "QLineEdit:focus{background:#1f1f1f; border-bottom:2px solid #4cc2ff;}")
         self.search.textChanged.connect(self._on_search_text)
         self.search.returnPressed.connect(self._apply_search)
-        nrow.addWidget(self.search, 2)
+        nrow.addWidget(self.search, 3)
         hl.addWidget(navrow)
 
         # --- estado que se maneja desde la barra de comandos (no se muestra en el panel)
@@ -376,7 +384,7 @@ class FilePane(QFrame):
         self.banner.setTextFormat(Qt.RichText)
         self.banner.setWordWrap(False)
         self.banner.setCursor(Qt.PointingHandCursor)
-        self.banner.setToolTip("Click para volver a ver solo esta carpeta")
+        self.banner.setToolTip("Click to see only this folder again")
         self.banner.mousePressEvent = lambda ev: self._banner_clicked()
         self.banner.hide()
         lay.addWidget(self.banner)
@@ -466,7 +474,7 @@ class FilePane(QFrame):
         sc("Alt+Right", self.go_forward)
         sc("Alt+Up", self.go_up)
         sc("F5", self.refresh)
-        sc("Ctrl+T", lambda: self.add_tab(self.current_dir() or self.tab_path()))
+        sc("Ctrl+T", self.new_tab)
         sc("Ctrl+W", lambda: self.close_tab(self.ti))
         sc("Ctrl+Tab", lambda: self.tabbar.setCurrentIndex((self.ti + 1) % max(1, len(self.tabs))))
         sc("Ctrl+Shift+Tab", lambda: self.tabbar.setCurrentIndex((self.ti - 1) % max(1, len(self.tabs))))
@@ -597,8 +605,8 @@ class FilePane(QFrame):
             home = os.path.expanduser("~")
             self.add_tab(home, activate=activate)
             t = self.tabs[-1]
-            t["virtual"] = {"title": "Este equipo", "kind": "thispc", "name": ""}
-            self.tabbar.setTabText(len(self.tabs) - 1, "Este equipo")
+            t["virtual"] = {"title": "This PC", "kind": "thispc", "name": ""}
+            self.tabbar.setTabText(len(self.tabs) - 1, "This PC")
             self.tabbar.setTabIcon(len(self.tabs) - 1, self._tab_icon(t))
             if self.tabs[self.ti] is t:
                 self._show_location()
@@ -620,7 +628,7 @@ class FilePane(QFrame):
         close.setText("×")
         close.setAutoRaise(True)
         close.setFixedSize(16, 16)
-        close.setToolTip("Cerrar pestaña (Ctrl+W · click del medio)")
+        close.setToolTip("Close tab (Ctrl+W · middle click)")
         close.setStyleSheet("QToolButton{border:none;color:#7d8590;font-size:12pt;padding:0 0 2px 0;}"
                             "QToolButton:hover{color:#fff;background:#4a4d55;border-radius:3px;}")
         close.clicked.connect(lambda c=False, b=close: self._close_by_button(b))
@@ -700,21 +708,28 @@ class FilePane(QFrame):
         if i < 0:
             return
         m = QMenu(self)
-        m.addAction("Duplicar pestaña", lambda: self.add_tab(self.tabs[i]["path"]))
-        m.addAction("Cerrar", lambda: self.close_tab(i)).setEnabled(len(self.tabs) > 1)
+        m.addAction("Duplicate tab", lambda: self.add_tab(self.tabs[i]["path"]))
+        m.addAction("Close", lambda: self.close_tab(i)).setEnabled(len(self.tabs) > 1)
 
         def close_others():
             keep = self.tabs[i]
             for j in reversed(range(len(self.tabs))):
                 if self.tabs[j] is not keep:
                     self.close_tab(j)
-        m.addAction("Cerrar las otras", close_others).setEnabled(len(self.tabs) > 1)
+        m.addAction("Close other tabs", close_others).setEnabled(len(self.tabs) > 1)
         m.exec(self.tabbar.mapToGlobal(pos))
 
     def state(self):
         tabs = [{"path": THISPC if (t["virtual"] and t["virtual"]["kind"] == "thispc") else t["path"]}
                 for t in self.tabs]
         return {"tabs": tabs, "current": self.ti, "view": self.view_mode, "group": self.group_mode}
+
+    def new_tab(self):
+        """Pestaña nueva: en Carpetas abre Este equipo (como Windows); en la librería, la carpeta actual."""
+        if self.root_lock:
+            self.add_tab(self.current_dir() or self.tab_path())
+        else:
+            self.add_tab(THISPC)
 
     def clear_tabs(self):
         self.tabbar.blockSignals(True)
@@ -757,21 +772,21 @@ class FilePane(QFrame):
             if t is not None and add_history and t["history"][t["hpos"]] != THISPC:
                 t["history"] = t["history"][: t["hpos"] + 1] + [THISPC]
                 t["hpos"] = len(t["history"]) - 1
-            self.show_virtual("Este equipo", "thispc", "")
+            self.show_virtual("This PC", "thispc", "")
             return
         path = os.path.expandvars(os.path.expanduser(path))
         if os.path.isfile(path):
             select = os.path.basename(path)
             path = os.path.dirname(path)
         if not os.path.isdir(path):
-            self._set_status(f"No existe la carpeta: {path}")
+            self._set_status(f"Folder doesn't exist: {path}")
             self.crumb.set_path(self.tab_path())
             return
         path = os.path.normpath(os.path.abspath(path))
         if IS_WIN and len(path) == 2 and path[1] == ":":
             path += "\\"
         if not self.allowed(path):
-            self._set_status("La VFX Library solo navega dentro de sus carpetas (agregalas con el ＋ de «VFX LIBRARY»)")
+            self._set_status("The VFX Library only browses inside its folders (add them with the ＋ of «VFX LIBRARY»)")
             self.crumb.set_path(self.tab_path(), root=self.lock_root_for(self.tab_path()))
             return
         if new_tab:
@@ -832,7 +847,7 @@ class FilePane(QFrame):
             return
         cur = t["path"]
         if self.root_lock and any(same_path(cur, r) for r in self.root_lock()):
-            self._set_status("Estás en la raíz de la librería")
+            self._set_status("You're at the library root")
             return
         parent = os.path.dirname(cur.rstrip("\\/"))
         if (not parent or same_path(parent, cur) or same_path(os.path.dirname(cur), cur)) and not self.root_lock:
@@ -876,7 +891,7 @@ class FilePane(QFrame):
             return
         self._stop_search()
         self.gen += 1
-        self._set_status("Leyendo…")
+        self._set_status("Reading…")
         w = ScanWorker(self.gen, self.tab_path(), bool(self.app.cfg["show_hidden"]))
         w.done.connect(self._scan_done)
         self._track(w)
@@ -970,7 +985,7 @@ class FilePane(QFrame):
         w.finished_search.connect(self._search_done)
         self._track(w)
         self.search_worker = w
-        self._set_status("Buscando…")
+        self._set_status("Searching…")
         w.start()
 
     def _search_batch(self, gen, entries):
@@ -994,7 +1009,7 @@ class FilePane(QFrame):
 
     def _search_progress(self, gen, scanned, d):
         if gen == self.gen:
-            self._set_status(f"Buscando… {len(self.model.entries)} resultados · {scanned} carpetas")
+            self._set_status(f"Searching… {len(self.model.entries)} results · {scanned} folders")
             self._set_banner(len(self.model.entries), scanning=scanned)
 
     def _search_done(self, gen, found, capped):
@@ -1004,10 +1019,10 @@ class FilePane(QFrame):
         self.flush_timer.stop()
         self._flush_pending()
         self._sort()
-        extra = f" (límite de {SearchWorker.MAX_RESULTS})" if capped else ""
+        extra = f" (limit {SearchWorker.MAX_RESULTS})" if capped else ""
         self._set_banner(found, capped=capped)
-        self._update_status(f"{'Búsqueda en' if self.search.text().strip() else 'Todo el contenido de'} "
-                            f"subcarpetas: {found}{extra}")
+        self._update_status(f"{'Search in' if self.search.text().strip() else 'All contents of'} "
+                            f"subfolders: {found}{extra}")
 
     def _banner_clicked(self):
         if self.pill_kw:
@@ -1022,21 +1037,21 @@ class FilePane(QFrame):
             return
         root = os.path.basename(self.tab_path().rstrip("\\/")) or self.tab_path()
         q = self.search.text().strip()
-        what = f"Resultados de «{q}»" if q else "Todos los archivos"
+        what = f"Results for «{q}»" if q else "All files"
         if self.pill_labels:
             what = " · ".join(self.pill_labels) + (f" + «{q}»" if q else "")
-        tail = f" · buscando… ({scanning} carpetas)" if scanning else (" · límite alcanzado" if capped else "")
-        self.banner.setText(f"<b>⤓ {what}</b> en <b>{root}</b> y sus subcarpetas — {count} encontrados{tail}"
-                            f"&nbsp;&nbsp;<span style='color:#cfe0ff'>✕ ver solo esta carpeta</span>")
+        tail = f" · searching… ({scanning} folders)" if scanning else (" · limit reached" if capped else "")
+        self.banner.setText(f"<b>⤓ {what}</b> in <b>{root}</b> and its subfolders — {count} found{tail}"
+                            f"&nbsp;&nbsp;<span style='color:#cfe0ff'>✕ show only this folder</span>")
         self.banner.show()
-        self.search.setPlaceholderText(f"Buscar en {root} y subcarpetas")
+        self.search.setPlaceholderText(f"Search {root} and subfolders")
 
     def _placeholder(self):
         t = self.tab()
         if t and t["virtual"]:
-            return f"Buscar en {t['virtual']['title']}"
+            return f"Search {t['virtual']['title']}"
         name = os.path.basename(self.tab_path().rstrip("\\/")) if self.tabs else ""
-        return f"Buscar en {name}" if name else "Buscar"
+        return f"Search {name}" if name else "Search"
 
     # ------------------------------------------------------------------ vistas virtuales (tags, colecciones)
     def show_virtual(self, title, kind, name, new_tab=False):
@@ -1060,7 +1075,7 @@ class FilePane(QFrame):
             self.list.setColumnHidden(C_FOLDER, True)
             self._set_banner(None)
             self._show_location()
-            self._set_status("Leyendo unidades…")
+            self._set_status("Reading drives…")
             w = DrivesWorker(self.gen)
             w.done.connect(self._drives_done)
             self._track(w)
@@ -1072,7 +1087,7 @@ class FilePane(QFrame):
         self.list.setColumnHidden(C_FOLDER, False)
         self._set_banner(None)
         self._show_location()
-        self._set_status("Buscando en la librería…")
+        self._set_status("Searching the library…")
         w = ResolveWorker(self.gen, refs)
         w.done.connect(self._virtual_done)
         self._track(w)
@@ -1087,7 +1102,7 @@ class FilePane(QFrame):
         self.proxy.set_filter(parse_query(""), "all")
         self._sort()
         n = len(entries)
-        self._set_status(f"{n} {'unidad' if n == 1 else 'unidades'}")
+        self._set_status(f"{n} {'drive' if n == 1 else 'drives'}")
 
     def _virtual_done(self, gen, entries, n_missing):
         if gen != self.gen:
@@ -1097,7 +1112,7 @@ class FilePane(QFrame):
         self._grid_uniform()
         self.proxy.set_filter(self._query(), self.filter.currentData())
         self._sort()
-        extra = f" · {n_missing} no encontrados (movidos o borrados)" if n_missing else ""
+        extra = f" · {n_missing} not found (moved or deleted)" if n_missing else ""
         self._update_status(f"{self.tab()['virtual']['title']}{extra}")
 
     def is_virtual(self):
@@ -1142,9 +1157,9 @@ class FilePane(QFrame):
             if e.kind != "header":
                 counts[e.cat] = counts.get(e.cat, 0) + 1
         parts = []
-        for k, lbl in (("dir", "carpetas"), ("seq", "secuencias"), ("video", "videos"), ("image", "imágenes"),
-                       ("model", "escenas/modelos"), ("other", "otros")):
+        for k, lbl in (("dir", "folders"), ("seq", "sequences"), ("video", "videos"), ("image", "images"),
+                       ("model", "scenes/models"), ("other", "other")):
             if counts.get(k):
                 parts.append(f"{counts[k]} {lbl}")
-        txt = " · ".join(parts) or "vacío"
+        txt = " · ".join(parts) or "empty"
         self._set_status(f"{prefix} — {txt}" if prefix else txt)

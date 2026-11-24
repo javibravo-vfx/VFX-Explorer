@@ -1,96 +1,96 @@
 # VFX Explorer
 
-![Version](https://img.shields.io/badge/version-0.6.0-informational) ![Platform](https://img.shields.io/badge/platform-Windows-555) ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white) ![Qt](https://img.shields.io/badge/PySide-6-41CD52?logo=qt&logoColor=white) [![Build](https://github.com/javibravo-vfx/VFX-Explorer/actions/workflows/build.yml/badge.svg)](https://github.com/javibravo-vfx/VFX-Explorer/actions/workflows/build.yml)
+![Version](https://img.shields.io/badge/version-0.9.0-informational) ![Platform](https://img.shields.io/badge/platform-Windows-555) ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white) ![Qt](https://img.shields.io/badge/PySide-6-41CD52?logo=qt&logoColor=white) [![Build](https://github.com/javibravo-vfx/VFX-Explorer/actions/workflows/build.yml/badge.svg)](https://github.com/javibravo-vfx/VFX-Explorer/actions/workflows/build.yml)
 
-Explorador de archivos **liviano y portable** pensado para VFX, con la cara del **Explorador de Windows 11** y el manejo de carpetas de **XYplorer**: secuencias EXR como un solo ítem, thumbnails de EXR, HDR, TX y videos, pestañas, doble panel, **VFX Library con viewer/player**, colores automáticos por proyecto y la navegación de pipeline de [Studio Toolbar](https://github.com/javibravo-vfx/StudioToolbar-max).
+A **lightweight, portable** file explorer built for VFX, with the look of the **Windows 11 File Explorer** and the folder handling of **XYplorer**: EXR sequences as a single item, EXR / HDR / TX / video thumbnails, tabs, dual pane, a **VFX Library with a viewer/player**, automatic per-project folder colors and the pipeline navigation of [Studio Toolbar](https://github.com/javibravo-vfx/StudioToolbar-max).
 
 ![VFX Explorer](docs/screenshot.png)
 
 ![VFX Library](docs/screenshot-library.png)
 
-## Descarga
+## Download
 
-Bajá `VFXExplorer-win64.zip` desde **[Releases](https://github.com/javibravo-vfx/VFX-Explorer/releases)**, descomprimilo donde quieras (otro disco, el NAS, un pendrive) y abrí `VFXExplorer.exe`. No hace falta instalar nada.
+Get `VFXExplorer-win64.zip` from **[Releases](https://github.com/javibravo-vfx/VFX-Explorer/releases)**, unzip it anywhere (another drive, the NAS, a USB stick) and run `VFXExplorer.exe`. Nothing to install.
 
-Para thumbnails e info de videos, copiá `ffmpeg.exe` y `ffprobe.exe` en la carpeta `bin\`.
+For video thumbnails and info, copy `ffmpeg.exe` and `ffprobe.exe` into the `bin\` folder.
 
-## Funciones
+## Features
 
 | | |
 |---|---|
-| **Estilo Windows 11** | Pestañas como las del Explorador (ancho fijo, ícono, la activa en negrita) y dirección arriba a todo el ancho, con el selector **Carpetas / VFX Library** a la derecha. En doble panel cada panel tiene su cabecera arriba, alineada con él. Debajo, una fila con ＋ (carpeta, pestaña, acceso rápido), Subcarpetas, Filtrar, Ordenar, Ver y ⋯, el **pipeline** (o los tags rápidos en la VFX Library), Doble panel, Detalles y ⚙. Cortar/Copiar/Pegar/Renombrar/Eliminar en el clic derecho y con los atajos de siempre. Tema y barra de título oscuros |
-| **Este equipo** | Como en Windows 11: discos locales y ubicaciones de red con etiqueta, letra (y servidor en las unidades de red), barra de uso (roja cuando está casi lleno) y espacio libre. Desde «Este equipo» en el panel izquierdo, el primer tramo de la barra de dirección, o subiendo desde la raíz de un disco |
-| **Panel izquierdo** | Arriba **Acceso rápido**, uno para cada mundo: el de Carpetas trae Escritorio, Descargas, Imágenes y Videos (el ojito los oculta) y su ＋ agrega la carpeta actual. Abajo dos tabs, **CARPETAS** (Este equipo y árbol) y **VFX LIBRARY** (árbol de la librería, con ＋ para sumar carpetas). Cambiar de tab solo muestra el otro árbol: el panel central cambia recién al hacer click en una carpeta, así podés abrir el árbol de Carpetas y soltar ahí un elemento de la librería. También se puede soltar sobre una pestaña de Carpetas. Junto a los tabs: botón de **colores automáticos** |
-| **Árbol estilo XYplorer** | Líneas finas (sólidas o punteadas), cajitas ⊞/⊟ y **Tree Path Tracing**: una línea de acento marca el camino desde la raíz hasta la carpeta actual. Las líneas pueden tomar el color de cada carpeta. El árbol de la VFX Library usa las mismas líneas con su propio color (violeta por defecto). Soltar archivos sobre una carpeta del árbol copia o mueve ahí (se expande sola si esperás encima). Se configura en ⚙ › Colores |
-| **VFX Library** | Modo propio (Ctrl+Shift+L), con sus pestañas en el centro entre el viewer y los elementos, que solo navega **dentro de las carpetas de la librería** (no se puede salir de sus raíces). Tiene su propio árbol y su propio acceso rápido; el ＋ al lado del tab «VFX LIBRARY» elige dónde está tu librería (una o varias carpetas). Arriba hay un viewer y abajo los elementos en grilla: te movés con las flechas y cada uno se reproduce solo, en loop. Reproduce secuencias EXR/JPG/PNG/DPX, videos MOV/MP4 (con ffmpeg) e imágenes / HDRIs. En EXR multicapa, un selector cambia de **AOV / canal** (beauty, alpha, depth, normales…); las capas de datos se muestran sin conversión de color y normalizadas. Espacio: play/pausa · `,` `.`: frame a frame. Elegís los fps y el loop/autoplay se recuerdan |
-| **Tags rápidos** | En la VFX Library, donde va el pipeline: pastillas como **Humo, Fuego, Explosión, Chispas, Polvo, Agua…** que muestran todos los elementos de la rama cuyo nombre, carpeta o tag coincide (`Fuego: fire, flame, llama`). Varias prendidas = cualquiera de ellas. ＋ agrega, clic derecho edita, reordena o quita |
-| **Scrub en thumbnails** | Pasá el mouse sobre una secuencia o un video en la grilla y se recorren sus frames (con el número de frame) |
-| **Agrupar** | Ordenar › Agrupar por: carpeta o tipo. Con **Subcarpetas** se agrupa solo por carpeta, como el «expandir todas las carpetas» de Found: todo el contenido de la rama en una pantalla, ordenado por subcarpeta |
-| **Subcarpetas** | El botón **Subcarpetas** (Ctrl+B): sin texto muestra **todos los archivos** de la carpeta y sus subcarpetas; con texto busca en toda la rama. Una barra azul avisa que estás viendo subcarpetas y cada ítem muestra en qué subcarpeta está (↳ renders) |
-| **Colores automáticos** | Desde el botón de colores del panel izquierdo: **Por proyecto** (cada proyecto del pipeline con su color, más claro en secuencias y shots), **Por nombre** (reglas como `3D = azul`, `comp = naranja`, editables en ⚙ › Colores) o ambos. El color manual siempre gana. Líneas del árbol estilo XYplorer, con el color de cada carpeta |
-| **Secuencias** | `plate.1001.exr … plate.1100.exr` → un ítem `plate.####.exr` con rango, frames, tamaño total y **frames faltantes** en rojo. No confunde versiones (`_v001`) con frames |
-| **Thumbnails** | EXR (multicapa, tileados con mips, ACEScg / ACES2065-1 → sRGB, detección por chromaticities), HDR, TIFF de 16 y 32 bits, TX, DPX, PSD, TGA, JPG/PNG con alpha sobre damero, MOV/MP4/MXF vía ffmpeg. Caché en disco |
-| **Previews de modelos y carpetas** | `.max`, `.fbx`, `.abc`, `.usd`, `.blend`… usan el JPG/PNG con el mismo nombre (`rock.max` → `rock.jpg`, `rock_thumb.png`, o dentro de `thumbs/` o `previews/`). Las carpetas usan su `thumbnail.jpg`, `preview.png`, `cover.jpg` o la imagen con el nombre de la carpeta |
-| **Pestañas** | Ctrl+T, Ctrl+W, click del medio en una carpeta la abre en pestaña nueva, se reordenan arrastrando y se recuerdan al cerrar |
-| **Doble panel** | F9 lo activa y F6 cambia de panel (o click en sus pestañas). Cerrar la única pestaña de un panel cierra ese panel. Copiar o mover al otro panel desde el menú, o arrastrando entre paneles |
-| **Breadcrumb** | Cada tramo de la ruta es clickeable y el `›` despliega sus subcarpetas. Click en el espacio vacío (o Ctrl+L) para escribir la ruta |
-| **Operaciones** | Copiar / cortar / pegar (Ctrl+C/X/V, compatible con el Explorador), arrastrar en grilla o lista (a una carpeta, al otro panel o desde/hacia el Explorador), copia y movimiento con progreso y cancelación, Supr manda a la papelera, Ctrl+Shift+N crea carpeta. Las secuencias se tratan siempre como un solo ítem |
-| **Renombrar secuencias** | **F2** edita el nombre en el lugar, como un archivo: `plate_v001.####.exr` → `sh010_plate_v002.####.exr` renombra todos los frames. Cambiar la cantidad de `#` cambia el padding. «Renumerar secuencia…» (clic derecho) cambia el primer frame (ej. 1 → 1001) |
-| **Tamaño de carpetas** | Opcional (⚙ › General): se calcula en segundo plano y se ve en la grilla y en la lista |
-| **Tags / rating / colecciones** | Apagados por defecto; se prenden en ⚙ › General. Rating ★1–5 (Ctrl+0…5), tags (Ctrl+E) y colecciones que agrupan assets de distintas carpetas sin moverlos |
-| **Búsqueda** | Nombre o parte, `*comodines*`, filtro por tipo y **Subcarpetas** para buscar en toda la rama (con tags activos: `#tag`, `★3`) |
-| **Pipeline** | Proyecto → Secuencia → Shot → **Depto** (3D, Comp, DMP, 2D…) → Task, con la estructura de Studio Toolbar (`T:\VFX-{PROY}\{SEQ}\{SHOT}\{DEPTO}\{TASK}\`). Los dropdowns van en horizontal sobre el panel central (por defecto), en el panel izquierdo u ocultos (⚙ › Pipeline), y se puede limitar qué carpetas cuentan como departamento. Elegir un nivel navega ahí; el botón de carpeta lleva al shot, al task o a sus subcarpetas (`1_projects`, `2_review`, `3_publish`…). Al navegar, los combos se sincronizan solos, y quedan vacíos en carpetas que no son del pipeline |
-| **Info** | Resolución, data window, compresión, canales/AOVs, partes, mipmaps y chromaticities de EXR; codec, fps, duración, timecode y pixel format de video |
-| **Copiar ruta** | `plate.####.exr`, formato Nuke `plate.%04d.exr 1001-1100`, ruta Windows, primer frame o carpeta |
+| **Windows 11 style** | Explorer-like tabs (fixed width, icon, bold active tab; they only shrink when they don't fit) and a full-width address bar with ← → ↑ ⟳ and «Search…». The **Folders / VFX Library** switch sits right of the tabs. In dual pane each pane has its own header on top, aligned with it. Below: **⊕ New**, **Sort**, **View**, Filter, Subfolders and ⋯, then the **pipeline** (or the quick tags in the VFX Library), Dual pane, Details and ⚙. Cut / Copy / Paste / Rename / Delete live in the right-click menu and the usual shortcuts. Dark theme and dark title bar |
+| **This PC** | Like Windows 11: local drives and network locations with label, letter (and server for network drives), usage bar (red when almost full) and free space. New tabs open in This PC |
+| **Left pane** | **Quick access** on top, one per world. The Folders one shows Desktop, Downloads, Pictures and Videos, a divider, and your pinned folders (with a pin). Drag a folder onto it to pin it (from the tree or the center pane); drag inside to reorder. Below, two tabs: **FOLDERS** (This PC and the tree) and **VFX LIBRARY** (the library tree, with ＋ to add folders). Switching tab only shows the other tree: the center changes when you click a folder, so you can open the Folders tree and drop a library element there. The 👁 toggles show hidden items; hide Quick access items and drives with right-click › Hide. Next to the tabs: the **automatic colors** button |
+| **XYplorer-style tree** | Thin lines (solid or dotted), ⊞/⊟ boxes and **Tree Path Tracing**: an accent line marks the path from the root to the current folder. Lines can take each folder's color. The VFX Library tree uses the same lines in its own color (violet by default). Dropping files on a tree folder copies or moves them there (it expands if you hover). Settings in ⚙ › Colors |
+| **VFX Library** | Its own mode (Ctrl+Shift+L), with its tabs in the center between the viewer and the elements, that only browses **inside the library folders**. Its own tree and its own Quick access. Viewer on top and elements in a grid below: move with the arrow keys and each one plays by itself, looped. Plays EXR/JPG/PNG/DPX sequences, MOV/MP4 videos (with ffmpeg) and images / HDRIs. In multi-layer EXRs a selector switches **AOV / channel** (beauty, alpha, depth, normals…); data layers are shown without color conversion and normalized. Space: play/pause · `,` `.`: frame by frame. Drag an element onto a Folders tab to copy or move it there |
+| **Quick tags** | In the VFX Library, where the pipeline goes: pills like **Smoke, Fire, Explosion, Sparks, Dust, Water…** that show every element of the branch whose name, folder or tag matches (`Fire: fire, flame, fuego`). Several on = any of them. ＋ adds one, right-click edits, reorders or removes |
+| **Thumbnail scrub** | Hover a sequence or video in the grid to scrub through its frames (with the frame number) |
+| **Grouping** | Sort › Group by: folder or type. With **Subfolders** it groups by folder automatically, like Found's «expand all folders»: the whole branch on one screen, by subfolder |
+| **Subfolders** | (Ctrl+B) No text: shows **every file** of the folder and its subfolders; with text it searches the whole branch. A blue bar tells you you're seeing subfolders and each item shows its subfolder (↳ renders) |
+| **Automatic colors** | **By project** (each pipeline project gets a color, lighter on sequences and shots), **By name** (rules like `3D = blue`, `comp = orange`, editable in ⚙ › Colors) or both. Manual color always wins |
+| **Sequences** | `plate.1001.exr … plate.1100.exr` → one `plate.####.exr` item with range, frames, total size and **missing frames** in red. Versions (`_v001`) are not mistaken for frames |
+| **Thumbnails** | EXR (multi-layer, tiled with mips, ACEScg / ACES2065-1 → sRGB, chromaticities detection), HDR, 16 and 32-bit TIFF, TX, DPX, PSD, TGA, JPG/PNG with alpha over a checkerboard, MOV/MP4/MXF via ffmpeg. Disk cache |
+| **Model and folder previews** | `.max`, `.fbx`, `.abc`, `.usd`, `.blend`… use the JPG/PNG with the same name (`rock.max` → `rock.jpg`, `rock_thumb.png`, or inside `thumbs/` or `previews/`). Folders use their `thumbnail.jpg`, `preview.png`, `cover.jpg` or the image named like the folder |
+| **Tabs** | Ctrl+T, Ctrl+W, middle click on a folder opens it in a new tab, drag to reorder, remembered on close |
+| **Dual pane** | F9 toggles it and F6 switches pane (or click its tabs). Closing the only tab of a pane closes that pane. Copy or move to the other pane from the menu or by dragging |
+| **Breadcrumb** | Every segment is clickable and `›` lists its subfolders. Click the empty space (or Ctrl+L) to type a path |
+| **File operations** | Copy / cut / paste (Ctrl+C/X/V, compatible with Windows Explorer), drag in grid or list (onto a folder, the other pane, a tree, a tab, or to/from Windows Explorer), copy and move with progress and cancel, Del sends to the Recycle Bin, Ctrl+Shift+N creates a folder. Sequences are always one item |
+| **Rename sequences** | **F2** edits the name in place, like a file: `plate_v001.####.exr` → `sh010_plate_v002.####.exr` renames every frame. Changing the number of `#` changes the padding. «Renumber sequence…» (right-click) changes the first frame (e.g. 1 → 1001) |
+| **Folder sizes** | Optional (⚙ › General): computed in the background, shown in grid and list |
+| **Tags / rating / collections** | Off by default; enable them in ⚙ › General. Rating ★1–5 (Ctrl+0…5), tags (Ctrl+E) and collections that group assets from different folders without moving them |
+| **Search** | Name or part, `*wildcards*`, type filter and **Subfolders** to search the whole branch (with tags on: `#tag`, `★3`) |
+| **Pipeline** | Project → Sequence → Shot → **Dept** (3D, Comp, DMP, 2D…) → Task, with the Studio Toolbar structure (`T:\VFX-{PROJ}\{SEQ}\{SHOT}\{DEPT}\{TASK}\`). The dropdowns go above the center pane (default), in the left pane or hidden (⚙ › Pipeline), and you can limit which folders count as departments. Picking a level navigates there; the folder button goes to the shot, the task or its subfolders (`1_projects`, `2_review`, `3_publish`…). The combos follow you as you navigate and clear outside the pipeline |
+| **Info** | EXR resolution, data window, compression, channels/AOVs, parts, mipmaps and chromaticities; video codec, fps, duration, timecode and pixel format |
+| **Copy path** | `plate.####.exr`, Nuke format `plate.%04d.exr 1001-1100`, Windows path, first frame or folder |
 
-## Atajos
+## Shortcuts
 
-| Tecla | Acción |
+| Key | Action |
 |---|---|
-| Enter / doble click | Abrir (secuencias y videos en el reproductor configurado) |
-| Backspace · Alt+↑ | Subir |
-| Alt+← / Alt+→ · botones del mouse | Atrás / Adelante |
-| Ctrl+T / Ctrl+W / Ctrl+Tab | Pestaña nueva / cerrar / siguiente |
-| F9 / F6 | Doble panel / cambiar de panel |
-| Ctrl+C / Ctrl+X / Ctrl+V | Copiar / cortar / pegar archivos |
-| Ctrl+Shift+C · Ctrl+Alt+C | Copiar ruta `####` · ruta Nuke |
-| F2 | Renombrar en el lugar (también secuencias) |
-| Ctrl+B | Subcarpetas: todos los archivos de la rama / buscar en la rama |
-| Ctrl+Shift+E / Ctrl+Shift+L | Explorador / VFX Library |
-| Espacio · `,` `.` | (VFX Library) play/pausa · frame anterior/siguiente |
-| Supr | Mandar a la papelera |
-| Ctrl+Shift+N | Carpeta nueva |
-| Ctrl+E · Ctrl+0…5 | Tags · rating (si están activos) |
-| Ctrl+L · Ctrl+F | Escribir ruta · buscar |
-| Alt+Shift+P | Panel de detalles |
-| Ctrl+1 / Ctrl+2 | Grilla / lista |
-| F5 | Refrescar |
+| Enter / double click | Open (sequences and videos in the configured player) |
+| Backspace · Alt+↑ | Up |
+| Alt+← / Alt+→ · mouse buttons | Back / Forward |
+| Ctrl+T / Ctrl+W / Ctrl+Tab | New tab / close / next |
+| F9 / F6 | Dual pane / switch pane |
+| Ctrl+C / Ctrl+X / Ctrl+V | Copy / cut / paste files |
+| Ctrl+Shift+C · Ctrl+Alt+C | Copy `####` path · Nuke path |
+| F2 | Rename in place (sequences too) |
+| Ctrl+B | Subfolders: every file of the branch / search the branch |
+| Ctrl+Shift+E / Ctrl+Shift+L | Folders / VFX Library |
+| Space · `,` `.` | (VFX Library) play/pause · previous/next frame |
+| Del | Send to the Recycle Bin |
+| Ctrl+Shift+N | New folder |
+| Ctrl+E · Ctrl+0…5 | Tags · rating (when enabled) |
+| Ctrl+L · Ctrl+F | Type a path · search |
+| Alt+Shift+P | Details pane |
+| Ctrl+1 / Ctrl+2 | Grid / list |
+| F5 | Refresh |
 
-## Configuración
+## Settings
 
-En ⚙:
-- **Reproductor**: mrv2, DJV u OpenRV para abrir secuencias y videos con doble click.
-- **Espacio de color EXR**: ACEScg por defecto (también se usa en el viewer).
-- **Colores**: color de las carpetas (amarillo como Windows o celeste), modo automático y reglas por nombre.
-- **VFX Library**: resolución del viewer, memoria para frames (cuánto del loop queda en caché), autoplay y loop.
-- **Pipeline**: por defecto lee `%USERPROFILE%\.studio-toolbar\pipeline_config.ini`, la misma configuración que la toolbar. Si no existe, usa la raíz, el prefijo y las exclusiones que pongas acá.
+In ⚙:
+- **Player**: mrv2, DJV or OpenRV to open sequences and videos on double click.
+- **EXR color space**: ACEScg by default (also used by the viewer).
+- **Colors**: folder color (yellow like Windows, or light blue), automatic mode, name rules and tree lines.
+- **VFX Library**: viewer resolution, frame memory (how much of the loop stays cached), autoplay and loop.
+- **Pipeline**: by default reads `%USERPROFILE%\.studio-toolbar\pipeline_config.ini`, the same settings as the toolbar. Otherwise it uses the root, prefix and exclusions you set here.
 
-Todo lo de VFX Explorer (favoritos, pestañas, colores, tags, colecciones, caché de thumbnails) se guarda en `VFXExplorer_data\`, junto al exe. Si esa carpeta no tiene permisos de escritura, va a `%APPDATA%\VFX Explorer`.
+Everything (Quick access, tabs, colors, tags, collections, thumbnail cache) is stored in `VFXExplorer_data\` next to the exe. If that folder isn't writable it goes to `%APPDATA%\VFX Explorer`.
 
-> Borrar en una unidad de red (NAS) es definitivo, salvo que la papelera de red del NAS esté activada en esa carpeta compartida. VFX Explorer te avisa antes.
+> Deleting on a network drive (NAS) is permanent unless the NAS recycle bin is enabled for that shared folder. VFX Explorer warns you first.
 
-## Desarrollo
+## Development
 
 ```bat
-build.bat              :: crea .venv, instala dependencias y compila dist\VFXExplorer
-run.bat                :: corre desde el código
+build.bat              :: creates .venv, installs dependencies and builds dist\VFXExplorer
+run.bat                :: runs from source
 python tests\test_core.py
 ```
 
-Cada push a `main` compila el exe en GitHub Actions; el zip queda como artifact del workflow. Un tag `v*` crea un Release con el zip:
+Every push to `main` builds the exe on GitHub Actions; the zip is kept as a workflow artifact. A `v*` tag creates a Release with the zip:
 
 ```bash
-git tag v0.2.0 && git push origin v0.2.0
+git tag v0.9.0 && git push origin v0.9.0
 ```
 
-Estructura: `vfxexplorer/core.py` (secuencias, búsqueda), `imaging.py` (OpenImageIO / Qt / ffmpeg), `viewer.py` (player de frames), `library_ui.py` (VFX Library), `colors.py` (colores automáticos), `tree.py` (árbol con líneas), `dirsize.py`, `library.py` (tags, rating, colecciones), `pipeline.py` (Studio Toolbar), `fileops.py`, `models.py`, `pane.py`, `widgets.py`, `mainwindow.py`.
+Layout: `vfxexplorer/core.py` (sequences, search), `imaging.py` (OpenImageIO / Qt / ffmpeg), `viewer.py` (frame player), `library_ui.py` (VFX Library), `colors.py` (automatic colors), `tree.py` (lined tree), `quicklist.py` (Quick access), `tagbar.py` (quick tags), `dirsize.py`, `library.py` (tags, rating, collections), `pipeline.py` (Studio Toolbar), `fileops.py`, `models.py`, `pane.py`, `widgets.py`, `mainwindow.py`.

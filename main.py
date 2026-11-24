@@ -18,7 +18,7 @@ def selftest():
         app = QApplication(sys.argv[:1])
         from vfxexplorer import VERSION, imaging, core
         imaging.init_formats()
-        log.append(f"VFX Explorer {VERSION} · OIIO={imaging.HAS_OIIO} · formatos OIIO={len(imaging.OIIO_EXTS)}")
+        log.append(f"VFX Explorer {VERSION} · OIIO={imaging.HAS_OIIO} · OIIO formats={len(imaging.OIIO_EXTS)}")
         tmp = tempfile.mkdtemp()
         if imaging.HAS_OIIO:
             import OpenImageIO as oiio
@@ -30,7 +30,7 @@ def selftest():
                 o.write_image(arr)
                 o.close()
         ents = core.scan_dir(tmp)
-        log.append("entradas: " + ", ".join(e.name for e in ents))
+        log.append("entries: " + ", ".join(e.name for e in ents))
         settings = {"cs": "acescg", "chroma": True, "ffmpeg": None, "sidecar": True}
         for e in ents:
             img = imaging.load_thumbnail(e, settings, tmp, imaging.DirIndex())
@@ -59,14 +59,14 @@ def selftest():
         if seq:
             v = w.libpage.viewer
             got = frames["n"]
-            log.append(f"viewer: {got}/{v.n} frames decodificados")
+            log.append(f"viewer: {got}/{v.n} frames decoded")
             ok = ok and got >= 1
         w.close()
-        log.append("ventana ok")
+        log.append("window ok")
     except Exception:
         ok = False
         log.append(traceback.format_exc())
-    log.append("SELFTEST " + ("OK" if ok else "FALLÓ"))
+    log.append("SELFTEST " + ("OK" if ok else "FAILED"))
     out = os.path.join(tempfile.gettempdir(), "vfxexplorer_selftest.log")
     with open(out, "w", encoding="utf-8") as f:
         f.write("\n".join(log))

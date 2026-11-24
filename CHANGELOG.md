@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.0
+- **The whole UI is now in English.**
+- New tabs open in **This PC** (Folders mode).
+- **Drag a folder onto Quick access** to pin it (from the Folders tree, the VFX Library tree or the center pane).
+- **Windows 11 address bar**: taller, bigger type, more spaced buttons, search box ≈ 30% of the width; **⊕ New**, **Sort** and **View** buttons like Explorer.
+- **Quick access**: divider between the Windows folders and your pinned ones, pin icon, roomier rows.
+- **👁 toggles** (no menus): show hidden Quick access items, and hidden drives in the Folders tree. Hide with right-click › Hide / Hide drive.
+- This PC breadcrumb shows «This PC ›» instead of a title.
+
 ## 0.8.0
 - **Pestañas como Windows 11**: ancho fijo (se achican solo cuando no entran), ícono siempre (carpeta, disco o Este equipo), la activa en negrita, el ＋ pegado a la última.
 - **Pestañas de Carpetas siempre arriba**, también en doble panel (una cabecera por panel, alineadas): activar el doble panel ya no mueve la interfaz. Click en las pestañas de un panel lo activa; desde la VFX Library, vuelve a Carpetas.

@@ -69,10 +69,10 @@ def is_network_path(path):
 
 def new_folder(parent, name):
     if not valid_name(name):
-        raise ValueError("Nombre inválido")
+        raise ValueError("Invalid name")
     p = os.path.join(parent, name.strip())
     if os.path.exists(p):
-        raise FileExistsError(f"Ya existe: {name}")
+        raise FileExistsError(f"Already exists: {name}")
     os.makedirs(p)
     return p
 
@@ -103,7 +103,7 @@ def _trash_windows(paths):
         op.fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI
         res = ctypes.windll.shell32.SHFileOperationW(ctypes.byref(op))
         if res != 0 or op.fAnyOperationsAborted:
-            errors.append(f"Error {res} al mover a la papelera ({len(batch)} archivos)")
+            errors.append(f"Error {res} moving to the Recycle Bin ({len(batch)} files)")
     return errors
 
 
@@ -117,7 +117,7 @@ def trash(paths):
     errors = []
     for p in paths:
         if not QFile.moveToTrash(p):
-            errors.append(f"No se pudo mandar a la papelera: {p}")
+            errors.append(f"Could not send to the Recycle Bin: {p}")
     return errors
 
 
@@ -151,15 +151,15 @@ def rename_plan(e, new_base, start_frame=None, sep=None):
     new_base = new_base.strip()
     if e.kind != "seq":
         if not valid_name(new_base):
-            raise ValueError("Nombre inválido")
+            raise ValueError("Invalid name")
         return [(e.path, os.path.join(e.dirpath, new_base))]
     if new_base and not valid_name(new_base):
-        raise ValueError("Nombre inválido")
+        raise ValueError("Invalid name")
     base, old_sep = split_head(e.head)
     sep = old_sep if sep is None else sep
     offset = 0 if start_frame is None else int(start_frame) - e.first
     if e.first + offset < 0:
-        raise ValueError("El primer frame no puede ser negativo")
+        raise ValueError("The first frame can't be negative")
     pairs = []
     ext = e.ext_real
     for f, name in zip(e.frames, e.files):
@@ -177,7 +177,7 @@ def seq_rename_from_text(e, text):
     Cambiar la cantidad de # cambia el padding. Si no hay # se toma como nombre base y se conserva el separador."""
     text = text.strip()
     if not text:
-        raise ValueError("Nombre vacío")
+        raise ValueError("Empty name")
     ext = e.ext_real
     m = SEQ_TOKEN_RE.match(text)
     if m:
@@ -189,15 +189,15 @@ def seq_rename_from_text(e, text):
         else:
             pad = len(tok) if len(tok) > 1 or e.pad > 1 else 0
         if tail and tail.lower() != ext.lower():
-            raise ValueError(f"La extensión tiene que seguir siendo {ext}")
+            raise ValueError(f"The extension must stay {ext}")
     else:
         stem = text[:-len(ext)] if text.lower().endswith(ext.lower()) else text
         base, sep = split_head(e.head)
         head, pad = stem + sep, e.pad
     if any(c in INVALID_CHARS for c in head):
-        raise ValueError("Nombre inválido")
+        raise ValueError("Invalid name")
     if not head.strip(" ._-"):
-        raise ValueError("Falta el nombre")
+        raise ValueError("Missing name")
     return seq_plan(e, head, pad)
 
 
@@ -205,7 +205,7 @@ def seq_plan(e, new_head, new_pad=None, start_frame=None):
     pad = e.pad if new_pad is None else new_pad
     offset = 0 if start_frame is None else int(start_frame) - e.first
     if e.first + offset < 0:
-        raise ValueError("El primer frame no puede ser negativo")
+        raise ValueError("The first frame can't be negative")
     ext = e.ext_real
     pairs = []
     for f, name in zip(e.frames, e.files):
@@ -223,11 +223,11 @@ def apply_renames(pairs):
     srcs = {norm_key(a) for a, _ in pairs}
     dsts = [norm_key(b) for _, b in pairs]
     if len(set(dsts)) != len(dsts):
-        raise ValueError("Dos archivos terminarían con el mismo nombre")
+        raise ValueError("Two files would end up with the same name")
     for _, b in pairs:
         if os.path.exists(b) and norm_key(b) not in srcs:
             # en Windows renombrar solo mayúsculas/minúsculas es válido
-            raise FileExistsError(f"Ya existe: {os.path.basename(b)}")
+            raise FileExistsError(f"Already exists: {os.path.basename(b)}")
     if any(d in srcs for d in dsts):
         tmp = []
         for i, (a, b) in enumerate(pairs):
@@ -276,13 +276,13 @@ def plan_conflicts(sources, dest_dir):
 def validate_transfer(sources, dest_dir, op):
     """Devuelve mensaje de error o None."""
     if not os.path.isdir(dest_dir):
-        return f"No existe la carpeta destino: {dest_dir}"
+        return f"Destination folder doesn't exist: {dest_dir}"
     for s in sources:
         if os.path.isdir(s) and is_subpath(dest_dir, s):
-            return f"No se puede {'copiar' if op == 'copy' else 'mover'} una carpeta dentro de sí misma: {os.path.basename(s)}"
+            return f"Can't {'copy' if op == 'copy' else 'move'} a folder into itself: {os.path.basename(s)}"
         if same_path(os.path.dirname(s), dest_dir):
-            return "El origen y el destino son la misma carpeta" if op == "move" else \
-                "No se puede copiar en la misma carpeta (elegí otra carpeta)"
+            return "Source and destination are the same folder" if op == "move" else \
+                "Can't copy into the same folder (pick another folder)"
     return None
 
 

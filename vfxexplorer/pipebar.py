@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (QWidget, QHBoxLayout, QGridLayout, QLabel, QCombo
 
 from .core import norm_key
 
-LEVELS = (("proj", "Proyecto"), ("seq", "Secuencia"), ("shot", "Shot"), ("dept", "Depto"), ("task", "Task"))
+LEVELS = (("proj", "Project"), ("seq", "Sequence"), ("shot", "Shot"), ("dept", "Dept"), ("task", "Task"))
 
 
 class PipelineBar(QWidget):
@@ -23,21 +23,21 @@ class PipelineBar(QWidget):
         for key, ph in LEVELS:
             cb = QComboBox()
             cb.setPlaceholderText(ph)
-            cb.setToolTip(ph if key != "dept" else "Departamento: carpetas al nivel de 3D (3D, Comp, DMP, 2D…)")
+            cb.setToolTip(ph if key != "dept" else "Department: folders at the 3D level (3D, Comp, DMP, 2D…)")
             cb.activated.connect(lambda _, k=key: self._pick(k))
             if vertical:
                 cb.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
                 cb.setMinimumContentsLength(6)
                 cb.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
             else:
-                cb.setMinimumWidth({"proj": 90, "seq": 70, "shot": 150, "dept": 70, "task": 110}[key])
+                cb.setMinimumWidth({"proj": 90, "seq": 92, "shot": 150, "dept": 70, "task": 110}[key])
                 cb.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
                 cb.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
                 cb.setMinimumContentsLength(4)
             self.cbs[key] = cb
         self.folder = QToolButton()
         self.folder.setIcon(app.icons.glyph("folder", 16))
-        self.folder.setToolTip("Ir a carpetas del shot / depto / task")
+        self.folder.setToolTip("Go to shot / dept / task folders")
         self.folder.setPopupMode(QToolButton.InstantPopup)
         self.folder.setAutoRaise(True)
         self.menu = QMenu(self.folder)
@@ -96,9 +96,9 @@ class PipelineBar(QWidget):
             cb.setEnabled(ok)
         self.folder.setEnabled(ok)
         if not ok:
-            self.setToolTip(f"No se encontró la raíz del pipeline: {self.pipe.base()} (ver Configuración › Pipeline)")
+            self.setToolTip(f"Pipeline root not found: {self.pipe.base()} (see Settings › Pipeline)")
             return
-        self.setToolTip(f"Raíz: {self.pipe.base()}  ·  config: {self.pipe.source}")
+        self.setToolTip(f"Root: {self.pipe.base()}  ·  config: {self.pipe.source}")
         self._fill("proj", self.pipe.projects(), self._v("proj"))
 
     # ---------------- elegir un nivel = navegar ahí
@@ -177,11 +177,11 @@ class PipelineBar(QWidget):
             return a
 
         if not p:
-            m.addAction("Elegí un proyecto").setEnabled(False)
+            m.addAction("Pick a project").setEnabled(False)
             return
-        add(f"Proyecto  {p}", pipe.project_dir(p))
+        add(f"Project  {p}", pipe.project_dir(p))
         if s:
-            add(f"Secuencia  {s}", pipe.seq_dir(p, s))
+            add(f"Sequence  {s}", pipe.seq_dir(p, s))
         if sh:
             m.addSeparator()
             add(f"Shot  {sh}", pipe.shot_dir(p, s, sh))
@@ -190,7 +190,7 @@ class PipelineBar(QWidget):
         if d:
             m.addSeparator()
             dd = pipe.dept_dir(p, s, sh, d)
-            add(f"Depto  {d}", dd)
+            add(f"Dept  {d}", dd)
             for x in pipe.tasks(p, s, sh, d):
                 add(x, os.path.join(dd, x), 1)
         if t:
@@ -202,5 +202,5 @@ class PipelineBar(QWidget):
             for x in subs + [e for e in existing if e not in subs]:
                 add(x, os.path.join(td, x), 1)
             if os.path.isdir(td):
-                m.addAction("    ↗ abrir el task en pestaña nueva", lambda: self.app.open_in_explorer(td, new_tab=True))
+                m.addAction("    ↗ open the task in a new tab", lambda: self.app.open_in_explorer(td, new_tab=True))
         m.setToolTipsVisible(True)

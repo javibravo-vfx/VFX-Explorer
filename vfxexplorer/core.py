@@ -34,14 +34,14 @@ MODEL_EXTS = {
 CATEGORIES = ("dir", "seq", "video", "image", "model", "other")
 
 FILTERS = [
-    ("Todo", "all"),
-    ("Media (sin otros)", "media"),
-    ("Secuencias", "seq"),
+    ("All", "all"),
+    ("Media (no others)", "media"),
+    ("Sequences", "seq"),
     ("EXR", "exr"),
     ("Videos", "video"),
-    ("Imágenes sueltas", "image"),
-    ("Modelos / escenas", "model"),
-    ("Carpetas", "dir"),
+    ("Single images", "image"),
+    ("Models / scenes", "model"),
+    ("Folders", "dir"),
 ]
 
 
@@ -228,13 +228,13 @@ class Entry:
     def type_label(self):
         e = self.ext[1:].upper() if self.ext else ""
         if self.kind == "dir":
-            return "Carpeta"
+            return "Folder"
         if self.kind == "drive":
-            return {"network": "Unidad de red", "removable": "Unidad extraíble", "cdrom": "Unidad de CD"}.get(
-                getattr(self, "drive_kind", "local"), "Disco local")
+            return {"network": "Network drive", "removable": "Removable drive", "cdrom": "CD drive"}.get(
+                getattr(self, "drive_kind", "local"), "Local Disk")
         if self.kind == "seq":
-            return f"Secuencia {e}"
-        return {"video": f"Video {e}", "image": f"Imagen {e}", "model": f"Escena/Modelo {e}"}.get(self.cat, e or "Archivo")
+            return f"Sequence {e}"
+        return {"video": f"Video {e}", "image": f"Image {e}", "model": f"Scene/Model {e}"}.get(self.cat, e or "File")
 
 
 def _is_frame_boundary(head):
@@ -377,10 +377,10 @@ def _posix_drives():
             continue
         seen.add(mnt)
         kind = "network" if fs in ("nfs", "nfs4", "cifs", "smbfs", "smb3", "9p") else "local"
-        out.append({"letter": "", "root": mnt, "label": os.path.basename(mnt) or "Sistema",
+        out.append({"letter": "", "root": mnt, "label": os.path.basename(mnt) or "System",
                     "unc": dev if kind == "network" else "", "kind": kind})
     if not out:
-        out.append({"letter": "", "root": "/", "label": "Sistema", "unc": "", "kind": "local"})
+        out.append({"letter": "", "root": "/", "label": "System", "unc": "", "kind": "local"})
     return out
 
 
@@ -395,8 +395,8 @@ def list_drives():
             total, free = u.total, u.free
         except OSError:
             pass
-        label = d["label"] or ({"local": "Disco local", "network": "Unidad de red", "removable": "Unidad extraíble",
-                                "cdrom": "Unidad de CD"}[d["kind"]])
+        label = d["label"] or ({"local": "Local Disk", "network": "Network drive", "removable": "Removable drive",
+                                "cdrom": "CD drive"}[d["kind"]])
         if d["letter"]:
             name = f"{label} ({d['unc'].rstrip(chr(92))}) ({d['letter']})" if d["unc"] and d["kind"] == "network" \
                 else f"{label} ({d['letter']})"
@@ -404,7 +404,7 @@ def list_drives():
                 host = d["unc"].lstrip("\\").split("\\")[0]
                 name = f"{label} (\\\\{host}) ({d['letter']})"
         else:
-            name = label if d["root"] != "/" else "Sistema (/)"
+            name = label if d["root"] != "/" else "System (/)"
         e = Entry(kind="drive", dirpath="", name=name, path=d["root"], size=total)
         e.free = free
         e.drive_kind = d["kind"]
@@ -553,14 +553,14 @@ def entry_matches(e, q, cat, recursive=False, meta=None):
 # ----------------------------------------------------------------------------
 
 DEFAULT_QUICK_TAGS = [
-    "Humo: smoke, humo",
-    "Fuego: fire, flame, llama",
-    "Explosión: explosion, blast, exp",
-    "Chispas: sparks, spark, embers",
-    "Polvo: dust, polvo",
-    "Agua: water, splash, agua",
+    "Smoke: smoke, humo",
+    "Fire: fire, flame, fuego",
+    "Explosion: explosion, blast, exp",
+    "Sparks: sparks, spark, embers",
+    "Dust: dust, polvo",
+    "Water: water, splash, agua",
     "Debris: debris, rocks, escombros",
-    "Sangre: blood, sangre",
+    "Blood: blood, sangre",
 ]
 
 
@@ -621,7 +621,10 @@ class Config:
         "quick_tags": None,             # None = pastillas por defecto (DEFAULT_QUICK_TAGS)
         "lib_tree_line_color": "#8d6fd1",
         "splitter_left3": "",
-        "hidden_sys": [],               # Escritorio/Descargas/Imágenes/Videos ocultos en Acceso rápido
+        "hidden_sys": [],
+        "hidden_drives": [],
+        "show_hidden_quick": False,
+        "show_hidden_drives": False,               # Escritorio/Descargas/Imágenes/Videos ocultos en Acceso rápido
     }
 
     def __init__(self, path):

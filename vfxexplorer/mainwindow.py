@@ -25,6 +25,7 @@ from .tree import LinedTree
 from .dirsize import DirSizeManager
 from .library_ui import LibraryPage, LibrarySidebar
 from .pipebar import PipelineBar
+from .quicklist import QuickList
 from .tagbar import QuickTagBar
 from . import fileops
 
@@ -32,6 +33,36 @@ from . import fileops
 # ----------------------------------------------------------------------------
 # Ventana principal
 # ----------------------------------------------------------------------------
+
+class ChevronButton(QToolButton):
+    """Botón con ícono, texto y flechita hacia abajo, como New / Sort / View del Explorador de Windows 11."""
+
+    def __init__(self, icon, text, menu, tip=""):
+        super().__init__()
+        self.setIcon(icon)
+        self.setIconSize(QSize(18, 18))
+        self.setText(text)
+        self.setToolTip(tip or text)
+        self.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.setPopupMode(QToolButton.InstantPopup)
+        self.setMenu(menu)
+        self.setAutoRaise(True)
+        self.setFixedHeight(32)
+        self.setStyleSheet("QToolButton{border:none; border-radius:4px; padding:4px 22px 4px 8px; font-size:10pt;}"
+                           "QToolButton:hover{background:#2d2d2d;} QToolButton:pressed{background:#333;}"
+                           "QToolButton::menu-indicator{image:none; width:0px;}")
+
+    def paintEvent(self, ev):
+        super().paintEvent(ev)
+        from PySide6.QtGui import QPainter, QPen, QColor
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setPen(QPen(QColor("#c5c5c5"), 1.3))
+        x, y = self.width() - 14, self.height() // 2
+        p.drawLine(x - 3, y - 1, x, y + 2)
+        p.drawLine(x, y + 2, x + 3, y - 1)
+        p.end()
+
 
 class MainWindow(QMainWindow):
     def __init__(self, start_path=None):
@@ -81,10 +112,10 @@ class MainWindow(QMainWindow):
         self.modebar.setExpanding(False)
         self.modebar.setUsesScrollButtons(False)
         self.modebar.setElideMode(Qt.ElideNone)
-        self.modebar.addTab(ic.glyph("folder", 16), "Carpetas")
+        self.modebar.addTab(ic.glyph("folder", 16), "Folders")
         self.modebar.addTab(ic.glyph("library", 16, "#b98cff"), "VFX Library")
-        self.modebar.setTabToolTip(0, "Carpetas: el explorador de archivos (Ctrl+Shift+E)")
-        self.modebar.setTabToolTip(1, "VFX Library: viewer arriba, elementos abajo (Ctrl+Shift+L)")
+        self.modebar.setTabToolTip(0, "Folders: the file explorer (Ctrl+Shift+E)")
+        self.modebar.setTabToolTip(1, "VFX Library: viewer on top, elements below (Ctrl+Shift+L)")
         self.modebar.currentChanged.connect(lambda i: self.set_mode("library" if i == 1 else "explorer"))
 
         # --- fila de herramientas: ＋ | pipeline (Carpetas) o tags rápidos (VFX Library) | doble panel, detalles, ⚙
@@ -112,24 +143,30 @@ class MainWindow(QMainWindow):
         self.cmd_left = QWidget()
         cll = QHBoxLayout(self.cmd_left)
         cll.setContentsMargins(6, 0, 6, 0)
+        cll.setSpacing(2)
         self.m_new = QMenu(self)
         self.m_new.aboutToShow.connect(self._fill_new_menu)
-        b_new = QToolButton()
-        b_new.setIcon(ic.glyph("plus", 18))
-        b_new.setToolTip("Nuevo: carpeta, pestaña…")
-        b_new.setAutoRaise(True)
-        b_new.setPopupMode(QToolButton.InstantPopup)
-        b_new.setMenu(self.m_new)
-        self._popfix(b_new)
+        b_new = ChevronButton(ic.new_icon(18), "New", self.m_new, "New: folder, tab…")
         cll.addWidget(b_new)
-        sepl = QFrame()
-        sepl.setFrameShape(QFrame.VLine)
-        sepl.setStyleSheet("color:#333;")
-        cll.addWidget(sepl)
+
+        def sep():
+            f = QFrame()
+            f.setFixedWidth(9)
+            f.setFrameShape(QFrame.VLine)
+            f.setStyleSheet("color:#3a3a3a;")
+            cll.addWidget(f)
+        sep()
+        self.m_sort = QMenu(self)
+        self.m_sort.aboutToShow.connect(self._fill_sort_menu)
+        cll.addWidget(ChevronButton(ic.glyph("sort", 18), "Sort", self.m_sort, "Sort and group"))
+        self.m_view = QMenu(self)
+        self.m_view.aboutToShow.connect(self._fill_view_menu)
+        cll.addWidget(ChevronButton(ic.glyph("list", 18), "View", self.m_view, "View: icon size, details, hidden items…"))
 
         def vbtn(glyph, tip, menu=None, slot=None, checkable=False):
             b = QToolButton()
-            b.setIcon(ic.glyph(glyph, 16))
+            b.setIcon(ic.glyph(glyph, 18))
+            b.setIconSize(QSize(18, 18))
             b.setToolTip(tip)
             b.setAutoRaise(True)
             b.setCheckable(checkable)
@@ -137,25 +174,21 @@ class MainWindow(QMainWindow):
                 b.setMenu(menu)
                 b.setPopupMode(QToolButton.InstantPopup)
             self._popfix(b)
+            b.setFixedSize(34, 32)
             if slot:
                 b.clicked.connect(slot)
             cll.addWidget(b)
             return b
-        self.b_sub = vbtn("branch", "Subcarpetas (Ctrl+B)\nSin texto: todos los archivos de la rama.\n"
-                                    "Con texto: busca en toda la rama.", slot=lambda: self.active.rec.toggle(),
-                          checkable=True)
         self.m_filter = QMenu(self)
         self.m_filter.aboutToShow.connect(self._fill_filter_menu)
-        self.b_filter = vbtn("filter", "Filtrar: mostrar solo un tipo de archivo", self.m_filter)
-        self.m_sort = QMenu(self)
-        self.m_sort.aboutToShow.connect(self._fill_sort_menu)
-        vbtn("sort", "Ordenar y agrupar", self.m_sort)
-        self.m_view = QMenu(self)
-        self.m_view.aboutToShow.connect(self._fill_view_menu)
-        vbtn("grid", "Ver: tamaño de íconos, detalles, ocultos…", self.m_view)
+        self.b_filter = vbtn("filter", "Filter: show only one file type", self.m_filter)
+        self.b_sub = vbtn("branch", "Subfolders (Ctrl+B)\nNo text: every file in the branch.\n"
+                                    "With text: searches the whole branch.", slot=lambda: self.active.rec.toggle(),
+                          checkable=True)
+        sep()
         self.m_more = QMenu(self)
         self.m_more.aboutToShow.connect(self._fill_more_menu)
-        vbtn("more", "Más: seleccionar, copiar ruta…", self.m_more)
+        vbtn("more", "More: select, copy path…", self.m_more)
         cll.addStretch(1)
         ch.addWidget(self.cmd_left)
         ch.addWidget(self.ctx_stack, 1)
@@ -166,16 +199,16 @@ class MainWindow(QMainWindow):
             b.setAutoRaise(True)
             b.setToolButtonStyle(Qt.ToolButtonTextBesideIcon if action.text() else Qt.ToolButtonIconOnly)
             return b
-        self.act_dual = QAction(ic.glyph("dual", 16), "Doble panel", self)
+        self.act_dual = QAction(ic.glyph("dual", 16), "Dual pane", self)
         self.act_dual.triggered.connect(lambda: self.toggle_dual())
         self.act_dual.setCheckable(True)
-        self.act_dual.setToolTip("Doble panel (F9) · F6 cambia de panel")
-        self.act_details = QAction(ic.glyph("details", 16), "Detalles", self)
+        self.act_dual.setToolTip("Dual pane (F9) · F6 switches pane")
+        self.act_details = QAction(ic.glyph("details", 16), "Details", self)
         self.act_details.triggered.connect(lambda: self.toggle_details())
         self.act_details.setCheckable(True)
-        self.act_details.setToolTip("Panel de detalles (Alt+Shift+P)")
+        self.act_details.setToolTip("Details pane (Alt+Shift+P)")
         a_set = QAction(ic.glyph("gear", 16), "", self)
-        a_set.setToolTip("Configuración")
+        a_set.setToolTip("Settings")
         a_set.triggered.connect(lambda: self.open_settings())
         self.cmd_right = QWidget()
         crr = QHBoxLayout(self.cmd_right)
@@ -187,11 +220,17 @@ class MainWindow(QMainWindow):
         ch.addWidget(self.cmd_right)
 
         # --- sidebar: ACCESO RÁPIDO (de cada modo) arriba, y abajo los tabs CARPETAS / VFX LIBRARY
-        self.favs = self._mk_list(self._favs_menu, lambda it: self.open_in_explorer(it.data(Qt.UserRole)))
-        self.lib_favs = self._mk_list(self._lib_favs_menu, lambda it: self.open_library(it.data(Qt.UserRole)))
-        for w in (self.favs, self.lib_favs):
-            w.setDragDropMode(QAbstractItemView.InternalMove)
+        pin = ic.glyph("pin", 14, "#c9ccd1")
+        self.favs = QuickList(pin)
+        self.lib_favs = QuickList(pin)
+        for w, menu_fn, click_fn, lib in (
+                (self.favs, self._favs_menu, lambda it: it.data(Qt.UserRole) and self.open_in_explorer(it.data(Qt.UserRole)), False),
+                (self.lib_favs, self._lib_favs_menu, lambda it: it.data(Qt.UserRole) and self.open_library(it.data(Qt.UserRole)), True)):
+            w.setContextMenuPolicy(Qt.CustomContextMenu)
+            w.customContextMenuRequested.connect(lambda pos, w=w, f=menu_fn: f(w, pos))
+            w.itemClicked.connect(click_fn)
             w.model().rowsMoved.connect(self._favs_reordered)
+            w.dropped.connect(lambda dirs, lib=lib: self._quick_dropped(dirs, lib))
         self.colls = self._mk_list(self._colls_menu, lambda it: self.open_collection(it.data(Qt.UserRole)))
         self.tagl = self._mk_list(self._tags_menu, lambda it: self.open_tag(it.data(Qt.UserRole)))
 
@@ -207,6 +246,9 @@ class MainWindow(QMainWindow):
         self.tree.clicked.connect(lambda ix: self.open_in_explorer(self.fs.filePath(ix)))
         self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._tree_menu)
+        self.tree.setDragEnabled(True)            # arrastrar carpetas a Acceso rápido / a otros paneles
+        self.fs.rowsInserted.connect(lambda parent, *_: (not parent.isValid()) and
+                                     QTimer.singleShot(0, self._apply_hidden_drives))
 
         self.libside = LibrarySidebar(self)
         self.pipebar_side = PipelineBar(self, vertical=True)
@@ -226,7 +268,7 @@ class MainWindow(QMainWindow):
         self.quick_stack = QStackedWidget()
         self.quick_stack.addWidget(self.favs)
         self.quick_stack.addWidget(self.lib_favs)
-        self.quick_title = self._section("ACCESO RÁPIDO")
+        self.quick_title = self._section("QUICK ACCESS")
         quick = QWidget()
         quick.setObjectName("quickBox")
         ql = QVBoxLayout(quick)
@@ -236,19 +278,12 @@ class MainWindow(QMainWindow):
         qh.setContentsMargins(0, 0, 4, 0)
         qh.setSpacing(0)
         qh.addWidget(self.quick_title, 1)
-        self.b_eye = QToolButton()
-        self.b_eye.setIcon(ic.eye(16))
-        self.b_eye.setAutoRaise(True)
-        self.b_eye.setPopupMode(QToolButton.InstantPopup)
-        self.m_eye = QMenu(self)
-        self.m_eye.aboutToShow.connect(self._fill_eye_menu)
-        self.b_eye.setMenu(self.m_eye)
-        self.b_eye.setToolTip("Mostrar u ocultar Escritorio, Descargas, Imágenes y Videos")
-        self._popfix(self.b_eye)
+        self.b_eye = self._eye_button("show_hidden_quick", "Show hidden Quick access items\n"
+                                      "(hide them with right-click › Hide)", self._reload_sidebar)
         self.b_quick_add = QToolButton()
         self.b_quick_add.setIcon(ic.glyph("plus", 14))
         self.b_quick_add.setAutoRaise(True)
-        self.b_quick_add.setToolTip("Agregar la carpeta actual a Acceso rápido")
+        self.b_quick_add.setToolTip("Pin the current folder to Quick access")
         self.b_quick_add.clicked.connect(self._quick_add)
         self._popfix(self.b_quick_add)
         qh.addWidget(self.b_eye)
@@ -259,8 +294,8 @@ class MainWindow(QMainWindow):
 
         # tab CARPETAS: (pipeline vertical) + Este equipo + árbol
         self.thispc = self._mk_list(lambda w, pos: None, lambda it: self.open_in_explorer("::thispc"))
-        it = QListWidgetItem(ic.glyph("pc", 18, "#4cc2ff"), "Este equipo")
-        it.setToolTip("Discos y ubicaciones de red")
+        it = QListWidgetItem(ic.glyph("pc", 18, "#4cc2ff"), "This PC")
+        it.setToolTip("Drives and network locations")
         self.thispc.addItem(it)
         self.thispc.setFixedHeight(34)
         self.thispc.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -277,7 +312,7 @@ class MainWindow(QMainWindow):
         # tab VFX LIBRARY: árbol de la librería (+ colecciones y tags si están activados)
         lib_page = QSplitter(Qt.Vertical)
         lib_page.addWidget(self.libside)
-        self.side_boxes["colls"] = boxed("COLECCIONES", self.colls)
+        self.side_boxes["colls"] = boxed("COLLECTIONS", self.colls)
         self.side_boxes["tags"] = boxed("TAGS", self.tagl)
         lib_page.addWidget(self.side_boxes["colls"])
         lib_page.addWidget(self.side_boxes["tags"])
@@ -288,11 +323,11 @@ class MainWindow(QMainWindow):
         self.sidetabs.setObjectName("sidetabs")
         self.sidetabs.setDocumentMode(True)
         self.sidetabs.tabBar().setDrawBase(False)
-        self.sidetabs.addTab(folders_page, "CARPETAS")
+        self.sidetabs.addTab(folders_page, "FOLDERS")
         self.sidetabs.addTab(lib_page, "VFX LIBRARY")
-        self.sidetabs.setTabToolTip(0, "Carpetas: el explorador")
-        self.sidetabs.setTabToolTip(1, "VFX Library: tus carpetas de elementos.\n"
-                                       "Arrastrando archivos sobre un tab se muestra su árbol para soltarlos ahí.")
+        self.sidetabs.setTabToolTip(0, "Folders: the explorer")
+        self.sidetabs.setTabToolTip(1, "VFX Library: your element folders.\n"
+                                       "Drag files over a tab to show its tree and drop them there.")
         corner = QWidget()
         crl = QHBoxLayout(corner)
         crl.setContentsMargins(0, 0, 2, 0)
@@ -305,13 +340,16 @@ class MainWindow(QMainWindow):
         self.m_colors = QMenu(self)
         self.m_colors.aboutToShow.connect(self._fill_colors_menu)
         self.b_colors.setMenu(self.m_colors)
-        self.b_colors.setToolTip("Colores automáticos de carpetas (por proyecto, por nombre…)")
+        self.b_colors.setToolTip("Automatic folder colors (by project, by name…)")
         self.b_side_add = QToolButton()
         self.b_side_add.setIcon(ic.glyph("plus", 14))
         self.b_side_add.setAutoRaise(True)
         self.b_side_add.clicked.connect(self._side_add)
-        self.b_side_add.setToolTip("Agregar carpeta a la VFX Library")
+        self.b_side_add.setToolTip("Add folder to the VFX Library")
         self._popfix(self.b_side_add)
+        self.b_eye_tree = self._eye_button("show_hidden_drives", "Show hidden drives\n"
+                                           "(hide a drive with right-click › Hide drive)", self._apply_hidden_drives)
+        crl.addWidget(self.b_eye_tree)
         crl.addWidget(self.b_colors)
         crl.addWidget(self.b_side_add)
         self.sidetabs.setCornerWidget(corner, Qt.TopRightCorner)
@@ -326,7 +364,7 @@ class MainWindow(QMainWindow):
         left.addWidget(quick)
         left.addWidget(self.sidetabs)
         left.setStretchFactor(1, 1)
-        left.setSizes([190, 700])
+        left.setSizes([300, 600])
         left.setCollapsible(1, False)
         left.setMinimumWidth(200)
         self.left_split = left
@@ -435,12 +473,12 @@ class MainWindow(QMainWindow):
         self.size_slider = QSlider(Qt.Horizontal)
         self.size_slider.setRange(96, 320)
         self.size_slider.setFixedWidth(110)
-        self.size_slider.setToolTip("Tamaño de los íconos")
+        self.size_slider.setToolTip("Icon size")
         self.size_slider.setValue(int(self.cfg["thumb_size"]))
         self.size_slider.valueChanged.connect(self._on_thumb_size)
         sb.addPermanentWidget(self.size_slider)
-        self.sb_list = sbtn("list", "Detalles (Ctrl+2)", slot=lambda: self.active.set_view("list"), checkable=True)
-        self.sb_grid = sbtn("grid", "Íconos grandes (Ctrl+1)", slot=lambda: self.active.set_view("grid"),
+        self.sb_list = sbtn("list", "Details (Ctrl+2)", slot=lambda: self.active.set_view("list"), checkable=True)
+        self.sb_grid = sbtn("grid", "Large icons (Ctrl+1)", slot=lambda: self.active.set_view("grid"),
                             checkable=True)
         sb.setSizeGripEnabled(False)
 
@@ -455,7 +493,7 @@ class MainWindow(QMainWindow):
             #cmdrow QToolButton:hover {{ background:#2d2d2d; }}
             #cmdrow QToolButton:checked {{ background:#2d2d2d; }}
             #sidetabs::pane {{ border:none; }}
-            #sidetabs QTabBar::tab {{ padding:5px 12px; border-radius:4px; margin:4px 2px 2px 4px;
+            #sidetabs QTabBar::tab {{ padding:5px 8px; border-radius:4px; margin:4px 2px 2px 4px;
                                       color:#7d8590; font-size:7.5pt; font-weight:bold; letter-spacing:1px; }}
             #sidetabs QTabBar::tab:selected {{ background:#2d2d2d; color:#ffffff; }}
             #sidetabs QTabBar::tab:hover:!selected {{ color:#c9ccd1; }}
@@ -483,6 +521,9 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+Shift+L"), self, lambda: self.set_mode("library"))
         QShortcut(QKeySequence("Alt+Shift+P"), self, self.toggle_details)
         QApplication.instance().installEventFilter(self)
+        QTimer.singleShot(0, self._apply_hidden_drives)
+        self._sidetab_changed(self.sidetabs.currentIndex())
+        self._sidetab_changed(self.sidetabs.currentIndex())
         self._reload_sidebar()
         self.apply_features()
         self._place_headers()
@@ -520,7 +561,7 @@ class MainWindow(QMainWindow):
         hw = self.main_split.handleWidth()
         if not s or s[0] <= 0:
             return
-        self.cmd_left.setFixedWidth(s[0] + hw)
+        self.cmd_left.setFixedWidth(max(s[0] + hw, self.cmd_left.layout().sizeHint().width()))
         if self.info_area.isVisible() and s[2] > 0:
             self.cmd_right.setFixedWidth(max(self.cmd_right.sizeHint().width(), s[2] + hw))
         else:
@@ -560,15 +601,15 @@ class MainWindow(QMainWindow):
     def _fill_colors_menu(self):
         m = self.m_colors
         m.clear()
-        m.addSection("Colores automáticos")
+        m.addSection("Automatic colors")
         cur = self.cfg["color_mode"]
         for label, key in COLOR_MODES:
             a = m.addAction(label, lambda k=key: self.set_color_mode(k))
             a.setCheckable(True)
             a.setChecked(cur == key)
         m.addSeparator()
-        m.addAction("El color manual (clic derecho › Etiqueta de color) siempre gana").setEnabled(False)
-        m.addAction(self.icons.glyph("gear", 16), "Configurar colores y líneas…", lambda: self.open_settings("Colores"))
+        m.addAction("Manual color (right-click › Color label) always wins").setEnabled(False)
+        m.addAction(self.icons.glyph("gear", 16), "Colors and lines settings…", lambda: self.open_settings("Colors"))
 
     def set_color_mode(self, key):
         self.cfg["color_mode"] = key
@@ -586,7 +627,7 @@ class MainWindow(QMainWindow):
         if d:
             self.add_favorites([d], lib=lib)
 
-    SYS_FOLDERS = (("desktop", "Escritorio"), ("downloads", "Descargas"), ("pictures", "Imágenes"),
+    SYS_FOLDERS = (("desktop", "Desktop"), ("downloads", "Downloads"), ("pictures", "Pictures"),
                    ("videos", "Videos"))
 
     def _sys_path(self, kind):
@@ -596,16 +637,55 @@ class MainWindow(QMainWindow):
         p = SP.writableLocation(loc)
         return os.path.normpath(p) if p and os.path.isdir(p) else ""
 
-    def _fill_eye_menu(self):
-        m = self.m_eye
-        m.clear()
-        m.addSection("Mostrar en Acceso rápido")
-        hidden = set(self.cfg["hidden_sys"] or [])
-        for kind, label in self.SYS_FOLDERS:
-            a = m.addAction(self.icons.sysfolder(kind, 16), label, lambda k=kind: self._toggle_sys(k))
-            a.setCheckable(True)
-            a.setChecked(kind not in hidden)
-            a.setEnabled(bool(self._sys_path(kind)))
+    def _eye_button(self, key, tip, on_change):
+        b = QToolButton()
+        b.setCheckable(True)
+        b.setChecked(bool(self.cfg[key]))
+        b.setAutoRaise(True)
+        b.setToolTip(tip)
+        self._popfix(b)
+
+        def upd(on):
+            b.setIcon(self.icons.eye(16, on=on, color="#4cc2ff" if on else "#9d9d9d"))
+        upd(b.isChecked())
+
+        def toggled(on):
+            upd(on)
+            self.cfg[key] = on
+            self.cfg.save()
+            on_change()
+        b.toggled.connect(toggled)
+        return b
+
+    def _quick_dropped(self, dirs, lib):
+        if lib:
+            dirs = [d for d in dirs if self.libpane.allowed(d)]
+            if not dirs:
+                self.status.setText("Only VFX Library folders can be pinned here")
+                return
+        self.add_favorites(dirs, lib=lib)
+
+    def _apply_hidden_drives(self):
+        """Oculta en el árbol de Carpetas los discos marcados (salvo con el ojito prendido)."""
+        from PySide6.QtCore import QModelIndex
+        hidden = {norm_key(p) for p in (self.cfg["hidden_drives"] or [])}
+        show = bool(self.cfg["show_hidden_drives"])
+        root = QModelIndex()
+        for r in range(self.fs.rowCount(root)):
+            ix = self.fs.index(r, 0, root)
+            self.tree.setRowHidden(r, root, (not show) and norm_key(self.fs.filePath(ix)) in hidden)
+        self.tree.viewport().update()
+
+    def _toggle_drive(self, path):
+        hidden = list(self.cfg["hidden_drives"] or [])
+        k = norm_key(path)
+        if k in {norm_key(x) for x in hidden}:
+            hidden = [x for x in hidden if norm_key(x) != k]
+        else:
+            hidden.append(path)
+        self.cfg["hidden_drives"] = hidden
+        self.cfg.save()
+        self._apply_hidden_drives()
 
     def _toggle_sys(self, kind):
         hidden = list(self.cfg["hidden_sys"] or [])
@@ -620,6 +700,7 @@ class MainWindow(QMainWindow):
     def _side_tooltip(self, i):
         self.b_side_add.setVisible(i == 1)
         self.b_eye.setVisible(i == 0)
+        self.b_eye_tree.setVisible(i == 0)
 
     def _sidetab_changed(self, i):
         """Los tabs del panel izquierdo solo cambian el árbol (y el acceso rápido): el modo del centro cambia
@@ -682,16 +763,16 @@ class MainWindow(QMainWindow):
         m = self.m_new
         m.clear()
         pane = self.active
-        m.addAction(self.icons.glyph("newfolder", 16), "Carpeta\tCtrl+Shift+N",
+        m.addAction(self.icons.glyph("newfolder", 16), "Folder\tCtrl+Shift+N",
                     lambda: self.op_new_folder(pane)).setEnabled(bool(pane.current_dir()))
-        m.addAction(self.icons.glyph("plus", 16), "Pestaña\tCtrl+T",
-                    lambda: pane.add_tab(pane.current_dir() or pane.tab_path()))
+        m.addAction(self.icons.glyph("plus", 16), "Tab\tCtrl+T",
+                    pane.new_tab)
         m.addSeparator()
         if self.mode() == "library":
-            m.addAction(self.icons.glyph("library", 16, "#b98cff"), "Carpeta en la VFX Library…",
+            m.addAction(self.icons.glyph("library", 16, "#b98cff"), "Folder in the VFX Library…",
                         self.libside.add_root)
         if pane.current_dir():
-            m.addAction(self.icons.glyph("pin", 16), "Acceso rápido a esta carpeta",
+            m.addAction(self.icons.glyph("pin", 16), "Pin this folder to Quick access",
                         lambda: self.add_favorites([pane.current_dir()]))
 
     def _mk_list(self, menu_fn, click_fn):
@@ -794,9 +875,9 @@ class MainWindow(QMainWindow):
         self.b_sub.setChecked(pane.rec.isChecked())
         self.b_sub.blockSignals(False)
         cat = pane.filter.currentData()
-        label = next((l for l, k in FILTERS if k == cat), "Filtrar")
+        label = next((l for l, k in FILTERS if k == cat), "Filter")
         self.b_filter.setIcon(self.icons.glyph("filter", 16, ACCENT if cat != "all" else "#c9ccd1"))
-        self.b_filter.setToolTip("Filtrar: mostrar solo un tipo de archivo" if cat == "all" else f"Filtro: {label}")
+        self.b_filter.setToolTip("Filter: show only one file type" if cat == "all" else f"Filter: {label}")
         self.sb_grid.setChecked(pane.view_mode == "grid")
         self.sb_list.setChecked(pane.view_mode != "grid")
 
@@ -807,20 +888,20 @@ class MainWindow(QMainWindow):
         hd = pane.list.header()
         cur, order = hd.sortIndicatorSection(), hd.sortIndicatorOrder()
         from .models import C_NAME, C_MTIME, C_TYPE, C_SIZE, C_FRAMES, C_RANGE
-        for label, col in (("Nombre", C_NAME), ("Fecha de modificación", C_MTIME), ("Tipo", C_TYPE),
-                           ("Tamaño", C_SIZE), ("Cantidad de frames", C_FRAMES), ("Primer frame", C_RANGE)):
+        for label, col in (("Name", C_NAME), ("Date modified", C_MTIME), ("Type", C_TYPE),
+                           ("Size", C_SIZE), ("Frame count", C_FRAMES), ("First frame", C_RANGE)):
             a = m.addAction(label, lambda c=col: pane.list.sortByColumn(c, order))
             a.setCheckable(True)
             a.setChecked(cur == col)
         m.addSeparator()
-        for label, o in (("Ascendente", Qt.AscendingOrder), ("Descendente", Qt.DescendingOrder)):
+        for label, o in (("Ascending", Qt.AscendingOrder), ("Descending", Qt.DescendingOrder)):
             a = m.addAction(label, lambda o=o: pane.list.sortByColumn(cur, o))
             a.setCheckable(True)
             a.setChecked(order == o)
         m.addSeparator()
-        g = m.addMenu("Agrupar por")
-        for label, key in (("Automático (carpeta en Subcarpetas)", "auto"), ("(Ninguno)", "none"),
-                           ("Carpeta", "folder"), ("Tipo", "type")):
+        g = m.addMenu("Group by")
+        for label, key in (("Automatic (folder in Subfolders)", "auto"), ("(None)", "none"),
+                           ("Folder", "folder"), ("Type", "type")):
             a = g.addAction(label, lambda k=key: pane.set_group(k))
             a.setCheckable(True)
             a.setChecked(pane.group_mode == key)
@@ -830,20 +911,20 @@ class MainWindow(QMainWindow):
         m.clear()
         pane = self.active
         ts = int(self.cfg["thumb_size"])
-        for label, size in (("Íconos extra grandes", 320), ("Íconos grandes", 240), ("Íconos medianos", 180),
-                            ("Íconos pequeños", 120)):
+        for label, size in (("Extra large icons", 320), ("Large icons", 240), ("Medium icons", 180),
+                            ("Small icons", 120)):
             a = m.addAction(self.icons.glyph("grid", 16), label,
                             lambda sz=size: (pane.set_view("grid"), self.size_slider.setValue(sz)))
             a.setCheckable(True)
             a.setChecked(pane.view_mode == "grid" and abs(ts - size) < 30)
-        a = m.addAction(self.icons.glyph("list", 16), "Detalles\tCtrl+2", lambda: pane.set_view("list"))
+        a = m.addAction(self.icons.glyph("list", 16), "Details\tCtrl+2", lambda: pane.set_view("list"))
         a.setCheckable(True)
         a.setChecked(pane.view_mode != "grid")
         m.addSeparator()
-        a = m.addAction("Panel de detalles\tAlt+Shift+P", self.toggle_details)
+        a = m.addAction("Details pane\tAlt+Shift+P", self.toggle_details)
         a.setCheckable(True)
         a.setChecked(self.info_area.isVisible())
-        a = m.addAction("Doble panel\tF9", self.toggle_dual)
+        a = m.addAction("Dual pane\tF9", self.toggle_dual)
         a.setCheckable(True)
         a.setChecked(self.paneB.isVisible())
         m.addSeparator()
@@ -853,7 +934,7 @@ class MainWindow(QMainWindow):
             self.cfg.save()
             for p in self.all_panes:
                 p.refresh()
-        a = m.addAction("Elementos ocultos", toggle_hidden)
+        a = m.addAction("Hidden items", toggle_hidden)
         a.setCheckable(True)
         a.setChecked(bool(self.cfg["show_hidden"]))
 
@@ -864,7 +945,7 @@ class MainWindow(QMainWindow):
                 self.dirsizes.clear()
             for p in self.all_panes:
                 p.refresh()
-        a = m.addAction("Tamaño de carpetas", toggle_sizes)
+        a = m.addAction("Folder sizes", toggle_sizes)
         a.setCheckable(True)
         a.setChecked(bool(self.cfg["folder_sizes"]))
 
@@ -883,23 +964,23 @@ class MainWindow(QMainWindow):
         m.clear()
         pane = self.active
         v = pane.view()
-        m.addAction("Seleccionar todo\tCtrl+A", v.selectAll)
-        m.addAction("No seleccionar nada", v.clearSelection)
+        m.addAction("Select all\tCtrl+A", v.selectAll)
+        m.addAction("Select none", v.clearSelection)
 
         def invert():
             sel = v.selectionModel()
             from PySide6.QtCore import QItemSelectionModel
             for r in range(pane.proxy.rowCount()):
                 sel.select(pane.proxy.index(r, 0), QItemSelectionModel.Toggle | QItemSelectionModel.Rows)
-        m.addAction("Invertir selección", invert)
+        m.addAction("Invert selection", invert)
         m.addSeparator()
-        m.addAction("Copiar ruta  (####)\tCtrl+Shift+C", lambda: self.copy_paths(pane, "hash"))
-        m.addAction("Copiar ruta Nuke\tCtrl+Alt+C", lambda: self.copy_paths(pane, "nuke"))
+        m.addAction("Copy path  (####)\tCtrl+Shift+C", lambda: self.copy_paths(pane, "hash"))
+        m.addAction("Copy Nuke path\tCtrl+Alt+C", lambda: self.copy_paths(pane, "nuke"))
         if pane.current_dir():
-            m.addAction("Abrir en el Explorador de Windows", lambda: self.open_default(pane.current_dir()))
-            m.addAction("Agregar a acceso rápido", lambda: self.add_favorites([pane.current_dir()]))
+            m.addAction("Open in Windows Explorer", lambda: self.open_default(pane.current_dir()))
+            m.addAction("Pin to Quick access", lambda: self.add_favorites([pane.current_dir()]))
         m.addSeparator()
-        m.addAction(self.icons.glyph("gear", 16), "Opciones…", self.open_settings)
+        m.addAction(self.icons.glyph("gear", 16), "Options…", self.open_settings)
 
     # ------------------------------------------------------------------ modos: Explorador / VFX Library
     def mode(self):
@@ -918,12 +999,15 @@ class MainWindow(QMainWindow):
         self._place_headers()
         self.apply_pipeline_location()
         if lib:
+            roots = self.libpane.root_lock()
+            if not self.libpane.tabs and roots:
+                self.libpane.add_tab(roots[0])
             self.set_active(self.libpane)
             self.libpane.view().setFocus()
             if not self.cfg["library_roots"]:
-                self.libpage.viewer.show_message("Elegí la carpeta de tu librería de VFX con el ＋ al lado del tab "
-                                                 "«VFX LIBRARY» del panel de la izquierda (videos, secuencias, "
-                                                 "imágenes, HDRIs…).")
+                self.libpage.viewer.show_message("Choose your VFX library folder with the ＋ next to the "
+                                                 "«VFX LIBRARY» tab in the left pane (videos, sequences, "
+                                                 "images, HDRIs…).")
         else:
             self.libpage.viewer.pause()
             self.set_active(self.explorer_active)
@@ -1021,7 +1105,7 @@ class MainWindow(QMainWindow):
             finally:
                 QApplication.restoreOverrideCursor()
         except Exception as ex:
-            QMessageBox.warning(self, APP_NAME, f"No se pudo renombrar:\n{ex}")
+            QMessageBox.warning(self, APP_NAME, f"Could not rename:\n{ex}")
             return False
         if e.kind == "seq":
             head = fileops.SEQ_TOKEN_RE.match(text)
@@ -1042,7 +1126,7 @@ class MainWindow(QMainWindow):
                 if p is self.active:
                     p.pending_select = new_name
                 QTimer.singleShot(0, p.refresh)
-        self.status.setText(f"Renombrado: {e.name} → {text}")
+        self.status.setText(f"Renamed: {e.name} → {text}")
         return True
 
     # ------------------------------------------------------------------ paneles
@@ -1162,8 +1246,8 @@ class MainWindow(QMainWindow):
             tot = sum(e.size for e in ents)
             n_files = sum(len(e.files) if e.kind == "seq" else 1 for e in ents)
             self.preview.clear()
-            self.info.setText(f"<b>{len(ents)} elementos</b><br>{n_files} archivos · {human_size(tot)}")
-            self.status_right.setText(f"{len(ents)} seleccionados · {human_size(tot)}")
+            self.info.setText(f"<b>{len(ents)} items</b><br>{n_files} files · {human_size(tot)}")
+            self.status_right.setText(f"{len(ents)} selected · {human_size(tot)}")
             return
         self._show_info(ents[0])
 
@@ -1175,24 +1259,24 @@ class MainWindow(QMainWindow):
             w = max(100, self.preview.width() - 8)
             self.preview.setPixmap(pm.scaled(w, 260, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         else:
-            self.preview.setText("<span style='color:#666'>sin preview</span>")
+            self.preview.setText("<span style='color:#666'>no preview</span>")
 
     def _show_info(self, e):
         self._info_entry = e
         self._set_preview(e)
-        rows = [("Tipo", e.type_label())]
+        rows = [("Type", e.type_label())]
         if e.kind == "seq":
-            rows.append(("Rango", f"{e.first} – {e.last}"))
+            rows.append(("Range", f"{e.first} – {e.last}"))
             rows.append(("Frames", f"{len(e.frames)}"))
             if e.missing:
-                rows.append(("Faltan", f"<span style='color:#ff6b6b'><b>{len(e.missing)}</b>: "
+                rows.append(("Missing", f"<span style='color:#ff6b6b'><b>{len(e.missing)}</b>: "
                                        f"{compress_ranges(e.missing)[:600]}</span>"))
             elif "," in compress_ranges(e.frames):
-                rows.append(("Tramos", compress_ranges(e.frames)))
+                rows.append(("Ranges", compress_ranges(e.frames)))
         if e.kind != "dir":
-            rows.append(("Tamaño", human_size(e.size)))
-        rows.append(("Modificado", fmt_time(e.mtime)))
-        rows.append(("Carpeta", fwd(e.dirpath)))
+            rows.append(("Size", human_size(e.size)))
+        rows.append(("Modified", fmt_time(e.mtime)))
+        rows.append(("Folder", fwd(e.dirpath)))
         r = self.lib.rating(e.key())
         if r:
             rows.append(("Rating", f"<span style='color:#f5c542'>{'★' * r}</span>"))
@@ -1201,7 +1285,7 @@ class MainWindow(QMainWindow):
             rows.append(("Tags", "<span style='color:#8fb3ff'>" + "  ".join("#" + t for t in tags) + "</span>"))
         colls = [n for n, keys in self.lib.collections.items() if e.key() in keys]
         if colls:
-            rows.append(("Colecciones", ", ".join(colls)))
+            rows.append(("Collections", ", ".join(colls)))
         self._info_base = (
             "<style>td{padding:1px 6px 1px 0; vertical-align:top;} td.k{color:#8b9099; white-space:nowrap;}</style>"
             f"<div style='font-size:10pt; font-weight:bold; color:#eee;'>{e.name}</div><table>"
@@ -1231,7 +1315,7 @@ class MainWindow(QMainWindow):
                 subprocess.Popen([player, e.path])
                 return
             except Exception as ex:
-                self.status.setText(f"No se pudo abrir el reproductor: {ex}")
+                self.status.setText(f"Could not open the player: {ex}")
         self.open_default(e.path)
 
     def open_default(self, path):
@@ -1271,7 +1355,7 @@ class MainWindow(QMainWindow):
             elif style == "name":
                 lines.append(e.name)
         QApplication.clipboard().setText("\n".join(lines))
-        self.status.setText(f"Copiado: {lines[0]}" + (f"  (+{len(lines) - 1})" if len(lines) > 1 else ""))
+        self.status.setText(f"Copied: {lines[0]}" + (f"  (+{len(lines) - 1})" if len(lines) > 1 else ""))
 
     # ------------------------------------------------------------------ operaciones de archivo
     def _ask(self, title, text, buttons, default=None):
@@ -1297,8 +1381,8 @@ class MainWindow(QMainWindow):
         QApplication.clipboard().setMimeData(fileops.make_clip_mime(paths, cut))
         self.clip_entries = ents
         n = len(ents)
-        self.status.setText(f"{'Cortado' if cut else 'Copiado'}: {n} elemento(s) — Ctrl+V para pegar"
-                            f" (también en el Explorador)")
+        self.status.setText(f"{'Cut' if cut else 'Copied'}: {n} item(s) — Ctrl+V to paste"
+                            f" (also in Windows Explorer)")
 
     def op_paste(self, pane, target=None):
         target = target or pane.current_dir()
@@ -1306,7 +1390,7 @@ class MainWindow(QMainWindow):
             return
         paths, cut = fileops.read_clip_mime(QApplication.clipboard().mimeData())
         if not paths:
-            self.status.setText("No hay archivos en el portapapeles")
+            self.status.setText("No files on the clipboard")
             return
         ents = self.clip_entries if self.clip_entries and \
             {norm_key(p) for e in self.clip_entries for p in e.all_paths()} == {norm_key(p) for p in paths} else None
@@ -1324,10 +1408,10 @@ class MainWindow(QMainWindow):
             op = "copy"
         else:
             m = QMenu(self)
-            a_copy = m.addAction(f"Copiar aquí  ({len(paths)} archivo(s))")
-            a_move = m.addAction("Mover aquí")
+            a_copy = m.addAction(f"Copy here  ({len(paths)} file(s))")
+            a_move = m.addAction("Move here")
             m.addSeparator()
-            m.addAction("Cancelar")
+            m.addAction("Cancel")
             a = m.exec(pos)
             if a is a_copy:
                 op = "copy"
@@ -1354,7 +1438,7 @@ class MainWindow(QMainWindow):
 
     def start_transfer(self, op, paths, dest, entries=None):
         if self.op_worker is not None:
-            QMessageBox.information(self, APP_NAME, "Ya hay una operación en curso.")
+            QMessageBox.information(self, APP_NAME, "Another operation is already running.")
             return
         err = fileops.validate_transfer(paths, dest, op)
         if err:
@@ -1364,15 +1448,15 @@ class MainWindow(QMainWindow):
         overwrite = False
         if conflicts:
             names = "\n".join(os.path.basename(c) for c in conflicts[:8]) + ("\n…" if len(conflicts) > 8 else "")
-            ans = self._ask("Archivos existentes",
-                            f"{len(conflicts)} archivo(s) ya existen en el destino:\n\n{names}",
-                            [("Reemplazar", QMessageBox.DestructiveRole), ("Saltear existentes", QMessageBox.AcceptRole),
-                             ("Cancelar", QMessageBox.RejectRole)], default="Saltear existentes")
-            if ans in (None, "Cancelar"):
+            ans = self._ask("Existing files",
+                            f"{len(conflicts)} file(s) already exist at the destination:\n\n{names}",
+                            [("Replace", QMessageBox.DestructiveRole), ("Skip existing", QMessageBox.AcceptRole),
+                             ("Cancel", QMessageBox.RejectRole)], default="Skip existing")
+            if ans in (None, "Cancel"):
                 return
-            overwrite = ans == "Reemplazar"
-        verb = "Copiando" if op == "copy" else "Moviendo"
-        dlg = QProgressDialog(f"{verb}…", "Cancelar", 0, 1000, self)
+            overwrite = ans == "Replace"
+        verb = "Copying" if op == "copy" else "Moving"
+        dlg = QProgressDialog(f"{verb}…", "Cancel", 0, 1000, self)
         dlg.setWindowTitle(f"{verb} a {os.path.basename(dest.rstrip(chr(92) + '/')) or dest}")
         dlg.setMinimumDuration(400)
         dlg.setAutoClose(False)
@@ -1382,7 +1466,7 @@ class MainWindow(QMainWindow):
 
         def prog(done, total, name):
             dlg.setValue(int(1000 * min(1.0, done / max(1, total))))
-            dlg.setLabelText(f"{verb}  {name}\n{human_size(done)} de {human_size(total)}")
+            dlg.setLabelText(f"{verb}  {name}\n{human_size(done)} of {human_size(total)}")
 
         def fin(ok, errors, cancelled):
             dlg.close()
@@ -1395,12 +1479,12 @@ class MainWindow(QMainWindow):
                 self.save_soon()
             srcs = {os.path.dirname(p) for p in paths}
             self.refresh_dirs(srcs | {dest})
-            msg = f"{'Copiados' if op == 'copy' else 'Movidos'} {ok} archivo(s)"
+            msg = f"{'Copied' if op == 'copy' else 'Moved'} {ok} file(s)"
             if cancelled:
-                msg += " — cancelado"
+                msg += " — cancelled"
             self.status.setText(msg)
             if errors:
-                QMessageBox.warning(self, APP_NAME, f"{len(errors)} error(es):\n\n" + "\n".join(errors[:15]))
+                QMessageBox.warning(self, APP_NAME, f"{len(errors)} error(s):\n\n" + "\n".join(errors[:15]))
 
         w.progress.connect(prog)
         w.done.connect(fin)
@@ -1414,24 +1498,24 @@ class MainWindow(QMainWindow):
         paths = [p for e in ents for p in e.all_paths()]
         net = any(fileops.is_network_path(p) for p in paths[:1])
         n_files = len(paths)
-        desc = ents[0].name if len(ents) == 1 else f"{len(ents)} elementos"
-        text = f"¿Mandar a la papelera {desc}?" + (f"\n({n_files} archivos)" if n_files > 1 else "")
+        desc = ents[0].name if len(ents) == 1 else f"{len(ents)} items"
+        text = f"Send to the Recycle Bin: {desc}?" + (f"\n({n_files} files)" if n_files > 1 else "")
         if net:
-            text += ("\n\n⚠ Está en una unidad de red: Windows lo borra DEFINITIVAMENTE "
-                     "(salvo que la papelera de red del NAS esté activada en esa carpeta compartida).")
-        ans = self._ask("Mandar a la papelera", text,
-                        [("Borrar" if net else "Mandar a la papelera", QMessageBox.DestructiveRole),
-                         ("Cancelar", QMessageBox.RejectRole)], default="Cancelar")
-        if ans in (None, "Cancelar"):
+            text += ("\n\n⚠ It's on a network drive: Windows deletes it PERMANENTLY "
+                     "(unless the NAS recycle bin is enabled for that shared folder).")
+        ans = self._ask("Send to Recycle Bin", text,
+                        [("Delete" if net else "Send to Recycle Bin", QMessageBox.DestructiveRole),
+                         ("Cancel", QMessageBox.RejectRole)], default="Cancel")
+        if ans in (None, "Cancel"):
             return
         w = fileops.TrashWorker(paths)
         self.op_worker = w
-        self.status.setText("Borrando…")
+        self.status.setText("Deleting…")
 
         def fin(errors):
             self.op_worker = None
             self.refresh_dirs({e.dirpath for e in ents})
-            self.status.setText(f"{desc}: a la papelera" if not errors else "Error al borrar")
+            self.status.setText(f"{desc}: sent to the Recycle Bin" if not errors else "Delete error")
             if errors:
                 QMessageBox.warning(self, APP_NAME, "\n".join(errors[:10]))
         w.done.connect(fin)
@@ -1454,7 +1538,7 @@ class MainWindow(QMainWindow):
             finally:
                 QApplication.restoreOverrideCursor()
         except Exception as ex:
-            QMessageBox.warning(self, APP_NAME, f"No se pudo renombrar:\n{ex}")
+            QMessageBox.warning(self, APP_NAME, f"Could not rename:\n{ex}")
             return
         new_name = os.path.basename(pairs[0][1])
         if e.kind == "seq":
@@ -1477,7 +1561,7 @@ class MainWindow(QMainWindow):
         d = pane.current_dir()
         if not d:
             return
-        name, ok = QInputDialog.getText(self, "Carpeta nueva", "Nombre:", text="nueva carpeta")
+        name, ok = QInputDialog.getText(self, "New folder", "Name:", text="New folder")
         if not ok or not name.strip():
             return
         try:
@@ -1511,7 +1595,7 @@ class MainWindow(QMainWindow):
         if ents:
             self.lib.set_rating(self._targets(ents), n)
             self._lib_changed()
-            self.status.setText(f"Rating {'★' * n if n else 'quitado'} · {len(ents)} elemento(s)")
+            self.status.setText(f"Rating {'★' * n if n else 'removed'} · {len(ents)} item(s)")
 
     def op_tags(self, pane):
         if not self.cfg["library_features"]:
@@ -1529,13 +1613,13 @@ class MainWindow(QMainWindow):
 
     def add_to_collection(self, ents, name=None):
         if name is None:
-            name, ok = QInputDialog.getText(self, "Colección nueva", "Nombre de la colección:")
+            name, ok = QInputDialog.getText(self, "New collection", "Collection name:")
             if not ok or not name.strip():
                 return
             name = name.strip()
         self.lib.add_to_collection(name, self._targets(ents))
         self._lib_changed()
-        self.status.setText(f"{len(ents)} elemento(s) agregados a «{name}»")
+        self.status.setText(f"{len(ents)} item(s) added to «{name}»")
 
     def refs_for(self, kind, name):
         if kind == "tag":
@@ -1547,7 +1631,7 @@ class MainWindow(QMainWindow):
         return []
 
     def open_collection(self, name, new_tab=False):
-        self.active.show_virtual(f"Colección: {name}", "collection", name, new_tab)
+        self.active.show_virtual(f"Collection: {name}", "collection", name, new_tab)
 
     def open_tag(self, tag, new_tab=False):
         if tag.startswith("★"):
@@ -1558,28 +1642,38 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ sidebar
     def _reload_sidebar(self):
+        show_hidden = bool(self.cfg["show_hidden_quick"])
         for w, key in ((self.favs, "favorites"), (self.lib_favs, "lib_favorites")):
             w.clear()
             if w is self.favs:
                 hidden = set(self.cfg["hidden_sys"] or [])
+                n_sys = 0
                 for kind, label in self.SYS_FOLDERS:
                     sp = self._sys_path(kind)
-                    if not sp or kind in hidden:
+                    if not sp or (kind in hidden and not show_hidden):
                         continue
-                    it = QListWidgetItem(self.icons.sysfolder(kind, 16), label)
+                    it = QListWidgetItem(self.icons.sysfolder(kind, 18), label)
                     it.setData(Qt.UserRole, sp)
                     it.setData(Qt.UserRole + 1, kind)
+                    it.setData(Qt.UserRole + 3, kind in hidden)
                     it.setToolTip(sp)
                     it.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
                     w.addItem(it)
+                    n_sys += 1
+                if n_sys and self.cfg[key]:
+                    sep = QListWidgetItem("")
+                    sep.setData(Qt.UserRole + 2, True)
+                    sep.setFlags(Qt.NoItemFlags)
+                    w.addItem(sep)
             for p in self.cfg[key] or []:
                 name = os.path.basename(p.rstrip("\\/")) or p
-                it = QListWidgetItem(self.icons.folder_icon(self.dir_color(p), 16), name)
+                it = QListWidgetItem(self.icons.folder_icon(self.dir_color(p), 18), name)
                 it.setData(Qt.UserRole, p)
-                it.setToolTip(p)
+                it.setToolTip(p + "\nPinned · drag to reorder")
+                it.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsDragEnabled)
                 w.addItem(it)
         if not self.cfg["lib_favorites"]:
-            it = QListWidgetItem("Clic derecho en una carpeta › Agregar a acceso rápido")
+            it = QListWidgetItem("Drag a folder here to pin it")
             it.setForeground(Qt.gray)
             it.setFlags(Qt.NoItemFlags)
             self.lib_favs.addItem(it)
@@ -1618,11 +1712,12 @@ class MainWindow(QMainWindow):
         self.cfg[key] = favs
         self.cfg.save()
         self._reload_sidebar()
-        self.status.setText(f"Agregado a Acceso rápido de {'VFX Library' if lib else 'Carpetas'}")
+        self.status.setText(f"Pinned to Quick access of {'VFX Library' if lib else 'Folders'}")
 
     def _favs_reordered(self, *_):
         for w, key in ((self.favs, "favorites"), (self.lib_favs, "lib_favorites")):
-            vals = [w.item(i).data(Qt.UserRole) for i in range(w.count()) if not w.item(i).data(Qt.UserRole + 1)]
+            vals = [w.item(i).data(Qt.UserRole) for i in range(w.count())
+                    if not w.item(i).data(Qt.UserRole + 1) and not w.item(i).data(Qt.UserRole + 2)]
             vals = [v for v in vals if v]
             if vals or key == "favorites":
                 self.cfg[key] = vals
@@ -1634,9 +1729,9 @@ class MainWindow(QMainWindow):
             return
         p = it.data(Qt.UserRole)
         m = QMenu(self)
-        m.addAction("Abrir", lambda: self.open_library(p))
-        m.addAction("Abrir en pestaña nueva", lambda: (self.set_mode("library"), self.libpane.add_tab(p)))
-        m.addAction("Abrir en Carpetas", lambda: self.open_in_explorer(p, new_tab=True))
+        m.addAction("Open", lambda: self.open_library(p))
+        m.addAction("Open in new tab", lambda: (self.set_mode("library"), self.libpane.add_tab(p)))
+        m.addAction("Open in Folders", lambda: self.open_in_explorer(p, new_tab=True))
         self._color_menu(m, [dir_target(p)])
         m.addSeparator()
 
@@ -1644,27 +1739,27 @@ class MainWindow(QMainWindow):
             self.cfg["lib_favorites"] = [x for x in self.cfg["lib_favorites"] if norm_key(x) != norm_key(p)]
             self.cfg.save()
             self._reload_sidebar()
-        m.addAction("Quitar de acceso rápido", remove)
+        m.addAction("Unpin from Quick access", remove)
         m.exec(w.viewport().mapToGlobal(pos))
 
     def _color_menu(self, menu, targets):
-        cm = menu.addMenu("Etiqueta de color")
+        cm = menu.addMenu("Color label")
         for name, hexc in TAG_COLORS:
             cm.addAction(self.icons.swatch(hexc), name, lambda h=hexc: self.set_color(targets, h))
         cm.addSeparator()
-        cm.addAction("Quitar color", lambda: self.set_color(targets, None))
+        cm.addAction("Remove color", lambda: self.set_color(targets, None))
 
     def _favs_menu(self, w, pos):
         it = w.itemAt(pos)
-        if not it:
+        if not it or not it.data(Qt.UserRole):
             return
         p = it.data(Qt.UserRole)
         sysk = it.data(Qt.UserRole + 1)
         m = QMenu(self)
-        m.addAction("Abrir", lambda: self.open_in_explorer(p))
-        m.addAction("Abrir en pestaña nueva", lambda: self.open_in_explorer(p, new_tab=True))
+        m.addAction("Open", lambda: self.open_in_explorer(p))
+        m.addAction("Open in new tab", lambda: self.open_in_explorer(p, new_tab=True))
         if self.paneB.isVisible():
-            m.addAction("Abrir en el otro panel", lambda: (self.set_mode("explorer"),
+            m.addAction("Open in the other pane", lambda: (self.set_mode("explorer"),
                                                            self.other(self.explorer_active).navigate(p)))
         self._color_menu(m, [dir_target(p)])
         m.addSeparator()
@@ -1674,9 +1769,10 @@ class MainWindow(QMainWindow):
             self.cfg.save()
             self._reload_sidebar()
         if sysk:
-            m.addAction(self.icons.eye(16, on=False), "Ocultar", lambda: self._toggle_sys(sysk))
+            hid = sysk in (self.cfg["hidden_sys"] or [])
+            m.addAction(self.icons.eye(16, on=hid), "Show" if hid else "Hide", lambda: self._toggle_sys(sysk))
         else:
-            m.addAction("Quitar de acceso rápido", remove)
+            m.addAction("Unpin from Quick access", remove)
         m.exec(w.viewport().mapToGlobal(pos))
 
     def _colls_menu(self, w, pos):
@@ -1684,25 +1780,25 @@ class MainWindow(QMainWindow):
         m = QMenu(self)
         if it:
             name = it.data(Qt.UserRole)
-            m.addAction("Abrir", lambda: self.open_collection(name))
-            m.addAction("Abrir en pestaña nueva", lambda: self.open_collection(name, new_tab=True))
+            m.addAction("Open", lambda: self.open_collection(name))
+            m.addAction("Open in new tab", lambda: self.open_collection(name, new_tab=True))
 
             def rename():
-                new, ok = QInputDialog.getText(self, "Renombrar colección", "Nombre:", text=name)
+                new, ok = QInputDialog.getText(self, "Rename collection", "Name:", text=name)
                 if ok and new.strip():
                     self.lib.rename_collection(name, new.strip())
                     self._lib_changed()
 
             def delete():
-                if self._ask("Borrar colección", f"¿Borrar la colección «{name}»? (los archivos no se tocan)",
-                             [("Borrar", QMessageBox.DestructiveRole), ("Cancelar", QMessageBox.RejectRole)],
-                             default="Cancelar") == "Borrar":
+                if self._ask("Delete collection", f"Delete the collection «{name}»? (files are not touched)",
+                             [("Delete", QMessageBox.DestructiveRole), ("Cancel", QMessageBox.RejectRole)],
+                             default="Cancel") == "Delete":
                     self.lib.delete_collection(name)
                     self._lib_changed()
-            m.addAction("Renombrar…", rename)
-            m.addAction("Borrar colección", delete)
+            m.addAction("Rename…", rename)
+            m.addAction("Delete collection", delete)
         else:
-            m.addAction("Seleccioná archivos y usá clic derecho › Agregar a colección").setEnabled(False)
+            m.addAction("Select files and right-click › Add to collection").setEnabled(False)
         m.exec(w.viewport().mapToGlobal(pos))
 
     def _tags_menu(self, w, pos):
@@ -1711,15 +1807,15 @@ class MainWindow(QMainWindow):
             return
         tag = it.data(Qt.UserRole)
         m = QMenu(self)
-        m.addAction("Ver", lambda: self.open_tag(tag))
-        m.addAction("Ver en pestaña nueva", lambda: self.open_tag(tag, new_tab=True))
+        m.addAction("View", lambda: self.open_tag(tag))
+        m.addAction("View in new tab", lambda: self.open_tag(tag, new_tab=True))
         if not tag.startswith("★"):
             def rename():
-                new, ok = QInputDialog.getText(self, "Renombrar tag", "Nuevo nombre:", text=tag)
+                new, ok = QInputDialog.getText(self, "Rename tag", "New name:", text=tag)
                 if ok and new.strip():
                     self.lib.rename_tag(tag, new.strip().lstrip("#"))
                     self._lib_changed()
-            m.addAction("Renombrar tag…", rename)
+            m.addAction("Rename tag…", rename)
         m.exec(w.viewport().mapToGlobal(pos))
 
     def _tree_menu(self, pos):
@@ -1728,18 +1824,23 @@ class MainWindow(QMainWindow):
             return
         p = self.fs.filePath(ix)
         m = QMenu(self)
-        m.addAction("Abrir", lambda: self.open_in_explorer(p))
-        m.addAction("Abrir en pestaña nueva", lambda: self.open_in_explorer(p, new_tab=True))
+        m.addAction("Open", lambda: self.open_in_explorer(p))
+        if not ix.parent().isValid():          # disco: se puede ocultar del árbol
+            hid = norm_key(p) in {norm_key(x) for x in (self.cfg["hidden_drives"] or [])}
+            m.addAction(self.icons.eye(16, on=hid), "Show drive" if hid else "Hide drive",
+                        lambda: self._toggle_drive(p))
+            m.addSeparator()
+        m.addAction("Open in new tab", lambda: self.open_in_explorer(p, new_tab=True))
         if self.paneB.isVisible():
-            m.addAction("Abrir en el otro panel", lambda: (self.set_mode("explorer"),
+            m.addAction("Open in the other pane", lambda: (self.set_mode("explorer"),
                                                            self.other(self.explorer_active).navigate(p)))
-        m.addAction("Agregar a acceso rápido", lambda: self.add_favorites([p], lib=False))
+        m.addAction("Pin to Quick access", lambda: self.add_favorites([p], lib=False))
         if self.libpane.allowed(p):
-            m.addAction("Ver en VFX Library", lambda: self.open_library(p))
+            m.addAction("View in VFX Library", lambda: self.open_library(p))
         else:
-            m.addAction("Agregar a la VFX Library", lambda: self.open_library(p))
+            m.addAction("Add to the VFX Library", lambda: self.open_library(p))
         self._color_menu(m, [dir_target(p)])
-        m.addAction("Abrir en el Explorador de Windows", lambda: self.open_default(p))
+        m.addAction("Open in Windows Explorer", lambda: self.open_default(p))
         m.exec(self.tree.viewport().mapToGlobal(pos))
 
     # ------------------------------------------------------------------ menú contextual de ítems
@@ -1755,12 +1856,12 @@ class MainWindow(QMainWindow):
         cur = pane.current_dir()
         if ents and all(e.kind == "drive" for e in ents):
             e = ents[0]
-            m.addAction("Abrir", lambda: pane.navigate(e.path))
-            m.addAction("Abrir en pestaña nueva", lambda: pane.add_tab(e.path, activate=False))
-            m.addAction("Agregar a acceso rápido", lambda: self.add_favorites([x.path for x in ents]))
-            m.addAction("Copiar ruta", lambda: QApplication.clipboard().setText(getattr(e, "unc", "") or e.path))
+            m.addAction("Open", lambda: pane.navigate(e.path))
+            m.addAction("Open in new tab", lambda: pane.add_tab(e.path, activate=False))
+            m.addAction("Pin to Quick access", lambda: self.add_favorites([x.path for x in ents]))
+            m.addAction("Copy path", lambda: QApplication.clipboard().setText(getattr(e, "unc", "") or e.path))
             m.addSeparator()
-            m.addAction("Actualizar\tF5", pane.refresh)
+            m.addAction("Refresh\tF5", pane.refresh)
             m.exec(view.viewport().mapToGlobal(pos))
             return
         other = self.other(pane)
@@ -1768,40 +1869,40 @@ class MainWindow(QMainWindow):
         if ents:
             e = ents[0]
             if e.kind == "dir":
-                m.addAction("Abrir", lambda: pane.navigate(e.path))
-                m.addAction("Abrir en pestaña nueva", lambda: pane.add_tab(e.path, activate=False))
+                m.addAction("Open", lambda: pane.navigate(e.path))
+                m.addAction("Open in new tab", lambda: pane.add_tab(e.path, activate=False))
                 if other:
-                    m.addAction("Abrir en el otro panel", lambda: other.navigate(e.path))
+                    m.addAction("Open in the other pane", lambda: other.navigate(e.path))
             else:
                 if self.cfg["player"]:
-                    m.addAction(f"Abrir en {os.path.splitext(os.path.basename(self.cfg['player']))[0]}",
+                    m.addAction(f"Open in {os.path.splitext(os.path.basename(self.cfg['player']))[0]}",
                                 lambda: self.open_entry(e))
-                m.addAction("Abrir con programa por defecto", lambda: self.open_entry(e, with_player=False))
+                m.addAction("Open with default app", lambda: self.open_entry(e, with_player=False))
             if pane.is_virtual() or pane.model.virtual:
-                m.addAction("Ir a la carpeta contenedora",
+                m.addAction("Go to containing folder",
                             lambda: pane.navigate(e.dirpath, select=e.name))
-            m.addAction("Mostrar en el Explorador", lambda: self.reveal(e))
+            m.addAction("Show in Windows Explorer", lambda: self.reveal(e))
             m.addSeparator()
-            m.addAction("Cortar\tCtrl+X", lambda: self.op_clip(pane, cut=True))
-            m.addAction("Copiar\tCtrl+C", lambda: self.op_clip(pane, cut=False))
+            m.addAction("Cut\tCtrl+X", lambda: self.op_clip(pane, cut=True))
+            m.addAction("Copy\tCtrl+C", lambda: self.op_clip(pane, cut=False))
             if clip_paths and e.kind == "dir" and len(ents) == 1:
-                m.addAction("Pegar dentro de la carpeta", lambda: self.op_paste(pane, target=e.path))
+                m.addAction("Paste into folder", lambda: self.op_paste(pane, target=e.path))
             if other and other.current_dir():
-                m.addAction("Copiar al otro panel", lambda: self.transfer_to_other(pane, "copy"))
-                m.addAction("Mover al otro panel", lambda: self.transfer_to_other(pane, "move"))
+                m.addAction("Copy to the other pane", lambda: self.transfer_to_other(pane, "copy"))
+                m.addAction("Move to the other pane", lambda: self.transfer_to_other(pane, "move"))
             if len(ents) == 1:
-                m.addAction("Renombrar\tF2", lambda: self.start_inline_rename(pane, view))
+                m.addAction("Rename\tF2", lambda: self.start_inline_rename(pane, view))
                 if e.kind == "seq":
-                    m.addAction("Renumerar secuencia…", lambda: self.op_rename(pane))
-            m.addAction("Mandar a la papelera\tSupr", lambda: self.op_trash(pane))
+                    m.addAction("Renumber sequence…", lambda: self.op_rename(pane))
+            m.addAction("Send to Recycle Bin\tDel", lambda: self.op_trash(pane))
             m.addSeparator()
-            cp = m.addMenu("Copiar ruta")
-            cp.addAction("Ruta  (plate.####.exr)\tCtrl+Shift+C", lambda: self.copy_paths(pane, "hash"))
-            cp.addAction("Ruta Nuke  (plate.%04d.exr 1001-1100)\tCtrl+Alt+C", lambda: self.copy_paths(pane, "nuke"))
-            cp.addAction("Ruta Windows  (con \\)", lambda: self.copy_paths(pane, "win"))
-            cp.addAction("Primer frame", lambda: self.copy_paths(pane, "first"))
-            cp.addAction("Carpeta", lambda: self.copy_paths(pane, "dir"))
-            cp.addAction("Solo nombre", lambda: self.copy_paths(pane, "name"))
+            cp = m.addMenu("Copy path")
+            cp.addAction("Path  (plate.####.exr)\tCtrl+Shift+C", lambda: self.copy_paths(pane, "hash"))
+            cp.addAction("Nuke path  (plate.%04d.exr 1001-1100)\tCtrl+Alt+C", lambda: self.copy_paths(pane, "nuke"))
+            cp.addAction("Windows path  (with \\)", lambda: self.copy_paths(pane, "win"))
+            cp.addAction("First frame", lambda: self.copy_paths(pane, "first"))
+            cp.addAction("Folder", lambda: self.copy_paths(pane, "dir"))
+            cp.addAction("Name only", lambda: self.copy_paths(pane, "name"))
             m.addSeparator()
             targets = self._targets(ents)
             self._color_menu(m, targets)
@@ -1809,38 +1910,38 @@ class MainWindow(QMainWindow):
             rm = m.addMenu("Rating")
             for n in range(5, 0, -1):
                 rm.addAction("★" * n + f"\tCtrl+{n}", lambda n=n: self.op_rating(pane, n))
-            rm.addAction("Sin rating\tCtrl+0", lambda: self.op_rating(pane, 0))
+            rm.addAction("No rating\tCtrl+0", lambda: self.op_rating(pane, 0))
             m.addAction("Tags…\tCtrl+E", lambda: self.op_tags(pane))
-            cm = m.addMenu("Agregar a colección")
+            cm = m.addMenu("Add to collection")
             for name in self.lib.collections:
                 cm.addAction(name, lambda n=name: self.add_to_collection(ents, n))
             if self.lib.collections:
                 cm.addSeparator()
-            cm.addAction("Colección nueva…", lambda: self.add_to_collection(ents))
+            cm.addAction("New collection…", lambda: self.add_to_collection(ents))
         if ents:
             vinfo = pane.virtual_info()
             if vinfo and vinfo["kind"] == "collection":
-                m.addAction("Quitar de la colección", lambda: (
+                m.addAction("Remove from collection", lambda: (
                     self.lib.remove_from_collection(vinfo["name"], [x.key() for x in ents]),
                     self._lib_changed(), pane.refresh()))
             dirs = [x for x in ents if x.kind == "dir"]
             if dirs and self.mode() == "explorer":
                 if self.libpane.allowed(dirs[0].path):
-                    m.addAction("Ver en VFX Library", lambda: self.open_library(dirs[0].path))
+                    m.addAction("View in VFX Library", lambda: self.open_library(dirs[0].path))
                 else:
-                    m.addAction("Agregar a la VFX Library", lambda: self.open_library(dirs[0].path))
+                    m.addAction("Add to the VFX Library", lambda: self.open_library(dirs[0].path))
             if dirs:
-                m.addAction("Agregar a acceso rápido", lambda: self.add_favorites([d.path for d in dirs]))
+                m.addAction("Pin to Quick access", lambda: self.add_favorites([d.path for d in dirs]))
             m.addSeparator()
         if cur:
             if clip_paths:
-                m.addAction(f"Pegar ({len(clip_paths)} archivo(s))\tCtrl+V", lambda: self.op_paste(pane))
-            m.addAction("Carpeta nueva…\tCtrl+Shift+N", lambda: self.op_new_folder(pane))
-            m.addAction("Agregar esta carpeta a acceso rápido", lambda: self.add_favorites([cur]))
+                m.addAction(f"Paste ({len(clip_paths)} file(s))\tCtrl+V", lambda: self.op_paste(pane))
+            m.addAction("New folder…\tCtrl+Shift+N", lambda: self.op_new_folder(pane))
+            m.addAction("Pin this folder to Quick access", lambda: self.add_favorites([cur]))
         if cur and self.mode() == "explorer":
-            m.addAction("Ver en VFX Library" if self.libpane.allowed(cur) else "Agregar esta carpeta a la VFX Library",
+            m.addAction("View in VFX Library" if self.libpane.allowed(cur) else "Add this folder to the VFX Library",
                         lambda: self.open_library(cur))
-        m.addAction("Refrescar\tF5", pane.refresh)
+        m.addAction("Refresh\tF5", pane.refresh)
         m.exec(view.viewport().mapToGlobal(pos))
 
     # ------------------------------------------------------------------ configuración

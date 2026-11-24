@@ -91,7 +91,7 @@ class LibrarySidebar(QWidget):
         self.tree.clear()
         roots = self.roots()
         if not roots:
-            it = QTreeWidgetItem(["＋ Elegí la carpeta de tu librería…"])
+            it = QTreeWidgetItem(["＋ Choose your library folder…"])
             it.setForeground(0, Qt.gray)
             it.setData(0, Qt.UserRole, "")
             self.tree.addTopLevelItem(it)
@@ -127,7 +127,7 @@ class LibrarySidebar(QWidget):
             it.addChild(self._item(os.path.join(path, d), d))
 
     def add_root(self):
-        d = QFileDialog.getExistingDirectory(self, "Carpeta de la VFX Library",
+        d = QFileDialog.getExistingDirectory(self, "VFX Library folder",
                                              (self.roots() or [os.path.expanduser("~")])[0])
         if not d:
             return
@@ -143,18 +143,18 @@ class LibrarySidebar(QWidget):
     def _menu(self, pos):
         it = self.tree.itemAt(pos)
         m = QMenu(self)
-        m.addAction("Agregar carpeta a la librería…", self.add_root)
+        m.addAction("Add folder to the library…", self.add_root)
         if it and it.data(0, Qt.UserRole):
             p = it.data(0, Qt.UserRole)
-            m.addAction("Abrir en VFX Library", lambda: self.app.open_library(p))
-            m.addAction("Abrir en pestaña nueva", lambda: (self.app.set_mode("library"),
+            m.addAction("Open in VFX Library", lambda: self.app.open_library(p))
+            m.addAction("Open in new tab", lambda: (self.app.set_mode("library"),
                                                            self.app.libpane.add_tab(p)))
-            m.addAction("Agregar a acceso rápido", lambda: self.app.add_favorites([p], lib=True))
-            m.addAction("Abrir en Carpetas (pestaña nueva)", lambda: self.app.open_in_explorer(p, new_tab=True))
+            m.addAction("Pin to Quick access", lambda: self.app.add_favorites([p], lib=True))
+            m.addAction("Open in Folders (new tab)", lambda: self.app.open_in_explorer(p, new_tab=True))
             if it.parent() is None:
                 def remove():
                     self.app.cfg["library_roots"] = [r for r in self.roots() if r != p]
                     self.app.cfg.save()
                     self.reload()
-                m.addAction("Quitar de la librería (no borra archivos)", remove)
+                m.addAction("Remove from library (files are kept)", remove)
         m.exec(self.tree.viewport().mapToGlobal(pos))
