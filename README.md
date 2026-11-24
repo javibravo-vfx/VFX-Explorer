@@ -2,7 +2,7 @@
 
 ![Version](https://img.shields.io/badge/version-0.11.0-informational) ![Platform](https://img.shields.io/badge/platform-Windows-555) ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white) ![Qt](https://img.shields.io/badge/PySide-6-41CD52?logo=qt&logoColor=white) [![Build](https://github.com/javibravo-vfx/VFX-Explorer/actions/workflows/build.yml/badge.svg)](https://github.com/javibravo-vfx/VFX-Explorer/actions/workflows/build.yml)
 
-A **lightweight, portable** file explorer built for VFX, with the look of the **Windows 11 File Explorer** and the folder handling of **XYplorer**: EXR sequences as a single item, EXR / HDR / TX / video thumbnails, tabs, dual pane, a **VFX Library with a viewer/player**, automatic per-project folder colors and the pipeline navigation of [Studio Toolbar](https://github.com/javibravo-vfx/StudioToolbar-max).
+A **lightweight, portable** file explorer built for VFX, with the look of the **Windows 11 File Explorer** and the folder handling of **XYplorer**: EXR sequences as a single item, EXR / HDR / TX / video thumbnails, tabs, dual pane, a **VFX Library with a viewer/player**, automatic per-project folder colors and quick pipeline navigation (project › sequence › shot › dept › task).
 
 ![VFX Explorer](docs/screenshot.png)
 
@@ -96,4 +96,4 @@ Every push to `main` builds the exe on GitHub Actions; the zip is kept as a work
 git tag v0.11.0 && git push origin v0.11.0
 ```
 
-Layout: `vfxexplorer/core.py` (sequences, search), `imaging.py` (OpenImageIO / Qt / ffmpeg), `viewer.py` (frame player), `library_ui.py` (VFX Library), `colors.py` (automatic colors), `tree.py` (lined tree), `quicklist.py` (Quick access), `tagbar.py` (quick tags), `dirsize.py`, `library.py` (tags, rating, collections), `pipeline.py` (Studio Toolbar), `fileops.py`, `models.py`, `pane.py`, `widgets.py`, `mainwindow.py`.
+Layout: `vfxexplorer/core.py` (sequences, search), `imaging.py` (OpenImageIO / Qt / ffmpeg), `viewer.py` (frame player), `library_ui.py` (VFX Library), `colors.py` (automatic colors), `tree.py` (lined tree), `quicklist.py` (Quick access), `tagbar.py` (quick tags), `dirsize.py`, `library.py` (tags, rating, collections), `pipeline.py` (pipeline structure), `fileops.py`, `models.py`, `pane.py`, `widgets.py`, `mainwindow.py`.
