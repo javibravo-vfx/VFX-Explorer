@@ -7,7 +7,7 @@ import time
 from PySide6.QtCore import Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, QMimeData, QUrl, QThread, Signal
 from PySide6.QtGui import QColor, QFont, QIcon
 
-from .core import (date_group, DATE_GROUPS, scan_dir, entry_matches, resolve_refs, natural_key, human_size, fmt_time, fwd,
+from .core import (IMAGE_EXTS, date_group, DATE_GROUPS, scan_dir, entry_matches, resolve_refs, natural_key, human_size, fmt_time, fwd,
                    compress_ranges, Query, list_drives)
 
 ROLE_ENTRY = Qt.UserRole + 1
@@ -337,8 +337,12 @@ class EntryProxy(QSortFilterProxyModel):
             return getattr(e, "_g", None) in getattr(self, "_ok_groups", set())
         return self._accept(e)
 
+    hide_images = False          # VFX Library: ocultar imágenes sueltas (las secuencias quedan)
+
     def _accept(self, e):
         m = self.sourceModel()
+        if self.hide_images and e.kind == "file" and e.ext in IMAGE_EXTS:
+            return False
         if m.virtual:
             if self.query.empty and self.cat == "all":
                 return True
@@ -377,13 +381,13 @@ class EntryProxy(QSortFilterProxyModel):
 class ScanWorker(QThread):
     done = Signal(int, str, object, str)
 
-    def __init__(self, gen, path, show_hidden):
+    def __init__(self, gen, path, show_hidden, collapse=True):
         super().__init__()
-        self.gen, self.path, self.show_hidden = gen, path, show_hidden
+        self.gen, self.path, self.show_hidden, self.collapse = gen, path, show_hidden, collapse
 
     def run(self):
         try:
-            self.done.emit(self.gen, self.path, scan_dir(self.path, self.show_hidden), "")
+            self.done.emit(self.gen, self.path, scan_dir(self.path, self.show_hidden, self.collapse), "")
         except Exception as ex:
             self.done.emit(self.gen, self.path, [], str(ex))
 
@@ -394,8 +398,9 @@ class SearchWorker(QThread):
     finished_search = Signal(int, int, bool)
     MAX_RESULTS = 20000
 
-    def __init__(self, gen, root, query, cat, show_hidden, meta, max_depth=None):
+    def __init__(self, gen, root, query, cat, show_hidden, meta, max_depth=None, collapse=True):
         super().__init__()
+        self.collapse = collapse
         self.gen, self.root, self.query, self.cat = gen, root, query, cat
         self.show_hidden, self.meta = show_hidden, meta
         self.max_depth = max_depth          # None = toda la rama · 1 = solo las subcarpetas directas
@@ -406,7 +411,7 @@ class SearchWorker(QThread):
         while stack and not self.cancelled:
             d, depth = stack.pop()
             try:
-                entries = scan_dir(d, self.show_hidden)
+                entries = scan_dir(d, self.show_hidden, self.collapse)
             except OSError:
                 continue
             scanned += 1

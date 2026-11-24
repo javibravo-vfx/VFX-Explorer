@@ -337,6 +337,15 @@ class Icons:
         elif kind == "dual":
             p.drawRoundedRect(QRectF(s * .12, s * .2, s * .76, s * .6), 2, 2)
             path.moveTo(s * .5, s * .2); path.lineTo(s * .5, s * .8)
+        elif kind == "image":
+            p.drawRoundedRect(QRectF(s * .14, s * .2, s * .72, s * .6), s * .08, s * .08)
+            path.moveTo(s * .2, s * .72); path.lineTo(s * .42, s * .48); path.lineTo(s * .58, s * .62)
+            path.lineTo(s * .66, s * .55); path.lineTo(s * .8, s * .72)
+            p.drawEllipse(QPointF(s * .64, s * .36), s * .06, s * .06)
+        elif kind == "seqstack":
+            p.drawRoundedRect(QRectF(s * .3, s * .14, s * .56, s * .44), s * .06, s * .06)
+            path.moveTo(s * .22, s * .3); path.lineTo(s * .22, s * .66); path.lineTo(s * .7, s * .66)
+            path.moveTo(s * .14, s * .46); path.lineTo(s * .14, s * .82); path.lineTo(s * .62, s * .82)
         elif kind == "grid":
             for x in (.18, .54):
                 for y in (.18, .54):
@@ -450,7 +459,7 @@ class Icons:
         return self._c[key]
 
     def app_icon(self):
-        """Ícono de la app: tres carpetas apiladas amarillo-anaranjadas con un tracking marker celeste (= assets/icon.ico)."""
+        """Ícono de la app: dos carpetas amarillas con un tracking marker azul (= assets/icon.ico)."""
         icon = QIcon()
         for S in (16, 24, 32, 48, 64, 128, 256):
             icon.addPixmap(app_icon_pixmap(S))
@@ -461,21 +470,28 @@ class Icons:
 # Delegate de la grilla
 # ----------------------------------------------------------------------------
 
-APP_ICON_FOLDERS = ("#e8890c", "#f5a524", "#ffc14d")     # de atrás hacia adelante
-APP_ICON_MARKER = "#00b8d0"
+APP_ICON_FOLDERS = ("#e6a820", "#ffcf48")     # atrás, adelante (el amarillo de las carpetas de Windows)
+APP_ICON_FRONT_TOP = "#fbd976"
+APP_ICON_MARKER = "#0a7bca"                    # el azul del ícono del Explorador
 
 
 def app_icon_pixmap(S):
-    """Tres carpetas apiladas amarillo-anaranjadas con un tracking marker celeste sobre la de adelante."""
+    """Dos carpetas apiladas (amarillo Windows) con un tracking marker azul sobre la de adelante."""
     pm = QPixmap(S, S)
     pm.fill(Qt.transparent)
     p = QPainter(pm)
     p.setRenderHint(QPainter.Antialiasing)
     p.setPen(Qt.NoPen)
     k = S / 64.0
-    for i, col in enumerate(APP_ICON_FOLDERS):
+    for (x, y), col in zip(((10, 20), (22, 8)), APP_ICON_FOLDERS):
         p.setBrush(QColor(col))
-        p.drawRoundedRect(QRectF((8 + i * 7) * k, (22 - i * 7) * k, 36 * k, 30 * k), 5 * k, 5 * k)
+        p.drawRoundedRect(QRectF(x * k, y * k, 36 * k, 30 * k), 5 * k, 5 * k)
+    # luz arriba en la carpeta de adelante, como la de Windows
+    p.save()
+    p.setClipRect(QRectF(22 * k, 8 * k, 36 * k, 7 * k))
+    p.setBrush(QColor(APP_ICON_FRONT_TOP))
+    p.drawRoundedRect(QRectF(22 * k, 8 * k, 36 * k, 30 * k), 5 * k, 5 * k)
+    p.restore()
     # tracking marker: cuatro esquinas tipo visor + cruz al centro
     col = QColor(APP_ICON_MARKER)
     w = max(1.0, 2.5 * k)

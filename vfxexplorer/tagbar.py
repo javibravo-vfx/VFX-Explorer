@@ -33,7 +33,7 @@ class QuickTagBar(QWidget):
         self.app = app
         self.setStyleSheet(PILL_CSS)
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(4, 0, 4, 0)
+        lay.setContentsMargins(12, 0, 8, 0)          # mismo aire a la izquierda que PIPELINE
         lay.setSpacing(6)
         lbl = QLabel("TAGS")
         lbl.setStyleSheet("color:#4cc2ff; font-weight:bold; font-size:8pt; letter-spacing:1px;")
@@ -55,8 +55,29 @@ class QuickTagBar(QWidget):
         sa.setFixedHeight(28)
         sa.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         lay.addWidget(sa, 1)
+        # atajo: mostrar / ocultar las imágenes sueltas (capturas, jpgs de referencia…) de la librería
+        self.b_images = QToolButton()
+        self.b_images.setCheckable(True)
+        self.b_images.setAutoRaise(True)
+        self.b_images.setChecked(bool(app.cfg["lib_show_images"]))
+        self.b_images.setToolTip("Show loose images (jpg, png…) in the VFX Library\n"
+                                 "Turn off to see only videos, sequences and the rest")
+        self.b_images.toggled.connect(self._images_toggled)
+        self._images_icon()
+        lay.addWidget(self.b_images)
         self.buttons = []
         self.reload()
+
+    def _images_icon(self):
+        on = self.b_images.isChecked()
+        self.b_images.setIcon(self.app.icons.glyph("image", 18, "#4cc2ff" if on else "#6e7378"))
+
+    def _images_toggled(self, on):
+        self._images_icon()
+        self.app.cfg["lib_show_images"] = on
+        self.app.cfg.save()
+        if hasattr(self.app, "libpane"):
+            self.app.libpane.set_hide_images(not on)
 
     # ---------------- datos
     def specs(self):

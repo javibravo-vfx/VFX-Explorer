@@ -471,6 +471,7 @@ class MainWindow(QMainWindow):
         self.libpage = LibraryPage(self)
         self.libpane = self.libpage.pane
         lp = self.libpane
+        lp.proxy.hide_images = not self.cfg["lib_show_images"]
         lp.root_lock = lambda: [r for r in (self.cfg["library_roots"] or []) if os.path.isdir(r)]
         lp.focused.connect(self.set_active)
         lp.selection_changed.connect(self._sel_changed)
@@ -653,6 +654,14 @@ class MainWindow(QMainWindow):
                 b.clicked.connect(slot)
             srl.addWidget(b)
             return b
+        self.b_collapse = QToolButton()
+        self.b_collapse.setCheckable(True)
+        self.b_collapse.setAutoRaise(True)
+        self.b_collapse.setChecked(bool(self.cfg["collapse_seqs"]))
+        self.b_collapse.setToolTip("Collapse image sequences into one item\nOff: every frame as its own file")
+        self.b_collapse.toggled.connect(self._toggle_collapse)
+        self._collapse_icon()
+        sb.addPermanentWidget(self.b_collapse)
         self.sub_switch = SubfolderSwitch()
         self.sub_switch.changed.connect(lambda v: self.active.set_rec_level(v))
         sb.addPermanentWidget(self.sub_switch)
@@ -2468,6 +2477,19 @@ class MainWindow(QMainWindow):
             pm = None
         cache[key] = pm
         return pm
+
+    def _collapse_icon(self):
+        on = self.b_collapse.isChecked()
+        self.b_collapse.setIcon(self.icons.glyph("seqstack", 18, "#4cc2ff" if on else "#6e7378"))
+
+    def _toggle_collapse(self, on):
+        self._collapse_icon()
+        self.cfg["collapse_seqs"] = on
+        self.cfg.save()
+        self.status.setText("Sequences collapsed" if on else "Sequences expanded: one item per frame")
+        for p in self.all_panes:
+            if p.tabs:
+                p.refresh()
 
     def _toggle_color_filters(self, on):
         self.cfg["color_filters_on"] = bool(on)

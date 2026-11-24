@@ -264,9 +264,12 @@ def split_frame(name):
     return m.group("head"), m.group("frame"), m.group("ext")
 
 
-def group_files(dirpath, files):
+def group_files(dirpath, files, collapse=True):
     """files: lista de (nombre, size, mtime). Devuelve Entries de secuencias y archivos."""
     groups = {}
+    if not collapse:
+        return [Entry(kind="file", dirpath=dirpath, name=name, path=os.path.join(dirpath, name),
+                      ext=os.path.splitext(name)[1].lower(), size=size, mtime=mtime) for name, size, mtime in files]
     singles = []
     for name, size, mtime in files:
         sp = split_frame(name)
@@ -306,7 +309,7 @@ def group_files(dirpath, files):
 HIDDEN_NAMES = {"thumbs.db", "desktop.ini", "@eadir", "#recycle", "$recycle.bin", "system volume information"}
 
 
-def scan_dir(path, show_hidden=False):
+def scan_dir(path, show_hidden=False, collapse=True):
     dirs, files = [], []
     with os.scandir(path) as it:
         for de in it:
@@ -324,7 +327,7 @@ def scan_dir(path, show_hidden=False):
                     files.append((name, st.st_size, st.st_mtime))
             except OSError:
                 continue
-    return dirs + group_files(path, files)
+    return dirs + group_files(path, files, collapse)
 
 
 # ----------------------------------------------------------------------------
@@ -709,6 +712,8 @@ class Config:
         "lib_tree_line_color": "#4cc2ff",
         "splitter_left3": "",
         "hidden_sys": ["onedrive"],
+        "collapse_seqs": True,          # secuencias de imágenes en una sola entrada
+        "lib_show_images": True,        # VFX Library: mostrar imágenes sueltas (jpg de capturas, etc.)
         "hidden_drives": [],
         "list_cols": {},
         "system_icons": True,           # ícono original de programas/documentos (no en imágenes, video, audio)

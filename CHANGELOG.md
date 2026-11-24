@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.16.0
+- Sequence collapse button in the status bar (left of Subfolders): off shows every frame as its own file.
+- VFX Library: Large icons by default for every folder (its views are remembered apart from File Explorer).
+- VFX Library: images button in the tags bar to hide/show loose images (jpg, png…); sequences and videos stay.
+- TAGS gets the same left margin as PIPELINE.
+- App icon: two folders in the Windows folder yellow with the Explorer blue marker.
+
 ## 0.15.2
 - App icon: the marker is now viewfinder corners with a center cross, in cyan.
 

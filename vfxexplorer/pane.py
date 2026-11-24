@@ -817,6 +817,8 @@ class FilePane(QFrame):
             return THISPC if t["virtual"]["kind"] == "thispc" else None     # This PC también recuerda su vista
         if t["path"] == THISPC or norm_key(t["path"]) == norm_key(THISPC):
             return THISPC
+        if self.root_lock:                          # la VFX Library recuerda sus vistas aparte
+            return "lib:" + norm_key(t["path"])
         return norm_key(t["path"])
 
     def _apply_folder_view(self):
@@ -835,6 +837,8 @@ class FilePane(QFrame):
                 st = self.PICTURES_DEFAULT
             elif downs and norm_key(downs) == k:
                 st = self.DOWNLOADS_DEFAULT
+            elif self.root_lock:                     # VFX Library: Íconos grandes para todo
+                st = self.PICTURES_DEFAULT
             else:
                 st = self.app.cfg["folder_view_default"] or self.VIEW_DEFAULT
         self._apply_state(st)
@@ -1283,6 +1287,11 @@ class FilePane(QFrame):
             q.any_root = self.tab_path()
         return q
 
+    def set_hide_images(self, hide):
+        self.proxy.hide_images = bool(hide)
+        self.proxy.refresh_groups()
+        self._update_status()
+
     def set_pills(self, labels, keywords):
         """Tags rápidos: busca en toda la rama los elementos cuyo nombre, carpeta o tag coincida."""
         self.pill_labels, self.pill_kw = list(labels), list(keywords)
@@ -1297,7 +1306,8 @@ class FilePane(QFrame):
         self._stop_search()
         self.gen += 1
         self._set_status("Reading…")
-        w = ScanWorker(self.gen, self.tab_path(), bool(self.app.cfg["show_hidden"]))
+        w = ScanWorker(self.gen, self.tab_path(), bool(self.app.cfg["show_hidden"]),
+                       collapse=bool(self.app.cfg["collapse_seqs"]))
         w.done.connect(self._scan_done)
         self._track(w)
         w.start()
@@ -1391,7 +1401,8 @@ class FilePane(QFrame):
         self.proxy.set_filter(parse_query(""), "all")
         depth = 1 if (self.rec.isChecked() and self.rec_level == 1) else None
         w = SearchWorker(self.gen, self.tab_path(), self._query(), self.filter.currentData(),
-                         bool(self.app.cfg["show_hidden"]), self.app.lib.snapshot(), max_depth=depth)
+                         bool(self.app.cfg["show_hidden"]), self.app.lib.snapshot(), max_depth=depth,
+                         collapse=bool(self.app.cfg["collapse_seqs"]))
         w.batch.connect(self._search_batch)
         w.progress.connect(self._search_progress)
         w.finished_search.connect(self._search_done)
