@@ -1719,9 +1719,6 @@ class MainWindow(QMainWindow):
             self.preview.clear()
             self.info.setText("")
             self.status_right.setText("")
-            pdf = self._folder_pdf(pane)
-            if pdf is not None:
-                self._show_info(pdf)       # carpeta con PDF (renders): se abre solo en Details
             return
         if len(ents) > 1:
             tot = sum(e.size for e in ents)
@@ -1731,21 +1728,6 @@ class MainWindow(QMainWindow):
             self.status_right.setText(f"{len(ents)} selected · {human_size(tot)}")
             return
         self._show_info(ents[0])
-
-    def _folder_pdf(self, pane):
-        """Primer PDF de la carpeta (en el orden de la vista), si el panel de detalles está a la vista."""
-        if not self.info_area.isVisible() or not getattr(pane, "tabs", None):
-            return None
-        from .imaging import HAS_PDF
-        from .models import ROLE_ENTRY
-        if not HAS_PDF:
-            return None
-        px = pane.proxy
-        for r in range(px.rowCount()):
-            e = px.index(r, 0).data(ROLE_ENTRY)
-            if e is not None and e.kind == "file" and e.ext == ".pdf":
-                return e
-        return None
 
     def _set_preview(self, e):
         pm = self.thumbs.get(e)

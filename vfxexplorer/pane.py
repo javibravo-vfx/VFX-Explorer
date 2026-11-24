@@ -1290,9 +1290,14 @@ class FilePane(QFrame):
         return q
 
     def set_hide_images(self, hide):
+        """Mostrar / ocultar imágenes sueltas: vuelve a leer la carpeta (o la búsqueda) para que la vista
+        se rearme entera, igual que con Refresh."""
         self.proxy.hide_images = bool(hide)
-        self.proxy.refresh_groups()
-        self._update_status()
+        t = self.tab()
+        if t and t["virtual"]:
+            self._load_virtual()
+        elif t:
+            self._load()
 
     def set_pills(self, labels, keywords):
         """Tags rápidos: busca en toda la rama los elementos cuyo nombre, carpeta o tag coincida."""
@@ -1332,8 +1337,6 @@ class FilePane(QFrame):
         self._update_status(f"Error: {err}" if err else None)
         self._select_pending()
         self.app.request_dir_sizes(self, entries)
-        if hasattr(self.app, "_sel_changed"):
-            QTimer.singleShot(0, lambda: self.app._sel_changed(self))   # sin selección: PDF de la carpeta
 
     def _sort(self):
         hd = self.list.header()

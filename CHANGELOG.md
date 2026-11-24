@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.18.1
+- The folder PDF no longer opens by itself in Details (it was meant only for a future 3D Library).
+- VFX Library images button: turning it on or off reloads the folder, so the images come back without pressing Refresh.
+
 ## 0.18.0
 - Settings › Pipeline unified: one list of departments (Department 1, 2…), each with its folder, whether it has tasks, its tasks and its folders. Replaces "Departments", "Departments with tasks", "Stage folders" and the New folders tab (old settings are carried over).
 - Pipeline ＋ works for any department: tasks for departments with tasks, the department with its folders for the others.
