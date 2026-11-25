@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.30.1
+- NAS waking up: found (by simulating every network read as slow) the last reads that ran on the window's thread and moved them to the background — only for network paths, local files work exactly as before:
+  - entering a network folder no longer asks the server whether it exists first (the background listing reports it);
+  - the player's ffprobe / EXR layer reading for a network file runs in the background ("buffering" meanwhile);
+  - text and PDF previews of network files load in the background; PDF pages always render in the background;
+  - the Blow Up doesn't read the image header of a network file from the window.
+
 ## 0.30.0
 - VFX Library tree: with a single library root (e.g. a whole drive) its node is called «VFX Library» (like This PC) instead of the drive letter; several roots show «VFX Library (E:)» for drives.
 - VFX Library: main folders get an icon by the words in their name (3D / assets → cube, textures / surfaces → checker, lighting / HDRI → bulb, VDB / simulations → cloud, mocap → figure, VFX / stock / elements → spark, reference → photo, pipeline / tools → wrench, learning → cap, admin → briefcase, incoming → inbox, personal → person, archive / projects → box, library → books, audio → note, fonts → Aa, video / plates → film). The 3D cube is now a true isometric cube.

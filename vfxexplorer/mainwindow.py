@@ -2258,9 +2258,27 @@ class MainWindow(QMainWindow):
         from .imaging import HAS_PDF, pdf_page_count
         if e.kind != "file" or e.ext != ".pdf" or not HAS_PDF:
             return False
+        if net_root(e.path):                      # en la red: cuántas páginas, en otro hilo
+            self.pdf_token += 1
+            tok = self.pdf_token
+            for lb in self.pdf_pages:
+                lb.deleteLater()
+            self.pdf_pages = []
+            wait = QLabel(f"<b>{e.name}</b><br><span style='color:#8b9099'>loading…</span>")
+            wait.setWordWrap(True)
+            self.pdf_lay.insertWidget(0, wait)
+            self.pdf_pages.append(wait)
+            self.details_stack.setCurrentIndex(2)
+            from .asyncdir import run_async
+            run_async(lambda: pdf_page_count(e.path),
+                      lambda n: tok == self.pdf_token and self._info_entry is e and n and self._pdf_build(e, n), self)
+            return True
         n = pdf_page_count(e.path)
         if not n:
             return False
+        return self._pdf_build(e, n)
+
+    def _pdf_build(self, e, n):
         self.pdf_token += 1
         for lb in self.pdf_pages:
             lb.deleteLater()
@@ -2293,16 +2311,20 @@ class MainWindow(QMainWindow):
         if i >= n:
             return
         from .imaging import pdf_render
+        from .asyncdir import run_async
         dpr = self.devicePixelRatioF()
         w = max(60, self.pdf_area.viewport().width() - 16)
-        img = pdf_render(path, i, int(min(1800, w * dpr * 1.25)))
-        if token != self.pdf_token:
-            return
-        lb = self.pdf_pages[i + 1]
-        if not img.isNull():
-            lb._img = img
-            self._fit_pdf_page(lb, w)
-        QTimer.singleShot(1, lambda: self._pdf_render_next(token, i + 1))
+        width = int(min(1800, w * dpr * 1.25))
+
+        def placed(img):                          # cada página se renderiza en otro hilo
+            if token != self.pdf_token or i + 1 >= len(self.pdf_pages):
+                return
+            lb = self.pdf_pages[i + 1]
+            if img is not None and not img.isNull():
+                lb._img = img
+                self._fit_pdf_page(lb, max(60, self.pdf_area.viewport().width() - 16))
+            QTimer.singleShot(1, lambda: self._pdf_render_next(token, i + 1))
+        run_async(lambda: pdf_render(path, i, width), placed, self)
 
     def _fit_pdf_page(self, lb, w):
         img = getattr(lb, "_img", None)
@@ -2323,13 +2345,30 @@ class MainWindow(QMainWindow):
         """Muestra el contenido de un archivo de texto en todo el panel. Devuelve False si no es texto."""
         if e.kind != "file" or os.path.splitext(e.name)[1].lower() not in self.TEXT_EXTS:
             return False
-        try:
-            with open(e.path, "rb") as f:
-                raw = f.read(512 * 1024)
-        except OSError:
+
+        def read():
+            try:
+                with open(e.path, "rb") as f:
+                    return f.read(512 * 1024)
+            except OSError:
+                return None
+        if net_root(e.path):                      # en la red: se lee en otro hilo
+            self.text_title.setText(e.name)
+            self.text_view.setPlainText("loading…")
+            self.text_meta.setText(fwd(e.dirpath))
+            self.details_stack.setCurrentIndex(1)
+            from .asyncdir import run_async
+            run_async(read, lambda raw: self._info_entry is e and self._text_fill(e, raw), self)
+            return True
+        raw = read()
+        if raw is None or raw.count(b"\0") > 8:
             return False
-        if raw.count(b"\0") > 8:
-            return False
+        return self._text_fill(e, raw)
+
+    def _text_fill(self, e, raw):
+        if raw is None or raw.count(b"\0") > 8:
+            self.text_view.setPlainText("(not a text file)")
+            return True
         for enc in ("utf-8-sig", "cp1252", "latin-1"):
             try:
                 txt = raw.decode(enc)

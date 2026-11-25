@@ -429,19 +429,10 @@ class Viewer(QWidget):
     def _fill_layers(self, e):
         path = e.thumb_source() if e.kind == "seq" else e.path
         try:
-            self._layers = imaging.exr_layers(path) if e.ext == ".exr" else []
+            layers = imaging.exr_layers(path) if e.ext == ".exr" else []
         except Exception:
-            self._layers = []
-        self.layer_cb.blockSignals(True)
-        self.layer_cb.clear()
-        sel = 0
-        for i, (label, chans, data) in enumerate(self._layers):
-            self.layer_cb.addItem(label)
-            if label.split("  [")[0] == self._layer_pref:
-                sel = i
-        self.layer_cb.setCurrentIndex(sel)
-        self.layer_cb.blockSignals(False)
-        self.layer_cb.setVisible(len(self._layers) > 1)
+            layers = []
+        self._set_layers(layers)
 
     def load(self, e, keep_layers=False, start=0):
         if self.entry is not None and self.n > 1:          # F7: se vuelve al mismo frame para comparar
@@ -453,14 +444,62 @@ class Viewer(QWidget):
         self.entry = e
         self.cur = 0
         self.n = 0
+        self._load_token = getattr(self, "_load_token", 0) + 1
         if e is None:
             self.show_message("")
             return
+        from .core import net_root
+        if net_root(e.dirpath or e.path):
+            # en la red (un NAS despertando tarda): capas y ffprobe se leen en otro hilo
+            tok = self._load_token
+            self.canvas.message = ""
+            self.canvas.image = None
+            self.canvas.title = e.name
+            self.canvas.buffering = True
+            self.canvas.update()
+            from .asyncdir import run_async
+            run_async(lambda: self._prepare(e, keep_layers),
+                      lambda r: tok == self._load_token and self._start(e, r, keep_layers, start), self)
+            return
+        self._start(e, self._prepare(e, keep_layers), keep_layers, start)
+
+    def _prepare(self, e, keep_layers):
+        """Lo que lee el disco (puede correr en otro hilo): capas del EXR e info del video."""
+        out = {"layers": None, "info": None, "err": None}
+        if not keep_layers:
+            path = e.thumb_source() if e.kind == "seq" else e.path
+            try:
+                out["layers"] = imaging.exr_layers(path) if e.ext == ".exr" else []
+            except Exception:
+                out["layers"] = []
+        if e.cat == "video" and e.kind != "seq":
+            ffprobe = find_tool(self.app.cfg["ffmpeg"], "ffprobe")
+            if ffprobe:
+                try:
+                    out["info"] = probe_video(e.path, ffprobe)
+                except Exception:
+                    out["info"] = None
+        return out
+
+    def _set_layers(self, layers):
+        self._layers = layers
+        self.layer_cb.blockSignals(True)
+        self.layer_cb.clear()
+        sel = 0
+        for i, (label, chans, data) in enumerate(self._layers):
+            self.layer_cb.addItem(label)
+            if label.split("  [")[0] == self._layer_pref:
+                sel = i
+        self.layer_cb.setCurrentIndex(sel)
+        self.layer_cb.blockSignals(False)
+        self.layer_cb.setVisible(len(self._layers) > 1)
+
+    def _start(self, e, prep, keep_layers, start):
         cfg = self.app.cfg
         maxdim = int(cfg["viewer_res"] or 1280)
         settings = dict(self.app.thumbs.settings)
-        if not keep_layers:
-            self._fill_layers(e)
+        if not keep_layers and prep["layers"] is not None:
+            self._set_layers(prep["layers"])
         li = self.layer_cb.currentIndex()
         if self._layers and 0 <= li < len(self._layers) and self._layers[li][1]:
             settings["channels"] = self._layers[li][1]
@@ -475,10 +514,7 @@ class Viewer(QWidget):
                 self.show_message(f"{e.name}\n\nTo play videos put ffmpeg.exe and ffprobe.exe in the "
                                   f"bin\\ folder of VFX Explorer (or set the path in ⚙ Settings).")
                 return
-            try:
-                info = probe_video(e.path, ffprobe)
-            except Exception:
-                info = None
+            info = prep["info"]
             if not info:
                 self.show_message(f"{e.name}\n\nCould not read the video.")
                 return

@@ -32,6 +32,9 @@ def quick_size(e, app):
     """Tamaño real (leído del encabezado, rápido) para abrir el popup ya al 100 % mientras carga."""
     src = e.thumb_source()
     ext = os.path.splitext(src)[1].lower()
+    from .core import net_root
+    if net_root(src):                         # en la red no se lee el encabezado desde la ventana
+        return None
     try:
         if ext == ".pdf":
             return None

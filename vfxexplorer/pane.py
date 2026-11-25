@@ -1205,7 +1205,7 @@ class FilePane(QFrame):
         if (not net_root(path) or (ext and len(ext) <= 6 and ext[1:].isalnum())) and os.path.isfile(path):
             select = os.path.basename(path)
             path = os.path.dirname(path)
-        if not os.path.isdir(path):
+        if not net_root(path) and not os.path.isdir(path):     # en la red lo dice la lectura (otro hilo)
             self._set_status(f"Folder doesn't exist: {path}")
             self.crumb.set_path(self.tab_path())
             return
