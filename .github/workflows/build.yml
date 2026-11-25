@@ -70,8 +70,8 @@ jobs:
         shell: pwsh
         run: |
           foreach ($i in 1..2) {
-            $p = Start-Process -FilePath "dist\VFXExplorer\VFXExplorer.exe" -ArgumentList "--startup-timing" -Wait -PassThru
-            Write-Host "---- arranque $i"
+            $t = Measure-Command { Start-Process -FilePath "dist\VFXExplorer\VFXExplorer.exe" -ArgumentList "--startup-timing" -Wait }
+            Write-Host "---- arranque $i  (proceso completo, con 0.3 s de cierre: $([math]::Round($t.TotalSeconds,2)) s)"
             Get-Content "$env:TEMP\vfxexplorer_startup.log" | Select-Object -First 60
           }
 

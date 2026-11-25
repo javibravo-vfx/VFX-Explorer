@@ -20,8 +20,12 @@ def _process_age():
         import ctypes
         from ctypes import wintypes
         k = ctypes.windll.kernel32
+        k.GetCurrentProcess.restype = wintypes.HANDLE
+        k.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
         c, e, kk, u, now = (wintypes.FILETIME() for _ in range(5))
-        k.GetProcessTimes(k.GetCurrentProcess(), ctypes.byref(c), ctypes.byref(e), ctypes.byref(kk), ctypes.byref(u))
+        if not k.GetProcessTimes(k.GetCurrentProcess(), ctypes.byref(c), ctypes.byref(e), ctypes.byref(kk),
+                                 ctypes.byref(u)):
+            return None
         k.GetSystemTimeAsFileTime(ctypes.byref(now))
         v = lambda ft: (ft.dwHighDateTime << 32) | ft.dwLowDateTime
         return (v(now) - v(c)) / 1e7
