@@ -184,6 +184,8 @@ class MainWindow(QMainWindow):
                                 (("left", self.left_split), ("lib", self.libpage.split))}
         self._restore(start_path)
         self._qa_refresh()
+        self._right_tab(self.cfg["details_tab"] or "details")
+        self._notes_refresh()
         self._ready = True
         for p in self.all_panes:
             p._apply_folder_view()
@@ -325,6 +327,14 @@ class MainWindow(QMainWindow):
             if a is self.act_folderpdf:
                 self.b_folderpdf = b
                 b.setVisible(self.cfg["mode"] == "library")
+            if a is self.act_details:
+                self.b_details = b
+                # marquita: el workspace tiene notas (se ve con el panel cerrado)
+                self.details_dot = QLabel(b)
+                self.details_dot.setFixedSize(7, 7)
+                self.details_dot.setStyleSheet("background:#4cc2ff; border-radius:3px;")
+                self.details_dot.setToolTip("This workspace has notes")
+                self.details_dot.hide()
         ch.addWidget(self.cmd_right)
 
         # --- sidebar: ACCESO RÁPIDO (de cada modo) arriba, y abajo los tabs CARPETAS / VFX LIBRARY
@@ -643,7 +653,49 @@ class MainWindow(QMainWindow):
         self.info_area = QWidget()
         dsl = QVBoxLayout(self.info_area)
         dsl.setContentsMargins(0, 0, 0, 0)
-        dsl.addWidget(self.details_stack)
+        dsl.setSpacing(0)
+        # DETAILS | NOTES (notas del workspace activo)
+        from .notes import NotesPanel
+        self.notes = NotesPanel()
+        self.notes.changed.connect(self._notes_save)
+        rt = QWidget()
+        rtl = QHBoxLayout(rt)
+        rtl.setContentsMargins(6, 2, 6, 0)
+        rtl.setSpacing(0)
+        self.rt_details = QToolButton()
+        self.rt_notes = QToolButton()
+        for b, t, tip in ((self.rt_details, "DETAILS", "Details of the selected file"),
+                          (self.rt_notes, "NOTES", "Notes of this workspace: a to-do list and free text")):
+            b.setText(t)
+            b.setToolTip(tip)
+            b.setCheckable(True)
+            b.setAutoRaise(True)
+            b.setObjectName("qaTab")
+        self.notes_dot = QLabel()
+        self.notes_dot.setFixedSize(6, 6)
+        self.notes_dot.setStyleSheet("background:#4cc2ff; border-radius:3px; margin:0;")
+        self.notes_dot.setToolTip("This workspace has notes")
+        self.notes_dot.hide()
+        sep = QLabel("|")
+        sep.setStyleSheet("color:#444; font-size:7.5pt; padding:4px 0 0 0;")
+        rtl.addWidget(self.rt_details)
+        rtl.addWidget(sep)
+        rtl.addWidget(self.rt_notes)
+        rtl.addWidget(self.notes_dot, 0, Qt.AlignVCenter)
+        rtl.addStretch(1)
+        rt.setStyleSheet(
+            "QToolButton#qaTab{color:#7d8590; font-size:7.5pt; font-weight:bold; letter-spacing:1px; border:none;"
+            " background:transparent; padding:4px 6px 2px 6px; border-bottom:2px solid transparent;}"
+            " QToolButton#qaTab:hover{color:#c9ccd1;}"
+            " QToolButton#qaTab:checked{color:#e6e6e6; border-bottom:2px solid #4cc2ff;}")
+        self.rt_details.clicked.connect(lambda: self._right_tab("details"))
+        self.rt_notes.clicked.connect(lambda: self._right_tab("notes"))
+        self.right_stack = QStackedWidget()
+        self.right_stack.addWidget(self.details_stack)
+        self.right_stack.addWidget(self.notes)
+        self.right_stack.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
+        dsl.addWidget(rt)
+        dsl.addWidget(self.right_stack, 1)
         self.info_area.setMinimumWidth(0)      # el mínimo (DETAILS_MIN_W) lo maneja el splitter
         # lo que se muestra adentro nunca cambia el ancho del panel (lo elige el usuario)
         self.info_area.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
@@ -1664,6 +1716,8 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(0, self._ensure_details_width)
         self.act_details.setChecked(show)
         QTimer.singleShot(0, self._sync_cmd_left)
+        if hasattr(self, "notes"):
+            QTimer.singleShot(0, self._notes_mark)
         self.cfg["details_visible"] = show
         if remember and changed and getattr(self, "active", None) is not None:
             self.active._save_folder_view()            # el panel de detalles también se recuerda por carpeta
@@ -2996,6 +3050,47 @@ class MainWindow(QMainWindow):
         self._quick_rename_actions(m, w, it, p)
         m.addAction("Unpin from Quick access", remove)
         m.exec(w.viewport().mapToGlobal(pos))
+
+    # ---------------- Notas del workspace (panel derecho › NOTES)
+    def _notes_data(self):
+        w = self._ws_entry()
+        return (w.get("notes") if w is not None else self.cfg["workspace_default_notes"]) or {}
+
+    def _notes_save(self):
+        d = self.notes.data()
+        w = self._ws_entry()
+        if w is not None:
+            w["notes"] = d
+        else:
+            self.cfg["workspace_default_notes"] = d
+        self.save_soon()                      # a disco un poco después (no en cada tecla)
+        self._notes_mark()
+
+    def _notes_refresh(self):
+        """Al cambiar de workspace: sus notas y la marquita."""
+        if not hasattr(self, "notes"):
+            return
+        self.notes.load(self._notes_data())
+        self._notes_mark()
+
+    def _notes_mark(self):
+        from .notes import has_content
+        on = has_content(self._notes_data())
+        self.notes_dot.setVisible(on)
+        if hasattr(self, "details_dot"):
+            b = self.b_details
+            self.details_dot.move(b.width() - 10, 4)
+            self.details_dot.setVisible(on and not self.info_area.isVisible())
+            self.details_dot.raise_()
+
+    def _right_tab(self, which):
+        notes = which == "notes"
+        self.right_stack.setCurrentIndex(1 if notes else 0)
+        self.rt_details.setChecked(not notes)
+        self.rt_notes.setChecked(notes)
+        if self.cfg["details_tab"] != which:
+            self.cfg["details_tab"] = which
+            self.save_soon()
 
     # ---------------- Workspace Pins: accesos exclusivos del workspace activo
     def _ws_entry(self):

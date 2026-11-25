@@ -228,6 +228,8 @@ class WorkspaceButton(QToolButton):
         self.update()
         if hasattr(self.app, "_qa_refresh"):
             self.app._qa_refresh()             # QUICK ACCESS | WORKSPACE PINS del workspace activo
+        if hasattr(self.app, "_notes_refresh"):
+            self.app._notes_refresh()          # NOTES del workspace activo
 
     # ---------------------------------------------------------------- memoria automática
     def autosave(self):

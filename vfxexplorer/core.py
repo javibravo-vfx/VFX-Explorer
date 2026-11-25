@@ -852,6 +852,7 @@ class Config:
         "viewer_loop": True,
         # 0.4
         "details_visible": True,
+        "details_tab": "details",       # panel derecho: DETAILS o NOTES
         "tree_lines_style": "chevron",  # chevron (› + línea del camino) | solid | dotted
         "tree_trace": True,             # Tree Path Tracing 
         "tree_trace_width": 1,
@@ -899,6 +900,7 @@ class Config:
         "workspace_current": "",
         "workspace_keep_updated": True,  # cada workspace recuerda solo lo que se hace en él
         "workspace_default_state": {},   # memoria de Default
+        "workspace_default_notes": {},   # notas de Default
         "dual_orient": "h",             # doble panel: h = lado a lado (F9) · v = uno arriba del otro (F10)
         "color_filters_on": False,      # pintar nombres por tipo / patrón
         "color_filters": None,          # None = DEFAULT_COLOR_FILTERS
