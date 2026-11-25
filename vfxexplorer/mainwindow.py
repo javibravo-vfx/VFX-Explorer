@@ -183,6 +183,7 @@ class MainWindow(QMainWindow):
         self._default_splits = {k: bytes(sp.saveState().toBase64()).decode() for k, sp in
                                 (("left", self.left_split), ("lib", self.libpage.split))}
         self._restore(start_path)
+        self._qa_refresh()
         self._ready = True
         for p in self.all_panes:
             p._apply_folder_view()
@@ -343,6 +344,19 @@ class MainWindow(QMainWindow):
             w.setEditTriggers(QAbstractItemView.NoEditTriggers)      # solo F2 / menú (el clic abre)
             w.model().rowsMoved.connect(self._favs_reordered)
             w.dropped.connect(lambda dirs, lib=lib: self._quick_dropped(dirs, lib))
+        # Workspace Pins: accesos exclusivos del workspace activo (solo File Explorer; Default no tiene)
+        self.wpins = QuickList(pin)
+        self.wpins.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.wpins.customContextMenuRequested.connect(lambda pos: self._wpins_menu(pos))
+        wclick = lambda it: it.data(Qt.UserRole) and self.open_in_explorer(it.data(Qt.UserRole))
+        self.wpins.itemClicked.connect(wclick)
+        self.hook_list_keys(self.wpins, wclick)
+        self.wpins.itemChanged.connect(self._quick_item_changed)
+        sc = QShortcut(QKeySequence("F2"), self.wpins, lambda: self._quick_rename(self.wpins))
+        sc.setContext(Qt.WidgetShortcut)
+        self.wpins.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.wpins.model().rowsMoved.connect(self._wpins_reordered)
+        self.wpins.dropped.connect(self.add_wpins)
         self.colls = self._mk_list(self._colls_menu, lambda it: self.open_collection(it.data(Qt.UserRole)))
         self.tagl = self._mk_list(self._tags_menu, lambda it: self.open_tag(it.data(Qt.UserRole)))
 
@@ -381,7 +395,37 @@ class MainWindow(QMainWindow):
         self.quick_stack = QStackedWidget()
         self.quick_stack.addWidget(self.favs)
         self.quick_stack.addWidget(self.lib_favs)
+        self.quick_stack.addWidget(self.wpins)
         self.quick_title = self._section("QUICK ACCESS")
+        # QUICK ACCESS | WORKSPACE PINS (las pestañas solo en un workspace que no sea Default)
+        self.qa_tabs = QWidget()
+        qt = QHBoxLayout(self.qa_tabs)
+        qt.setContentsMargins(0, 0, 0, 0)
+        qt.setSpacing(0)
+        self.qa_b_quick = QToolButton()
+        self.qa_b_pins = QToolButton()
+        for b, t, tip in ((self.qa_b_quick, "QUICK ACCESS", "Quick access: the same in every workspace"),
+                          (self.qa_b_pins, "WORKSPACE PINS", "Pins of this workspace only (other workspaces "
+                                                             "don't see them) · drag folders here")):
+            b.setText(t)
+            b.setToolTip(t.title() + " — " + tip)
+            b.setCheckable(True)
+            b.setAutoRaise(True)
+            b.setObjectName("qaTab")
+        sepl = QLabel("|")
+        sepl.setStyleSheet("color:#444; font-size:7.5pt; padding:4px 0 0 0;")
+        qt.addWidget(self.qa_b_quick)
+        qt.addWidget(sepl)
+        qt.addWidget(self.qa_b_pins)
+        qt.addStretch(1)
+        self.qa_tabs.setStyleSheet(
+            "QToolButton#qaTab{color:#7d8590; font-size:7.5pt; font-weight:bold; letter-spacing:1px; border:none;"
+            " background:transparent; padding:4px 6px 2px 6px; border-bottom:2px solid transparent;}"
+            " QToolButton#qaTab:hover{color:#c9ccd1;}"
+            " QToolButton#qaTab:checked{color:#e6e6e6; border-bottom:2px solid #4cc2ff;}")
+        self.qa_b_quick.clicked.connect(lambda: self._qa_set_pins(False))
+        self.qa_b_pins.clicked.connect(lambda: self._qa_set_pins(True))
+        self.qa_tabs.setVisible(False)
         quick = QWidget()
         quick.setObjectName("quickBox")
         ql = QVBoxLayout(quick)
@@ -391,6 +435,7 @@ class MainWindow(QMainWindow):
         qh.setContentsMargins(0, 0, 4, 0)
         qh.setSpacing(0)
         qh.addWidget(self.quick_title, 1)
+        qh.addWidget(self.qa_tabs, 1)
         self.b_eye = self._eye_button("show_hidden_quick", "Show hidden Quick access items\n"
                                       "(hide them with right-click › Hide)", self._reload_sidebar)
         self.b_quick_add = QToolButton()
@@ -1002,6 +1047,11 @@ class MainWindow(QMainWindow):
         self.libside.add_root()
 
     def _quick_add(self):
+        if self.quick_stack.currentIndex() == 2:
+            d = self.explorer_active.current_dir()
+            if d:
+                self.add_wpins([d])
+            return
         lib = self.quick_stack.currentIndex() == 1
         d = (self.libpane if lib else self.explorer_active).current_dir()
         if d:
@@ -1360,6 +1410,7 @@ class MainWindow(QMainWindow):
         self._side_tooltip(i)
         if not self._peek:
             self.quick_stack.setCurrentIndex(i)
+            self._qa_refresh()
 
     def eventFilter(self, obj, ev):
         if ev.type() == QEvent.Resize:
@@ -1754,6 +1805,7 @@ class MainWindow(QMainWindow):
         if pane.current_dir():
             m.addAction("Open in Windows Explorer", lambda: self.open_default(pane.current_dir()))
             m.addAction("Pin to Quick access", lambda: self.add_favorites([pane.current_dir()]))
+            self._pin_ws_action(m, [pane.current_dir()])
         m.addSeparator()
         m.addAction(self.icons.glyph("gear", 16), "Options…", self.open_settings)
 
@@ -2945,6 +2997,114 @@ class MainWindow(QMainWindow):
         m.addAction("Unpin from Quick access", remove)
         m.exec(w.viewport().mapToGlobal(pos))
 
+    # ---------------- Workspace Pins: accesos exclusivos del workspace activo
+    def _ws_entry(self):
+        ws = getattr(self, "wsbutton", None)
+        if ws is None:
+            return None
+        cur = ws.current()
+        return ws._find(cur) if cur != "Default" else None
+
+    def _qa_refresh(self):
+        """Encabezado QUICK ACCESS | WORKSPACE PINS y la lista que corresponde (lo llama también Workspace)."""
+        if not hasattr(self, "qa_tabs"):
+            return
+        w = self._ws_entry()
+        explorer_side = self.quick_stack.currentIndex() in (0, 2)
+        tabs = w is not None and explorer_side
+        pins = tabs and w.get("qa_tab") == "pins"
+        self.qa_tabs.setVisible(tabs)
+        self.quick_title.setVisible(not tabs)
+        self.qa_b_quick.setChecked(not pins)
+        self.qa_b_pins.setChecked(pins)
+        if explorer_side:
+            self.quick_stack.setCurrentIndex(2 if pins else 0)
+        self.b_eye.setVisible(not pins)
+        self.b_quick_add.setToolTip("Pin the current folder to this workspace's pins" if pins
+                                    else "Pin the current folder to Quick access")
+        if pins:
+            self._fill_wpins()
+
+    def _qa_set_pins(self, on):
+        w = self._ws_entry()
+        if w is None:
+            on = False
+        else:
+            w["qa_tab"] = "pins" if on else "quick"
+            self.cfg.save()
+        self._qa_refresh()
+
+    def _fill_wpins(self):
+        w = self._ws_entry()
+        names = self.cfg["quick_names"] or {}
+        self.wpins.blockSignals(True)
+        self.wpins.clear()
+        for p in (w or {}).get("pins", []):
+            real = os.path.basename(p.rstrip("\\/")) or p
+            alias = names.get(norm_key(p))
+            it = QListWidgetItem(self.icons.folder_icon(self.dir_color(p), 18), alias or real)
+            it.setData(Qt.UserRole, p)
+            it.setData(Qt.UserRole + 4, real)
+            it.setToolTip(p + (f"\nShown as «{alias}» (the folder keeps its name)" if alias else "")
+                          + "\nOnly in this workspace · drag to reorder · F2 to rename here")
+            it.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsDragEnabled | Qt.ItemIsEditable)
+            self.wpins.addItem(it)
+        if not (w or {}).get("pins"):
+            it = QListWidgetItem("Drag folders here: only this workspace sees them")
+            it.setForeground(Qt.gray)
+            it.setFlags(Qt.NoItemFlags)
+            self.wpins.addItem(it)
+        self.wpins.blockSignals(False)
+
+    def add_wpins(self, paths):
+        w = self._ws_entry()
+        if w is None:
+            return
+        pins = list(w.get("pins", []))
+        for p in paths:
+            if p and os.path.isdir(p) and norm_key(p) not in {norm_key(x) for x in pins}:
+                pins.append(os.path.normpath(p))
+        w["pins"] = pins
+        if w.get("qa_tab") != "pins":
+            w["qa_tab"] = "pins"
+        self.cfg.save()
+        self._qa_refresh()
+        self.status.setText("Pinned to this workspace")
+
+    def _wpins_reordered(self, *_):
+        w = self._ws_entry()
+        if w is None:
+            return
+        w["pins"] = [self.wpins.item(i).data(Qt.UserRole) for i in range(self.wpins.count())
+                     if self.wpins.item(i).data(Qt.UserRole)]
+        self.cfg.save()
+
+    def _wpins_menu(self, pos):
+        it = self.wpins.itemAt(pos)
+        if not it or not it.data(Qt.UserRole):
+            return
+        p = it.data(Qt.UserRole)
+        m = QMenu(self)
+        m.addAction("Open", lambda: self.open_in_explorer(p))
+        m.addAction("Open in new tab", lambda: self.open_in_explorer(p, new_tab=True))
+        self._color_menu(m, [dir_target(p)])
+        m.addSeparator()
+
+        def remove():
+            w = self._ws_entry()
+            if w is not None:
+                w["pins"] = [x for x in w.get("pins", []) if norm_key(x) != norm_key(p)]
+                self.cfg.save()
+            self._qa_refresh()
+        self._quick_rename_actions(m, self.wpins, it, p)
+        m.addAction("Unpin from this workspace", remove)
+        m.exec(self.wpins.viewport().mapToGlobal(pos))
+
+    def _pin_ws_action(self, m, paths):
+        """«Pin to Workspace Pins» en los menús, si hay un workspace (no Default) activo."""
+        if self._ws_entry() is not None and paths:
+            m.addAction("Pin to Workspace Pins", lambda: self.add_wpins(paths))
+
     # ---------------- nombres propios en Quick access (la carpeta real no se renombra)
     def _quick_rename_actions(self, m, w, it, p):
         m.addAction("Rename here\tF2", lambda: self._quick_rename(w, it))
@@ -2980,6 +3140,7 @@ class MainWindow(QMainWindow):
         self.cfg.save()
         if reload:
             self._reload_sidebar()
+            self._qa_refresh()
 
     def _color_menu(self, menu, targets):
         cm = menu.addMenu("Color label")
@@ -3426,6 +3587,7 @@ class MainWindow(QMainWindow):
                     m.addAction("Add to the VFX Library", lambda: self.open_library(dirs[0].path))
             if dirs:
                 m.addAction("Pin to Quick access", lambda: self.add_favorites([d.path for d in dirs]))
+                self._pin_ws_action(m, [d.path for d in dirs])
             m.addSeparator()
         if cur:
             if clip_paths:

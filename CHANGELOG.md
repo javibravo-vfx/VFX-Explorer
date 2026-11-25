@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.36.0
+- Workspace Pins: in a workspace (not Default) the File Explorer Quick access header becomes «QUICK ACCESS | WORKSPACE PINS». Workspace Pins are folders only that workspace sees; Quick access stays the same for every workspace. Add pins by dragging folders onto the list, with ＋, or right-click › «Pin to Workspace Pins»; rename them with F2 (the folder keeps its name), reorder by dragging, unpin from the menu. Each workspace remembers which of the two lists you were looking at.
+
 ## 0.35.0
 - Workspaces · «Keep updated» (on by default, in the Workspace menu): each workspace remembers by itself the tabs and panels you open, close or move in it — switching workspaces is like having several windows open. «Update» is not needed (disabled) and «Reset» takes the workspace back to how it was when the app was opened (or created, if it is new).
 - Without Keep updated, workspaces work as before: changes are saved with «Update» and «Reset» goes back to the saved layout.

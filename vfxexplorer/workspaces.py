@@ -226,6 +226,8 @@ class WorkspaceButton(QToolButton):
                else "Manual: use «Update» to save changes")
         self.setToolTip(f"Workspace: {cur}\n{how}\nAlt+Shift+1…9: your workspaces · Alt+Shift+0: Default")
         self.update()
+        if hasattr(self.app, "_qa_refresh"):
+            self.app._qa_refresh()             # QUICK ACCESS | WORKSPACE PINS del workspace activo
 
     # ---------------------------------------------------------------- memoria automática
     def autosave(self):
