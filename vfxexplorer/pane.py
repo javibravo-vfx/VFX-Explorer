@@ -852,8 +852,6 @@ class FilePane(QFrame):
                 st = self.PICTURES_DEFAULT
             elif downs and norm_key(downs) == k:
                 st = self.DOWNLOADS_DEFAULT
-            elif sp and sp("documents") and norm_key(sp("documents")) == k:
-                st = self.DOWNLOADS_DEFAULT              # Documents: Details (lista), agrupado por fecha
             elif sp and sp("videos") and norm_key(sp("videos")) == k:
                 st = self.PICTURES_DEFAULT               # Videos: Íconos grandes
             elif self.root_lock:                     # VFX Library: Íconos grandes para todo
@@ -904,7 +902,7 @@ class FilePane(QFrame):
         return st
 
     def _save_folder_view(self):
-        if self._applying_view or not getattr(self.app, "_ready", False):
+        if self._applying_view or getattr(self, "_view_pending", False) or not getattr(self.app, "_ready", False):
             return
         k = self._fv_key()
         if not k:
@@ -1239,7 +1237,12 @@ class FilePane(QFrame):
         if not self.banner.isVisible():
             self.search.setPlaceholderText(self._placeholder())
             self._notify_nav()
-        self._apply_folder_view()
+        if t["virtual"]:
+            self._apply_folder_view()
+        else:
+            # la vista de la carpeta se aplica cuando llega su contenido (si no, por un instante se ve la
+            # carpeta anterior con la vista nueva)
+            self._view_pending = True
         self.b_back.setEnabled(t["hpos"] > 0 or bool(t["virtual"]))
         self.b_fwd.setEnabled(t["hpos"] < len(t["history"]) - 1)
         top = (t["virtual"] and t["virtual"]["kind"] == "thispc") or t["path"] == THISPC
@@ -1396,6 +1399,9 @@ class FilePane(QFrame):
     def _load(self):
         self.app.thumbs.cancel_pending()
         if self._recursive_active():
+            if getattr(self, "_view_pending", False):
+                self._view_pending = False
+                self._apply_folder_view()
             self._start_search()
             return
         self._stop_search()
@@ -1414,6 +1420,9 @@ class FilePane(QFrame):
     def _scan_done(self, gen, path, entries, err):
         if gen != self.gen:
             return
+        if getattr(self, "_view_pending", False):
+            self._view_pending = False
+            self._apply_folder_view()
         self._auto_image_view(entries)
         self.model.group_mode = self.effective_group(virtual=False)
         self.model.set_entries(entries, path, virtual=False)

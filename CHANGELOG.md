@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.28.1
+- Documents back to the normal default view (the date grouping is for Downloads, which already had it).
+- No more flash of the wrong view when entering a folder: the folder's view is applied together with its contents.
+- Side lists and trees only navigate when you move with the keyboard (rebuilding them — e.g. after Hidden items — no longer jumps to another folder such as Desktop).
+- Quick access: the user's .nuke folder, if it exists, with its own icon (hide it with right-click like the others).
+
 ## 0.28.0
 - Documents opens in Details (list) grouped by date modified, like Windows (reset once on update).
 - Arrow keys in Quick access and the other side lists open the folder, like in the trees.

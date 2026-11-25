@@ -5,7 +5,7 @@ import os
 import sys
 import subprocess
 
-from PySide6.QtCore import Qt, QSize, QTimer, QByteArray, QDir, QUrl, QEvent, Signal, QRectF, QPointF
+from PySide6.QtCore import Qt, QSize, QTimer, QByteArray, QDir, QUrl, QEvent, Signal, QRectF, QPointF, QObject
 from PySide6.QtGui import QKeySequence, QShortcut, QDesktopServices, QCursor, QAction, QPixmap
 from PySide6.QtWidgets import (QLineEdit, QPlainTextEdit, QTreeWidgetItem, QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QTreeView,
                                QListWidget, QListWidgetItem, QComboBox, QSlider, QToolBar, QLabel, QMenu,
@@ -982,7 +982,7 @@ class MainWindow(QMainWindow):
             self.add_favorites([d], lib=lib)
 
     SYS_FOLDERS = (("desktop", "Desktop"), ("documents", "Documents"), ("downloads", "Downloads"), ("pictures", "Pictures"),
-                   ("videos", "Videos"), ("onedrive", "OneDrive"))
+                   ("videos", "Videos"), ("onedrive", "OneDrive"), ("nuke", ".nuke"))
 
     def _sys_view_defaults(self):
         """0.17: Downloads (agrupado por fecha) y Videos (íconos grandes) arrancan con su vista de fábrica,
@@ -1002,6 +1002,9 @@ class MainWindow(QMainWindow):
 
     def _sys_path(self, kind):
         from PySide6.QtCore import QStandardPaths as SP
+        if kind == "nuke":                         # carpeta .nuke del usuario (solo si existe)
+            p = os.path.join(os.path.expanduser("~"), ".nuke")
+            return p if os.path.isdir(p) else ""
         if kind == "onedrive":
             for v in ("OneDrive", "OneDriveConsumer", "OneDriveCommercial"):
                 p = os.environ.get(v)
@@ -1068,18 +1071,39 @@ class MainWindow(QMainWindow):
 
         timer.timeout.connect(fire)
 
+        self._mark_keynav(tree)
+
         def changed(cur, prev):
-            if getattr(tree, "_syncing", False) or cur is None or not tree.hasFocus() \
-                    or QApplication.mouseButtons() != Qt.NoButton:      # con el mouse ya abre el clic
+            # solo cuando lo movió el usuario con el teclado (no al rearmar el árbol ni con el mouse)
+            if getattr(tree, "_syncing", False) or cur is None or not getattr(tree, "_keynav", False):
                 return
             state["path"] = cur.data(0, Qt.UserRole) if isinstance(cur, QTreeWidgetItem) else cur.data(Qt.UserRole)
             timer.start()
         tree.currentItemChanged.connect(changed)
 
+    _NAV_KEYS = (Qt.Key_Up, Qt.Key_Down, Qt.Key_Left, Qt.Key_Right, Qt.Key_PageUp, Qt.Key_PageDown,
+                 Qt.Key_Home, Qt.Key_End)
+
+    def _mark_keynav(self, w):
+        """Marca mientras se procesa una flecha / letra en la lista o el árbol."""
+        app = self
+
+        class F(QObject):
+            def eventFilter(self, obj, ev):
+                if ev.type() == QEvent.KeyPress and (ev.key() in app._NAV_KEYS or ev.text().isalnum()):
+                    w._keynav = True
+                    QTimer.singleShot(0, lambda: setattr(w, "_keynav", False))
+                return False
+        w._keyfilter = F(w)
+        w.installEventFilter(w._keyfilter)
+
     def hook_list_keys(self, w, click_fn):
         """Listas del panel izquierdo (Quick access, colecciones, tags): moverse con las flechas abre."""
+        self._mark_keynav(w)
+
         def changed(cur, prev):
-            if cur is None or not w.hasFocus() or QApplication.mouseButtons() != Qt.NoButton:
+            # solo con el teclado: rearmar la lista (p. ej. al mostrar ocultos) no tiene que navegar
+            if cur is None or not getattr(w, "_keynav", False):
                 return
             if cur.data(Qt.UserRole):
                 QTimer.singleShot(0, lambda it=cur: click_fn(it))
