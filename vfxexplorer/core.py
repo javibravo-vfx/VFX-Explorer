@@ -801,7 +801,7 @@ class Config:
         # 0.6
         "folder_color": "yellow",       # yellow (Windows) | blue
         "splitter_left2": "",
-        "cfg_version": 10,
+        "cfg_version": 11,
         "pipeline_task_depts": None,    # None = "3D": departamentos que tienen tasks
         "pipeline_stages": None,        # None = "1_projects, 2_review, 3_publish"
         "pipeline_templates": {},       # (0.17, reemplazado por pipeline_departments)
@@ -813,12 +813,12 @@ class Config:
         # 0.7
         "lib_favorites": [],            # acceso rápido de la VFX Library
         "quick_tags": None,             # None = pastillas por defecto (DEFAULT_QUICK_TAGS)
-        "lib_tree_line_color": "#4cc2ff",
+        "lib_tree_line_color": "#ffcf48",     # amarillo: las carpetas de la librería son celestes
         "splitter_left3": "",
         "hidden_sys": ["onedrive"],
         "collapse_seqs": True,
         "mini_tree_on": True,
-        "hover_box": True,
+        "hover_box": False,
         "col_layouts": {},              # layouts de columnas propios {nombre: [columnas en orden]}
         "col_order": None,              # orden de columnas del último layout aplicado              # preview flotante al dejar el mouse sobre un ítem           # árbol solo con las carpetas visitadas
         "mini_tree": [],                # carpetas visitadas (más recientes primero)          # secuencias de imágenes en una sola entrada
@@ -861,6 +861,11 @@ class Config:
                     hs.append("onedrive")
                 self.data["hidden_sys"] = hs
                 self.data["cfg_version"] = 10
+            if int(saved.get("cfg_version", 0)) < 11:           # 0.22: librería con línea amarilla, hover box off
+                if self.data.get("lib_tree_line_color") in ("#4cc2ff", "#8d6fd1", None):
+                    self.data["lib_tree_line_color"] = "#ffcf48"
+                self.data["hover_box"] = False
+                self.data["cfg_version"] = 11
         except Exception:
             pass
 

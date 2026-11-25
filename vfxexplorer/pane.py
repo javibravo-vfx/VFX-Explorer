@@ -441,6 +441,8 @@ class FilePane(QFrame):
         self.pending_select = None
         self.pending_edit = False            # New folder: queda con el nombre en edición
         self._loc_prev = self._loc_cur = None   # F7
+        self._loc_sel = {}
+        self._f7_resume = False
         self.tabs = []
         self.ti = -1
         self.view_mode = "grid"
@@ -636,6 +638,7 @@ class FilePane(QFrame):
                 v.doubleClicked.connect(self._activate)
             v.customContextMenuRequested.connect(lambda pos, v=v: self.app.item_menu(self, v, pos))
             v.selectionModel().selectionChanged.connect(lambda *_: self.selection_changed.emit(self))
+            v.selectionModel().selectionChanged.connect(lambda *_: self._remember_sel())
             self._view_shortcuts(v)
 
         self.stack = QStackedWidget()
@@ -1266,11 +1269,20 @@ class FilePane(QFrame):
         else:
             self.navigate(p, new_tab=True)
 
+    def _remember_sel(self):
+        """Lo seleccionado en cada ubicación (F7 vuelve con eso seleccionado: en la librería, el video
+        que se estaba viendo)."""
+        if self._loc_cur:
+            ents = self.selected_entries()
+            if ents:
+                self._loc_sel[self._loc_cur] = [e.name for e in ents[:50]]
+
     def go_previous(self):
         """F7: va a la ubicación anterior (y otra vez F7 vuelve). Si está abierta en otra pestaña, va a esa."""
         prev = self._loc_prev
         if not prev:
             return
+        want = self._loc_sel.get(prev)
         for i, tt in enumerate(self.tabs):
             if i != self.ti:
                 here = THISPC if (tt["virtual"] and tt["virtual"]["kind"] == "thispc") else tt["path"]
@@ -1279,6 +1291,9 @@ class FilePane(QFrame):
                         self.tabbar.setCurrentIndex(i)
                         return
         self.navigate(prev)
+        if want:
+            self._f7_resume = True
+            self.pending_select = list(want)
 
     def go_back(self):
         t = self.tab()

@@ -286,7 +286,7 @@ class EntryModel(QAbstractTableModel):
                 return v.lower() if col != C_RES else 0
         if role == Qt.DecorationRole and col == C_NAME:
             if e.kind == "dir":
-                return self.app.icons.folder_icon(self.app.entry_color(e), 18)
+                return self.app.icons.folder_icon(self.app.entry_color(e, getattr(self, "lib_mode", False)), 18)
             sp = self.app.sys_icon(e, 18)
             return QIcon(sp) if sp is not None else self.app.icons.badge(e)
         if role == Qt.ForegroundRole:

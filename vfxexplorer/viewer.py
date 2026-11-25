@@ -444,6 +444,11 @@ class Viewer(QWidget):
         self.layer_cb.setVisible(len(self._layers) > 1)
 
     def load(self, e, keep_layers=False, start=0):
+        if self.entry is not None and self.n > 1:          # F7: se vuelve al mismo frame para comparar
+            self._resume = getattr(self, "_resume", {})
+            self._resume[self.entry.path] = self.cur
+            if len(self._resume) > 50:
+                self._resume.pop(next(iter(self._resume)))
         self.stop()
         self.entry = e
         self.cur = 0
@@ -565,6 +570,11 @@ class Viewer(QWidget):
         self.canvas.update()
 
     def _update_label(self):
+        if self.entry is not None and self.n > 1:          # F7: se vuelve al mismo frame para comparar
+            self._resume = getattr(self, "_resume", {})
+            self._resume[self.entry.path] = self.cur
+            if len(self._resume) > 50:
+                self._resume.pop(next(iter(self._resume)))
         if not self.n:
             self.lbl.setText("—")
             self.canvas.corner = ""

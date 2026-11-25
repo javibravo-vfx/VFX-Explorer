@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.22.0
+- Mouse Down Blow Up in the Details pane: hold the mouse button on the preview to see the image at 100 % (full-resolution EXR, image, video frame or PDF page), centered on the point you pressed; move to pan, release to close. The floating hover box is now off by default (View › Hover box).
+- F7 in the VFX Library goes back to the previous folder with the same video selected and playing from where it was — press again to go back: handy for comparing two videos.
+- VFX Library: folders are light blue (unless they have their own color) and the tree line is yellow.
+- VFX Library: clicking the empty part of the top tab bar no longer jumps to File Explorer, so the window can be moved from there.
+- First start: wider left panel so its new buttons fit.
+- Portable: the generic-icon probe file is kept inside VFXExplorer_data (nothing written to the system temp folder).
+
 ## 0.21.0
 - Folder tree with This PC as its root (in the full tree and the Mini tree): the path line starts at This PC, and going to This PC selects it (no grey box left on the last folder). The full tree reads folders by itself, network drives only when they answer.
 - Mini tree like the reference: only drives and folders you went into, everything open.

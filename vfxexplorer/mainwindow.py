@@ -488,6 +488,9 @@ class MainWindow(QMainWindow):
         self.libpane = self.libpage.pane
         lp = self.libpane
         lp.proxy.hide_images = not self.cfg["lib_show_images"]
+        lp.model.lib_mode = True
+        lp.grid.lib_mode = True
+        lp.list.lib_mode = True
         lp.root_lock = lambda: [r for r in (self.cfg["library_roots"] or []) if safe_isdir(r)]
         lp.focused.connect(self.set_active)
         lp.selection_changed.connect(self._sel_changed)
@@ -508,6 +511,8 @@ class MainWindow(QMainWindow):
         self.preview.setAlignment(Qt.AlignCenter)
         self.preview.setMinimumHeight(170)
         self.preview.setStyleSheet("background:#17181a; border-radius:6px;")
+        from .blowup import BlowUpController
+        self.blowup = BlowUpController(self, self.preview)     # mantener apretado: imagen al 100 %
         self.info = QLabel()
         self.info.setWordWrap(True)
         self.info.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -1197,7 +1202,7 @@ class MainWindow(QMainWindow):
                 self._gpane().view().setFocus()
                 return False
         if ev.type() == QEvent.MouseButtonPress and isinstance(obj, QWidget) and hasattr(self, "panes"):
-            self._header_press(obj)
+            self._header_press(obj, ev)
         if hasattr(self, "sidetabs") and obj is self.sidetabs.tabBar():
             t = ev.type()
             if t == QEvent.DragEnter:
@@ -1222,7 +1227,7 @@ class MainWindow(QMainWindow):
                 return True
         return super().eventFilter(obj, ev)
 
-    def _header_press(self, w):
+    def _header_press(self, w, ev=None):
         """Click en las pestañas o la dirección de un panel de Carpetas: activa ese panel (y si estamos en la
         VFX Library, vuelve a Carpetas). El selector de modo queda afuera."""
         x = w
@@ -1235,6 +1240,11 @@ class MainWindow(QMainWindow):
                 return
             for p in self.panes:
                 if x is p.tabsrow or x is p.navrow:
+                    if self.mode() == "library" and x is p.tabsrow and ev is not None:
+                        # espacio vacío de la fila de pestañas: mueve la ventana, no cambia de modo
+                        pos = p.tabbar.mapFromGlobal(ev.globalPosition().toPoint())
+                        if not (p.tabbar.rect().contains(pos) and p.tabbar.tabAt(pos) >= 0):
+                            return
                     if self.mode() == "library":
                         self.set_mode("explorer")
                     if p is not self.active:
@@ -1311,6 +1321,9 @@ class MainWindow(QMainWindow):
                       ("splitter_panes", self.pane_split), ("splitter_library", self.libpage.split)):
             if self.cfg[k]:
                 sp.restoreState(QByteArray.fromBase64(self.cfg[k].encode()))
+        if not self.cfg["splitter"]:              # primera vez: panel izquierdo con lugar para sus botones
+            tot = max(1200, self.width())
+            self.main_split.setSizes([340, tot - 340 - 360, 360])
         states = self.cfg["panes"] or []
         home = QDir.homePath()
         from .core import THISPC
@@ -1625,8 +1638,12 @@ class MainWindow(QMainWindow):
     def dir_color(self, path):
         return self.colors.dir_color(path)
 
-    def entry_color(self, e):
-        return self.colors.dir_color(e.path) if e.kind == "dir" else self.lib.color(e.key())
+    LIB_FOLDER = "#4cc2ff"          # en la VFX Library las carpetas sin color propio son celestes
+
+    def entry_color(self, e, lib=False):
+        if e.kind == "dir":
+            return self.colors.dir_color(e.path) or (self.LIB_FOLDER if lib else None)
+        return self.lib.color(e.key())
 
     def apply_pipeline_location(self):
         loc = self.cfg["pipeline_location"] or "center"
@@ -2435,7 +2452,8 @@ class MainWindow(QMainWindow):
                     w.addItem(sep)
             for p in self.cfg[key] or []:
                 name = os.path.basename(p.rstrip("\\/")) or p
-                it = QListWidgetItem(self.icons.folder_icon(self.dir_color(p), 18), name)
+                col = self.dir_color(p) or (self.LIB_FOLDER if key == "lib_favorites" else None)
+                it = QListWidgetItem(self.icons.folder_icon(col, 18), name)
                 it.setData(Qt.UserRole, p)
                 it.setToolTip(p + "\nPinned · drag to reorder")
                 it.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsDragEnabled)
@@ -2662,8 +2680,7 @@ class MainWindow(QMainWindow):
                     if not gi.isNull():
                         gens.append(gi.pixmap(int(size), int(size)).toImage())
                     try:
-                        import tempfile
-                        probe = os.path.join(tempfile.gettempdir(), "vfxexplorer_probe.vfxunknownext")
+                        probe = os.path.join(self.data_dir, "probe.vfxunknownext")   # portable: nada afuera
                         if not os.path.exists(probe):
                             open(probe, "w").close()
                         ui = prov.icon(QFileInfo(probe))

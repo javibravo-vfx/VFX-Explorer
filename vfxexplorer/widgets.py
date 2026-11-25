@@ -659,7 +659,7 @@ class GridDelegate(QStyledItemDelegate):
             p.setBrush(QColor("#333333") if sel else QColor("#262626"))
             p.drawRoundedRect(QRectF(r).adjusted(0.5, 0.5, -0.5, -0.5), 6, 6)
 
-        tag = app.entry_color(e)
+        tag = app.entry_color(e, getattr(self.view, "lib_mode", False))
         th = QRect(r.x() + 5, r.y() + 5, r.width() - 10, int((r.width() - 10) * 9 / 16))
         pm = app.thumbs.get(e, th.width(), th.height())
         scrub = getattr(self.view, "scrub", None)
@@ -1601,7 +1601,7 @@ class SettingsDialog(QDialog):
         self.tcolor.setCurrentIndex(max(0, self.tcolor.findData(cfg["tree_trace_color"])))
         cl.addRow("Trace color:", self.tcolor)
         self.lcolor = QComboBox()
-        for label, hexc in (("Light blue", "#4cc2ff"), ("Violet", "#8d6fd1"), ("Pink", "#d16fa8"), ("Green", "#3ecf8e"),
+        for label, hexc in (("Yellow", "#ffcf48"), ("Light blue", "#4cc2ff"), ("Violet", "#8d6fd1"), ("Pink", "#d16fa8"), ("Green", "#3ecf8e"),
                             ("Orange", "#ff9f43"), ("Gray", "#5f6368")):
             self.lcolor.addItem(app.icons.swatch(hexc), label, hexc)
         i = self.lcolor.findData(cfg["lib_tree_line_color"])

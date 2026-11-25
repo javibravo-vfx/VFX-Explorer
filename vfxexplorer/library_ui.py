@@ -48,7 +48,11 @@ class LibraryPage(QWidget):
         if key == self._last:
             return
         self._last = key
-        self.viewer.load(e)
+        start = 0
+        if getattr(self.pane, "_f7_resume", False):        # volvió con F7: sigue desde donde estaba
+            self.pane._f7_resume = False
+            start = getattr(self.viewer, "_resume", {}).get(e.path, 0)
+        self.viewer.load(e, start=start)
 
     def shutdown(self):
         self.viewer.shutdown()
@@ -119,7 +123,7 @@ class LibrarySidebar(QWidget):
     def _item(self, path, label):
         it = QTreeWidgetItem([label])
         it.setData(0, Qt.UserRole, path)
-        it.setIcon(0, self.app.icons.folder_icon(self.app.dir_color(path), 18))
+        it.setIcon(0, self.app.icons.folder_icon(self.app.dir_color(path) or self.app.LIB_FOLDER, 18))
         it.setChildIndicatorPolicy(QTreeWidgetItem.ShowIndicator)
         return it
 
