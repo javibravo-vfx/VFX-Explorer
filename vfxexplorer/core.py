@@ -897,6 +897,8 @@ class Config:
         "system_icons": True,           # ícono original de programas/documentos (no en imágenes, video, audio)
         "workspaces": [],               # Workspaces: [{name, state}] — pestañas, paneles y medidas guardados
         "workspace_current": "",
+        "workspace_keep_updated": True,  # cada workspace recuerda solo lo que se hace en él
+        "workspace_default_state": {},   # memoria de Default
         "dual_orient": "h",             # doble panel: h = lado a lado (F9) · v = uno arriba del otro (F10)
         "color_filters_on": False,      # pintar nombres por tipo / patrón
         "color_filters": None,          # None = DEFAULT_COLOR_FILTERS

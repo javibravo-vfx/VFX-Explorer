@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.35.0
+- Workspaces · «Keep updated» (on by default, in the Workspace menu): each workspace remembers by itself the tabs and panels you open, close or move in it — switching workspaces is like having several windows open. «Update» is not needed (disabled) and «Reset» takes the workspace back to how it was when the app was opened (or created, if it is new).
+- Without Keep updated, workspaces work as before: changes are saved with «Update» and «Reset» goes back to the saved layout.
+- Default always remembers what you do in it (also after switching to another workspace and back); «Reset Default to zero» leaves it as the first time the app opens.
+
 ## 0.34.0
 - Quick access: the folders you pinned can get their own name (F2 or right-click › Rename here) without renaming the real folder; the tooltip shows the real path, and «Back to the folder's name» undoes it. Works in File Explorer and in the VFX Library.
 - Workspaces: «New workspace…» starts from zero — it asks whether to update the current workspace first, closes the tabs and leaves everything as when the app opens for the first time (one tab, no dual pane, Details on, default panel sizes), then saves it under the new name. Quick access and the VFX Library are not touched.

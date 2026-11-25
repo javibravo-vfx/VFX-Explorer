@@ -1541,6 +1541,8 @@ class MainWindow(QMainWindow):
         if self.libpane.tabs:              # con la librería offline no se pisan sus pestañas guardadas
             self.cfg["library_pane"] = self.libpane.state()
         self.cfg["dual"] = self.paneB.isVisible()
+        if hasattr(self, "wsbutton"):
+            self.wsbutton.autosave()              # el workspace activo recuerda lo que se hace en él
         self.cfg.save()
         self.lib.save()
 
