@@ -11,6 +11,7 @@ SHORTCUTS = [
         ("F6", "Switch between the two panes"),
         ("Alt+Shift+P", "Details pane on / off"),
         ("Alt+Shift+1…9", "Switch to workspace 1…9 (Workspace menu, left of File Explorer)"),
+        ("Alt+Shift+0", "Default workspace: one tab, no dual pane, panels at their default sizes"),
     ]),
     ("Navigation", [
         ("Alt+←  /  Alt+→", "Back / Forward"),
@@ -30,7 +31,7 @@ SHORTCUTS = [
         ("Ctrl+Tab  /  Ctrl+Shift+Tab", "Next / previous tab"),
     ]),
     ("Files", [
-        ("F2", "Rename"),
+        ("F2", "Rename (in Quick access: only the name shown there, the folder keeps its name)"),
         ("Ctrl+A", "Select all"),
         ("Del", "Send to the Recycle Bin (network drives: asks, deletes permanently)"),
         ("Shift+Del", "Delete permanently (asks)"),

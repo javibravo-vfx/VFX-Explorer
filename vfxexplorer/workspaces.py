@@ -75,6 +75,46 @@ def apply(app, st):
     app.save_soon()
 
 
+DEFAULT = "Default"
+
+
+def reset_layout(app):
+    """Como al abrir la app por primera vez, solo en lo visual: una pestaña (This PC) en File Explorer, sin doble
+    panel, Details prendido y las medidas de fábrica. No toca Quick access, la librería ni ninguna configuración."""
+    home = os.path.expanduser("~")
+    first = THISPC if IS_WIN else home
+    if app.mode() != "explorer":
+        app.set_mode("explorer")
+    for p in app.panes:
+        p._stop_search()
+        p.clear_tabs()
+        p.restore(None, first)
+    app.cfg["dual_orient"] = "h"
+    app.toggle_dual(force=False)
+    app.set_active(app.paneA)
+    roots = app.libpane.root_lock()
+    if roots:
+        app.libpane.clear_tabs()
+        app.libpane.restore(None, roots[0])
+        app.libpane.set_view("grid", emit=False)
+    app.toggle_details(True)
+    defaults = getattr(app, "_default_splits", {})
+
+    def sizes():
+        tot = max(1200, sum(app.main_split.sizes()) or app.width())
+        app.main_split.setSizes([340, tot - 340 - 360, 360])
+        if defaults.get("left"):
+            app.left_split.restoreState(QByteArray.fromBase64(defaults["left"].encode()))
+        if defaults.get("lib"):
+            app.libpage.split.restoreState(QByteArray.fromBase64(defaults["lib"].encode()))
+        app._sync_cmd_left()
+    sizes()
+    QTimer.singleShot(0, sizes)
+    app.sidetabs.setCurrentIndex(0)
+    app.sync_commandbar(app.active)
+    app.save_soon()
+
+
 class WorkspaceButton(QToolButton):
     """A la izquierda de File Explorer / VFX Library: ícono (ventana con sus paneles) + el nombre del workspace
     activo (cortado con … si es largo) + flechita. El recuadro al pasar el mouse coincide con el de las pestañas
@@ -169,11 +209,11 @@ class WorkspaceButton(QToolButton):
 
     def refresh(self):
         cur = self.app.cfg["workspace_current"]
-        if cur and not self._find(cur):
+        if cur and cur != DEFAULT and not self._find(cur):
             cur = ""
         self._label = cur
         self._apply_width()
-        tip = "Save the open tabs, panels and their sizes, and switch between layouts\n(Alt+Shift+1…9: the first nine)"
+        tip = "Save the open tabs, panels and their sizes, and switch between layouts\n(Alt+Shift+1…9: the first nine · Alt+Shift+0: Default)"
         self.setToolTip((f"Workspace: {cur}\n" if cur else "Workspace\n") + tip)
         self.update()
 
@@ -183,19 +223,25 @@ class WorkspaceButton(QToolButton):
         m.clear()
         cur = self.app.cfg["workspace_current"]
         lst = self.items()
+        d = m.addAction(f"{DEFAULT}\tAlt+Shift+0", lambda: self.switch(DEFAULT))
+        d.setCheckable(True)
+        d.setChecked(cur == DEFAULT)
+        d.setToolTip("Like opening the app the first time: one tab, no dual pane, panels at their default sizes")
+        if lst:
+            m.addSeparator()
         for i, w in enumerate(lst):
             a = m.addAction(w["name"] + (f"\tAlt+Shift+{i + 1}" if i < 9 else ""),
                             lambda n=w["name"]: self.switch(n))
             a.setCheckable(True)
             a.setChecked(w["name"] == cur)
-        if not lst:
-            m.addAction("No workspaces yet").setEnabled(False)
         m.addSeparator()
-        m.addAction("Save as new workspace…", self.save_new)
+        m.addAction("New workspace…", self.new_ws)
+        m.addAction("Save current layout as new workspace…", self.save_new)
         has = bool(cur and self._find(cur))
         m.addAction(f"Update «{cur}» with the current layout" if has else "Update workspace",
                     lambda: self.update_ws(cur)).setEnabled(has)
-        m.addAction(f"Reset to «{cur}»" if has else "Reset to saved", lambda: self.switch(cur)).setEnabled(has)
+        m.addAction(f"Reset to «{cur}»" if (has or cur == DEFAULT) else "Reset to saved",
+                    lambda: self.switch(cur)).setEnabled(has or cur == DEFAULT)
         if lst:
             ren = m.addMenu("Rename")
             dele = m.addMenu("Delete")
@@ -209,14 +255,56 @@ class WorkspaceButton(QToolButton):
 
     # ---------------------------------------------------------------- acciones
     def switch(self, name):
-        w = self._find(name)
-        if not w:
-            return
-        apply(self.app, w["state"])
+        if name == DEFAULT:
+            reset_layout(self.app)
+        else:
+            w = self._find(name)
+            if not w:
+                return
+            apply(self.app, w["state"])
         self.app.cfg["workspace_current"] = name
         self.app.cfg.save()
         self.refresh()
         self.app.status.setText(f"Workspace: {name}")
+
+    def _offer_update(self, title):
+        """Antes de dejar el workspace actual: ¿guardarle los cambios? Devuelve False si se cancela."""
+        cur = self.app.cfg["workspace_current"]
+        if not cur or cur == DEFAULT or not self._find(cur):
+            return True
+        r = QMessageBox.question(self.app, title, f"Update the workspace «{cur}» with the current layout first?",
+                                 QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel, QMessageBox.No)
+        if r == QMessageBox.Cancel:
+            return False
+        if r == QMessageBox.Yes:
+            self.update_ws(cur)
+        return True
+
+    def new_ws(self):
+        """Workspace nuevo desde cero: cierra las pestañas y deja todo como al abrir la app la primera vez
+        (no borra Quick access ni nada de la librería)."""
+        if not self._offer_update("New workspace"):
+            return
+        name = self._ask_name("New workspace", f"Workspace {len(self.items()) + 1}")
+        if not name:
+            return
+        if name == DEFAULT:
+            QMessageBox.information(self.app, "New workspace", f"«{DEFAULT}» is the built-in layout; choose another name.")
+            return
+        lst = self.items()
+        old = self._find(name)
+        if old is not None and QMessageBox.question(self.app, "New workspace", f"Replace the workspace «{name}»?",
+                                                    QMessageBox.Yes | QMessageBox.Cancel,
+                                                    QMessageBox.Cancel) != QMessageBox.Yes:
+            return
+        reset_layout(self.app)
+        st = capture(self.app)
+        if old is not None:
+            old["state"] = st
+        else:
+            lst.append({"name": name, "state": st})
+        self._store(lst, name)
+        self.app.status.setText(f"New workspace: {name}")
 
     def switch_index(self, i):
         lst = self.items()
@@ -232,6 +320,9 @@ class WorkspaceButton(QToolButton):
         n = len(self.items()) + 1
         name = self._ask_name("Save workspace", f"Workspace {n}")
         if not name:
+            return
+        if name == DEFAULT:
+            QMessageBox.information(self.app, "Save workspace", f"«{DEFAULT}» is the built-in layout; choose another name.")
             return
         lst = self.items()
         old = self._find(name)
@@ -256,7 +347,7 @@ class WorkspaceButton(QToolButton):
 
     def rename(self, name):
         new = self._ask_name("Rename workspace", name)
-        if not new or new == name:
+        if not new or new == name or new == DEFAULT:
             return
         lst = self.items()
         if any(x["name"] == new for x in lst):

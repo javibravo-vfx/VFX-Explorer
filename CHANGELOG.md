@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.34.0
+- Quick access: the folders you pinned can get their own name (F2 or right-click › Rename here) without renaming the real folder; the tooltip shows the real path, and «Back to the folder's name» undoes it. Works in File Explorer and in the VFX Library.
+- Workspaces: «New workspace…» starts from zero — it asks whether to update the current workspace first, closes the tabs and leaves everything as when the app opens for the first time (one tab, no dual pane, Details on, default panel sizes), then saves it under the new name. Quick access and the VFX Library are not touched.
+- Workspaces: built-in «Default» layout at the top of the menu (Alt+Shift+0).
+
 ## 0.33.0
 - Sharp icons on scaled screens (125 %, 150 %…): the app's icons (This PC, tabs, Quick access, tree, address bar, buttons, folders in the grid) are drawn at the screen's real resolution instead of being stretched.
 - Quick access: Desktop, Documents, Downloads, Pictures, Videos, OneDrive and .nuke use line icons in the app's style, each with its color.

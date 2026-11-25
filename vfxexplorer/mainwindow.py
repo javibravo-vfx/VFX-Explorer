@@ -179,6 +179,9 @@ class MainWindow(QMainWindow):
         self._ready = False             # hasta terminar de abrir no se guardan vistas por carpeta
         self._sys_view_defaults()
         self._build()
+        # medidas de fábrica de los paneles (para «Default» / «New workspace»)
+        self._default_splits = {k: bytes(sp.saveState().toBase64()).decode() for k, sp in
+                                (("left", self.left_split), ("lib", self.libpage.split))}
         self._restore(start_path)
         self._ready = True
         for p in self.all_panes:
@@ -334,6 +337,10 @@ class MainWindow(QMainWindow):
             w.customContextMenuRequested.connect(lambda pos, w=w, f=menu_fn: f(w, pos))
             w.itemClicked.connect(click_fn)
             self.hook_list_keys(w, click_fn)
+            w.itemChanged.connect(self._quick_item_changed)
+            sc = QShortcut(QKeySequence("F2"), w, lambda w=w: self._quick_rename(w))
+            sc.setContext(Qt.WidgetShortcut)
+            w.setEditTriggers(QAbstractItemView.NoEditTriggers)      # solo F2 / menú (el clic abre)
             w.model().rowsMoved.connect(self._favs_reordered)
             w.dropped.connect(lambda dirs, lib=lib: self._quick_dropped(dirs, lib))
         self.colls = self._mk_list(self._colls_menu, lambda it: self.open_collection(it.data(Qt.UserRole)))
@@ -1255,15 +1262,20 @@ class MainWindow(QMainWindow):
         act = None
         if mods == (Qt.AltModifier | Qt.ShiftModifier):            # Alt+Shift+1…9: workspaces
             sc = ev.nativeScanCode()
-            i = (sc - 2) if IS_WIN else (sc - 10)
-            if not 0 <= i <= 8:
+            i = (sc - 2) if IS_WIN else (sc - 10)     # tecla 1…9; la 0 (scancode 11 / 19) = Default
+            if i == 9:
+                i = -1
+            if not -1 <= i <= 8:
                 return False
             if i >= len(self.wsbutton.items()):
                 return False
             if ev.type() == QEvent.ShortcutOverride:
                 ev.accept()
                 return True
-            self.wsbutton.switch_index(i)
+            if i < 0:
+                self.wsbutton.switch("Default")
+            else:
+                self.wsbutton.switch_index(i)
             return True
         if mods == (Qt.ControlModifier | Qt.ShiftModifier):        # Ctrl+Shift+1 / 2: vista íconos / lista
             i = self._digit(ev)
@@ -2846,13 +2858,17 @@ class MainWindow(QMainWindow):
                     sep.setData(Qt.UserRole + 2, True)
                     sep.setFlags(Qt.NoItemFlags)
                     w.addItem(sep)
+            names = self.cfg["quick_names"] or {}
             for p in self.cfg[key] or []:
-                name = os.path.basename(p.rstrip("\\/")) or p
+                real = os.path.basename(p.rstrip("\\/")) or p
+                alias = names.get(norm_key(p))
                 col = self.dir_color(p) or (self.LIB_FOLDER if key == "lib_favorites" else None)
-                it = QListWidgetItem(self.icons.folder_icon(col, 18), name)
+                it = QListWidgetItem(self.icons.folder_icon(col, 18), alias or real)
                 it.setData(Qt.UserRole, p)
-                it.setToolTip(p + "\nPinned · drag to reorder")
-                it.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsDragEnabled)
+                it.setData(Qt.UserRole + 4, real)
+                it.setToolTip(p + (f"\nShown as «{alias}» (the folder keeps its name)" if alias else "")
+                              + "\nPinned · drag to reorder · F2 to rename here")
+                it.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsDragEnabled | Qt.ItemIsEditable)
                 w.addItem(it)
         if not self.cfg["lib_favorites"]:
             it = QListWidgetItem("Drag a folder here to pin it")
@@ -2920,10 +2936,48 @@ class MainWindow(QMainWindow):
 
         def remove():
             self.cfg["lib_favorites"] = [x for x in self.cfg["lib_favorites"] if norm_key(x) != norm_key(p)]
+            self._set_quick_name(p, None, reload=False)
             self.cfg.save()
             self._reload_sidebar()
+        self._quick_rename_actions(m, w, it, p)
         m.addAction("Unpin from Quick access", remove)
         m.exec(w.viewport().mapToGlobal(pos))
+
+    # ---------------- nombres propios en Quick access (la carpeta real no se renombra)
+    def _quick_rename_actions(self, m, w, it, p):
+        m.addAction("Rename here\tF2", lambda: self._quick_rename(w, it))
+        if (self.cfg["quick_names"] or {}).get(norm_key(p)):
+            m.addAction(f"Back to the folder's name ({it.data(Qt.UserRole + 4)})",
+                        lambda: self._set_quick_name(p, None))
+
+    def _quick_rename(self, w, it=None):
+        it = it or w.currentItem()
+        if it is None or not it.data(Qt.UserRole) or it.data(Qt.UserRole + 1) or not (it.flags() & Qt.ItemIsEditable):
+            return
+        self._quick_editing = (w, it)
+        w.editItem(it)
+
+    def _quick_item_changed(self, it):
+        ed = getattr(self, "_quick_editing", None)
+        if not ed or ed[1] is not it:
+            return
+        self._quick_editing = None
+        p = it.data(Qt.UserRole)
+        text = it.text().strip()
+        real = it.data(Qt.UserRole + 4)
+        QTimer.singleShot(0, lambda: self._set_quick_name(p, None if (not text or text == real) else text))
+
+    def _set_quick_name(self, p, name, reload=True):
+        names = dict(self.cfg["quick_names"] or {})
+        k = norm_key(p)
+        if name:
+            names[k] = name
+        else:
+            names.pop(k, None)
+        self.cfg["quick_names"] = names
+        self.cfg.save()
+        if reload:
+            self._reload_sidebar()
 
     def _color_menu(self, menu, targets):
         cm = menu.addMenu("Color label")
@@ -2949,8 +3003,11 @@ class MainWindow(QMainWindow):
 
         def remove():
             self.cfg["favorites"] = [x for x in self.cfg["favorites"] if norm_key(x) != norm_key(p)]
+            self._set_quick_name(p, None, reload=False)
             self.cfg.save()
             self._reload_sidebar()
+        if not sysk:
+            self._quick_rename_actions(m, w, it, p)
         if sysk:
             hid = sysk in (self.cfg["hidden_sys"] or [])
             m.addAction(self.icons.eye(16, on=hid), "Show" if hid else "Hide", lambda: self._toggle_sys(sysk))

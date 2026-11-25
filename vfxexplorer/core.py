@@ -815,6 +815,7 @@ def color_filter_match(rules, name, is_dir):
 class Config:
     DEFAULTS = {
         "favorites": [],
+        "quick_names": {},              # Quick access: nombre propio de una carpeta fijada (la carpeta no cambia)
         "player": "",
         "ffmpeg": "",
         "colorspace": "acescg",
