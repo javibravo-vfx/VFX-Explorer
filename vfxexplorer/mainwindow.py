@@ -7,7 +7,7 @@ import subprocess
 
 from PySide6.QtCore import Qt, QSize, QTimer, QByteArray, QDir, QUrl, QEvent, Signal, QRectF, QPointF
 from PySide6.QtGui import QKeySequence, QShortcut, QDesktopServices, QCursor, QAction, QPixmap
-from PySide6.QtWidgets import (QLineEdit, QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QTreeView,
+from PySide6.QtWidgets import (QLineEdit, QPlainTextEdit, QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QTreeView,
                                QListWidget, QListWidgetItem, QComboBox, QSlider, QToolBar, QLabel, QMenu,
                                QFileSystemModel, QAbstractItemView, QToolButton, QScrollArea, QFrame,
                                QMessageBox, QInputDialog, QProgressDialog, QStyledItemDelegate, QSizePolicy, QStyleOptionViewItem,
@@ -204,8 +204,8 @@ class MainWindow(QMainWindow):
         self.modebar.setExpanding(False)
         self.modebar.setUsesScrollButtons(False)
         self.modebar.setElideMode(Qt.ElideNone)
-        self.modebar.addTab(ic.glyph("folder", 16), "File Explorer")
-        self.modebar.addTab(ic.glyph("library", 16, "#4cc2ff"), "VFX Library")
+        self.modebar.addTab(ic.glyph("folder", 16, "#ffcf48"), "File Explorer")
+        self.modebar.addTab(ic.glyph("library", 16, "#9d9d9d"), "VFX Library")
         self.modebar.setTabToolTip(0, "File Explorer (Ctrl+Shift+E)")
         self.modebar.setTabToolTip(1, "VFX Library: viewer on top, elements below (Ctrl+Shift+L)")
         self.modebar.currentChanged.connect(lambda i: self.set_mode("library" if i == 1 else "explorer"))
@@ -486,6 +486,8 @@ class MainWindow(QMainWindow):
 
         self.libpage = LibraryPage(self)
         self.libpane = self.libpage.pane
+        from .slots import SlotController
+        self.lib_slots = SlotController(self, self.libpage)      # Ctrl / Shift + 1…4 en el player
         lp = self.libpane
         lp.proxy.hide_images = not self.cfg["lib_show_images"]
         lp.model.lib_mode = True
@@ -1127,6 +1129,60 @@ class MainWindow(QMainWindow):
         d = HashDialog(self, path)
         d.show()
 
+    # ---------------- slots del player de la librería
+    _SLOT_SCANCODES = ({2: 0, 3: 1, 4: 2, 5: 3},          # Windows: teclas 1-4 de la fila de números
+                       {10: 0, 11: 1, 12: 2, 13: 3})     # X11
+    _SLOT_SHIFT_KEYS = {Qt.Key_Exclam: 0, Qt.Key_At: 1, Qt.Key_QuoteDbl: 1, Qt.Key_NumberSign: 2,
+                        Qt.Key_periodcentered: 2, Qt.Key_Dollar: 3}
+
+    def _digit(self, ev):
+        """Tecla 1-4 de la fila de números (0-3) aunque Shift la convierta en ! " # $ según el teclado."""
+        sc = ev.nativeScanCode()
+        table = self._SLOT_SCANCODES[0 if IS_WIN else 1]
+        if sc in table:
+            return table[sc]
+        k = ev.key()
+        return self._SLOT_SHIFT_KEYS.get(k, (k - Qt.Key_1) if Qt.Key_1 <= k <= Qt.Key_4 else -1)
+
+    def _slot_key(self, ev):
+        """Ctrl+1…4: guardar el video actual en el slot · Shift+1…4: ir al slot. Solo en la VFX Library
+        y no mientras se escribe en un campo de texto."""
+        if not self.isActiveWindow():
+            return False
+        fw = QApplication.focusWidget()
+        if isinstance(fw, (QLineEdit, QPlainTextEdit)) or (fw is not None and fw.inherits("QAbstractSpinBox")):
+            return False
+        mods = ev.modifiers() & (Qt.ControlModifier | Qt.ShiftModifier | Qt.AltModifier | Qt.MetaModifier)
+        k = ev.key()
+        i = -1
+        act = None
+        if mods == (Qt.ControlModifier | Qt.ShiftModifier):        # Ctrl+Shift+1 / 2: vista íconos / lista
+            i = self._digit(ev)
+            if i not in (0, 1):
+                return False
+            if ev.type() == QEvent.ShortcutOverride:
+                ev.accept()
+                return True
+            self.active.set_view("grid" if i == 0 else "list")
+            return True
+        if self.mode() != "library":
+            return False
+        if mods == Qt.ControlModifier and Qt.Key_1 <= k <= Qt.Key_4:
+            i, act = k - Qt.Key_1, "set"
+        elif mods == Qt.ShiftModifier:
+            i = self._digit(ev)
+            act = "go" if i >= 0 else None
+        if i < 0 or act is None:
+            return False
+        if ev.type() == QEvent.ShortcutOverride:
+            ev.accept()                    # que llegue como tecla (y no dispare otro atajo)
+            return True
+        if act == "set":
+            self.lib_slots.assign(i)
+        else:
+            self.lib_slots.go(i)
+        return True
+
     def _toggle_hover_box(self):
         self.cfg["hover_box"] = not self.cfg["hover_box"]
         self.cfg.save()
@@ -1201,6 +1257,9 @@ class MainWindow(QMainWindow):
             if ev.key() in (Qt.Key_Down, Qt.Key_Up):
                 self._gpane().view().setFocus()
                 return False
+        if ev.type() in (QEvent.ShortcutOverride, QEvent.KeyPress) and hasattr(self, "lib_slots") \
+                and self._slot_key(ev):
+            return True
         if ev.type() == QEvent.MouseButtonPress and isinstance(obj, QWidget) and hasattr(self, "panes"):
             self._header_press(obj, ev)
         if hasattr(self, "sidetabs") and obj is self.sidetabs.tabBar():
@@ -1605,6 +1664,9 @@ class MainWindow(QMainWindow):
         else:
             self.libpage.viewer.pause()
             self.set_active(self.explorer_active)
+        # el ícono del modo activo en color (explorer amarillo, librería celeste), el otro gris
+        self.modebar.setTabIcon(0, self.icons.glyph("folder", 16, "#9d9d9d" if lib else "#ffcf48"))
+        self.modebar.setTabIcon(1, self.icons.glyph("library", 16, "#4cc2ff" if lib else "#9d9d9d"))
         self.cfg["mode"] = mode
         self.save_soon()
 

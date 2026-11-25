@@ -1,0 +1,72 @@
+# -*- coding: utf-8 -*-
+"""Lista de atajos activos (se muestra en Settings › Shortcuts). Mantenerla al día con los QShortcut del código."""
+
+SHORTCUTS = [
+    ("General", [
+        ("Ctrl+Shift+E", "File Explorer"),
+        ("Ctrl+Shift+L", "VFX Library"),
+        ("F7", "Previous location (press again to come back)"),
+        ("F9", "Dual pane, side by side (on / off)"),
+        ("F10", "Dual pane, one above the other (on / off)"),
+        ("F6", "Switch between the two panes"),
+        ("Alt+Shift+P", "Details pane on / off"),
+    ]),
+    ("Navigation", [
+        ("Alt+←  /  Alt+→", "Back / Forward"),
+        ("Alt+↑  ·  Backspace", "Up one level"),
+        ("Double click on empty space", "Up one level"),
+        ("Enter  ·  Double click", "Open (folder, file, sequence)"),
+        ("F5", "Refresh"),
+        ("Ctrl+L", "Edit the address bar"),
+        ("Ctrl+F", "Search"),
+        ("Ctrl+B", "Subfolders: off › 1 level › all"),
+        ("Ctrl+Shift+1  /  Ctrl+Shift+2", "Icons view / Details (list) view"),
+    ]),
+    ("Tabs", [
+        ("Ctrl+T", "New tab"),
+        ("Ctrl+W  ·  Middle click", "Close tab"),
+        ("Ctrl+Shift+T", "Reopen the last closed tab"),
+        ("Ctrl+Tab  /  Ctrl+Shift+Tab", "Next / previous tab"),
+    ]),
+    ("Files", [
+        ("F2", "Rename"),
+        ("Ctrl+A", "Select all"),
+        ("Del", "Send to the Recycle Bin (network drives: asks, deletes permanently)"),
+        ("Shift+Del", "Delete permanently (asks)"),
+        ("Ctrl+C  /  Ctrl+X  /  Ctrl+V", "Copy / Cut / Paste"),
+        ("Ctrl+Shift+C", "Copy path with / (sequences as ####)"),
+        ("Ctrl+Alt+C", "Copy path for Nuke (sequences as %04d with the frame range)"),
+        ("Ctrl+Shift+N", "New folder (name ready to edit)"),
+        ("Alt+0 … Alt+5", "Rating (with the library extras turned on in Settings)"),
+        ("Ctrl+E", "Tags (with the library extras turned on in Settings)"),
+    ]),
+    ("Address bar (6 Key Navigation)", [
+        ("→ at the end", "Add \\ and list the subfolders"),
+        ("Ctrl+←  /  Ctrl+→", "Jump to the previous / next folder of the path"),
+        ("Ctrl+↓", "List at the cursor (cuts what is to the right)"),
+        ("↑  /  ↓", "Choose in the list"),
+        ("Ctrl+↑", "Close the list"),
+        ("Enter", "Go"),
+        ("Ctrl+Enter", "Open the file / the folder in a new tab"),
+    ]),
+    ("Search box", [
+        ("Enter", "Search"),
+        ("Esc", "Clear the search"),
+        ("↓  /  ↑", "Go to the results"),
+    ]),
+    ("VFX Library player", [
+        ("Space", "Play / pause"),
+        (",  /  .", "Previous / next frame"),
+        ("Home", "First frame (with the player focused)"),
+        ("Ctrl+1 … Ctrl+4", "Put the current video in slot 1–4"),
+        ("Shift+1 … Shift+4  ·  Click on a circle", "Go to the video of slot 1–4 (keeps playing where it was)"),
+        ("Right click on a circle", "Clear that slot"),
+        ("F7", "Previous folder, with its video playing where it was"),
+    ]),
+    ("Mouse", [
+        ("Hold on the Details image", "See it at 100 % (move to pan, release to close)"),
+        ("Mouse over an image or PDF", "Hover box preview (View › Hover box)"),
+        ("Mouse over a video / sequence thumbnail", "Scrub its frames"),
+        ("Drag the empty part of the tab bar", "Move the window (double click: maximize)"),
+    ]),
+]

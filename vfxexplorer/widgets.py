@@ -11,7 +11,7 @@ from PySide6.QtGui import (QPixmap, QPainter, QColor, QIcon, QPainterPath, QFont
 from PySide6.QtWidgets import (QStyledItemDelegate, QStyle, QWidget, QHBoxLayout, QToolButton, QLineEdit,
                                QMenu, QStackedLayout, QDialog, QFormLayout, QVBoxLayout, QLabel, QListWidget,
                                QDialogButtonBox, QComboBox, QSpinBox, QPushButton, QFileDialog, QCheckBox,
-                               QTabWidget, QCompleter, QSizePolicy, QPlainTextEdit)
+                               QTabWidget, QCompleter, QSizePolicy, QPlainTextEdit, QTreeWidget, QTreeWidgetItem, QAbstractItemView)
 
 from .core import IS_WIN, human_size, fwd, find_tool
 from .imaging import COLORSPACES
@@ -1665,6 +1665,35 @@ class SettingsDialog(QDialog):
         ll.addRow("", _hint("Library folders are added with the ＋ of «VFX LIBRARY» in the left pane. "
                             "Videos play with the ffmpeg set in General."))
         tabs.addTab(lw, "VFX Library")
+
+        # --- Atajos (solo lectura)
+        from .shortcuts import SHORTCUTS
+        sw = QWidget()
+        sl = QVBoxLayout(sw)
+        st = QTreeWidget()
+        st.setColumnCount(2)
+        st.setHeaderLabels(["Keys", "Action"])
+        st.setRootIsDecorated(False)
+        st.setSelectionMode(QAbstractItemView.NoSelection)
+        st.setFocusPolicy(Qt.NoFocus)
+        for group, rows in SHORTCUTS:
+            g = QTreeWidgetItem([group.upper(), ""])
+            f = g.font(0)
+            f.setBold(True)
+            g.setFont(0, f)
+            g.setForeground(0, QColor("#4cc2ff"))
+            g.setFirstColumnSpanned(True)
+            st.addTopLevelItem(g)
+            for keys, what in rows:
+                it = QTreeWidgetItem(["   " + keys, what])
+                it.setForeground(0, QColor("#e6e6e6"))
+                it.setForeground(1, QColor("#b8b8b8"))
+                st.addTopLevelItem(it)
+        st.resizeColumnToContents(0)
+        st.setColumnWidth(0, st.columnWidth(0) + 24)
+        sl.addWidget(st)
+        tabs.addTab(sw, "Shortcuts")
+        self._shortcuts_tree = st
 
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         bb.accepted.connect(self.accept)

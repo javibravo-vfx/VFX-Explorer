@@ -671,8 +671,8 @@ class FilePane(QFrame):
         sc("Ctrl+Alt+C", lambda: a.copy_paths(self, "nuke"))
         sc("Ctrl+Shift+N", lambda: a.op_new_folder(self))
         sc("Ctrl+E", lambda: a.op_tags(self))
-        for n in range(6):
-            sc(f"Ctrl+{n}", lambda n=n: a.op_rating(self, n))
+        for n in range(6):                       # rating (con las funciones de librería prendidas)
+            sc(f"Alt+{n}", lambda n=n: a.op_rating(self, n))
 
     def _pane_shortcuts(self):
         def sc(keys, fn):
@@ -688,8 +688,7 @@ class FilePane(QFrame):
         sc("Ctrl+Shift+Tab", lambda: self.tabbar.setCurrentIndex((self.ti - 1) % max(1, len(self.tabs))))
         sc("Ctrl+L", self.crumb.start_edit)
         sc("Ctrl+F", self.focus_search)
-        sc("Ctrl+1", lambda: self.set_view("grid"))
-        sc("Ctrl+2", lambda: self.set_view("list"))
+        # Ctrl+Shift+1 / 2 (vista) los maneja la ventana: Shift+número cambia de tecla según el teclado
         sc("Ctrl+B", lambda: self.set_rec_level({0: 1, 1: 2, 2: 0}[self.rec_value()]))
 
     def _tab_drop_target(self, ev):

@@ -53,6 +53,8 @@ class LibraryPage(QWidget):
             self.pane._f7_resume = False
             start = getattr(self.viewer, "_resume", {}).get(e.path, 0)
         self.viewer.load(e, start=start)
+        if hasattr(self.app, "lib_slots"):
+            self.app.lib_slots.refresh()
 
     def shutdown(self):
         self.viewer.shutdown()

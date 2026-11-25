@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.24.0
+- VFX Library player slots: Ctrl+1…4 puts the current video in a slot, Shift+1…4 (or clicking its circle on the left of the player) jumps to it — in its folder, playing from where it was. Right-click a circle clears it. Four circles: dim when empty, brighter when set, light blue for the one playing.
+- Mode bar: the File Explorer icon is yellow when active, the VFX Library icon light blue when active; the inactive one is gray.
+- Settings › Shortcuts lists every active shortcut.
+- Views: Ctrl+Shift+1 / Ctrl+Shift+2 for icons / details (like Windows; Ctrl+1/2 clashed with the rating keys and did nothing). Rating moved to Alt+0…5.
+
 ## 0.23.0
 - Blow Up (hold on the Details preview): true 1:1 pixels (Windows display scaling taken into account), opens at the real size right away, and moving the mouse pans the whole image in every direction (reaching a screen edge shows that edge of the image).
 - Hover box back on, only for images, image sequences and PDFs (no videos or folders).
