@@ -3,7 +3,8 @@ y de edición): modo, pestañas de cada panel y en qué carpeta están, vista, d
 panel de detalles y las medidas de los paneles."""
 import os
 
-from PySide6.QtCore import Qt, QByteArray, QSize, QTimer
+from PySide6.QtCore import Qt, QByteArray, QSize, QTimer, QRectF, QPointF, QPoint
+from PySide6.QtGui import QPainter, QPen, QColor, QFontMetrics
 from PySide6.QtWidgets import QToolButton, QMenu, QInputDialog, QMessageBox
 
 from .core import IS_WIN, THISPC, safe_isdir
@@ -75,24 +76,82 @@ def apply(app, st):
 
 
 class WorkspaceButton(QToolButton):
-    """A la izquierda de File Explorer / VFX Library: elegir, guardar, actualizar y borrar workspaces."""
+    """A la izquierda de File Explorer / VFX Library: ícono (ventana con sus paneles) + el nombre del workspace
+    activo (cortado con … si es largo) + flechita. El recuadro al pasar el mouse coincide con el de las pestañas
+    de modo; queda separado de ellas un poco (GAP)."""
+    GAP = 11
+    MAX_TEXT = 150
 
     def __init__(self, app):
         super().__init__()
         self.app = app
         self.setObjectName("wsbutton")
-        self.setAutoRaise(True)
-        self.setIcon(app.icons.glyph("workspace", 16, "#9d9d9d"))
-        self.setIconSize(QSize(16, 16))
-        self.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.setPopupMode(QToolButton.InstantPopup)
+        self.setStyleSheet("QToolButton{border:none; background:transparent;}"
+                           " QToolButton::menu-indicator{image:none; width:0px;}")
+        self.setMouseTracking(True)
         self.m = QMenu(self)
         self.m.aboutToShow.connect(self._fill)
         self.setMenu(self.m)
-        self.setStyleSheet("QToolButton{border:none; border-radius:6px; padding:4px 8px; color:#c9ccd1;"
-                           " margin:0 2px 2px 2px;} QToolButton:hover{background:#2d2d2d;}"
-                           " QToolButton::menu-indicator{image:none; width:0px;}")
+        self._label = ""
         self.refresh()
+
+    def _font(self):
+        f = self.font()
+        f.setPointSizeF(9.5)
+        return f
+
+    def _apply_width(self):
+        fm = QFontMetrics(self._font())
+        t = fm.elidedText(self._label, Qt.ElideRight, self.MAX_TEXT) if self._label else ""
+        self._shown = t
+        self.setFixedWidth(44 + (fm.horizontalAdvance(t) + 6 if t else 0) + self.GAP)
+
+    def _box(self):
+        """El recuadro, a la misma altura que el de File Explorer / VFX Library."""
+        mb = self.app.modebar
+        h = 28
+        try:
+            tr = mb.tabRect(0)
+            top = mb.mapTo(self.window(), tr.topLeft()).y() - self.mapTo(self.window(), QPoint(0, 0)).y() + 4
+            if tr.height() <= 0 or not self.isVisible():
+                raise ValueError
+        except Exception:
+            top = (self.height() - h) / 2
+        return QRectF(1, top, self.width() - 2 - self.GAP, h)
+
+    def enterEvent(self, ev):
+        self.update()
+        super().enterEvent(ev)
+
+    def leaveEvent(self, ev):
+        self.update()
+        super().leaveEvent(ev)
+
+    def paintEvent(self, ev):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        r = self._box()
+        if self.underMouse() or self.isDown():
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor("#333333" if self.isDown() else "#2d2d2d"))
+            p.drawRoundedRect(r, 6, 6)
+        c = QColor("#c5c5c5")
+        cy, cx = r.center().y(), 17.0
+        p.setPen(QPen(c, 1.1, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        p.setBrush(Qt.NoBrush)
+        p.drawRoundedRect(QRectF(cx - 9, cy - 7, 18, 14), 2, 2)
+        p.drawLine(QPointF(cx - 3, cy - 7), QPointF(cx - 3, cy + 7))
+        p.drawLine(QPointF(cx - 3, cy), QPointF(cx + 9, cy))
+        if self._shown:
+            p.setFont(self._font())
+            p.setPen(QColor("#c9ccd1"))
+            p.drawText(QRectF(cx + 15, r.top(), r.width(), r.height()), Qt.AlignVCenter | Qt.AlignLeft, self._shown)
+        x = r.right() - 9
+        p.setPen(QPen(c, 1.1, Qt.SolidLine, Qt.RoundCap))
+        p.drawLine(QPointF(x - 3, cy - 1), QPointF(x, cy + 2))
+        p.drawLine(QPointF(x, cy + 2), QPointF(x + 3, cy - 1))
+        p.end()
 
     # ---------------------------------------------------------------- datos
     def items(self):
@@ -112,10 +171,11 @@ class WorkspaceButton(QToolButton):
         cur = self.app.cfg["workspace_current"]
         if cur and not self._find(cur):
             cur = ""
-        self.setText(cur or "Workspace")
-        tip = ("Workspace: save the open tabs, panels and their sizes, and switch between layouts"
-               "\n(Alt+Shift+1…9 switch to the first nine)")
-        self.setToolTip(f"Workspace: {cur}\n" + tip.split(":", 1)[1].strip() if cur else tip)
+        self._label = cur
+        self._apply_width()
+        tip = "Save the open tabs, panels and their sizes, and switch between layouts\n(Alt+Shift+1…9: the first nine)"
+        self.setToolTip((f"Workspace: {cur}\n" if cur else "Workspace\n") + tip)
+        self.update()
 
     # ---------------------------------------------------------------- menú
     def _fill(self):

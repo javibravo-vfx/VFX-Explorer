@@ -66,6 +66,15 @@ jobs:
           Get-Content "$env:TEMP\vfxexplorer_selftest.log"
           if ($p.ExitCode -ne 0) { throw "selftest falló ($($p.ExitCode))" }
 
+      - name: Tiempo de arranque
+        shell: pwsh
+        run: |
+          foreach ($i in 1..2) {
+            $p = Start-Process -FilePath "dist\VFXExplorer\VFXExplorer.exe" -ArgumentList "--startup-timing" -Wait -PassThru
+            Write-Host "---- arranque $i"
+            Get-Content "$env:TEMP\vfxexplorer_startup.log" | Select-Object -First 60
+          }
+
       - name: Empaquetar
         shell: pwsh
         run: |

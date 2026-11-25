@@ -2,6 +2,62 @@
 """VFX Explorer — punto de entrada.  Uso: VFXExplorer.exe [carpeta]   |   VFXExplorer.exe --selftest"""
 import os
 import sys
+import time
+
+_T0 = time.perf_counter()
+_MARKS = []
+
+
+def _mark(name):
+    _MARKS.append((name, time.perf_counter()))
+
+
+def _process_age():
+    """Segundos desde que Windows creó el proceso (incluye el arranque del exe y la carga de Python)."""
+    if not sys.platform.startswith("win"):
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+        k = ctypes.windll.kernel32
+        c, e, kk, u, now = (wintypes.FILETIME() for _ in range(5))
+        k.GetProcessTimes(k.GetCurrentProcess(), ctypes.byref(c), ctypes.byref(e), ctypes.byref(kk), ctypes.byref(u))
+        k.GetSystemTimeAsFileTime(ctypes.byref(now))
+        v = lambda ft: (ft.dwHighDateTime << 32) | ft.dwLowDateTime
+        return (v(now) - v(c)) / 1e7
+    except Exception:
+        return None
+
+
+_AGE0 = _process_age()
+
+
+def _write_timing(extra_print=False):
+    """VFXExplorer_data/startup.log: cuánto tarda cada etapa del arranque."""
+    lines = []
+    if _AGE0 is not None:
+        lines.append(f"{'exe + python start':28s} {_AGE0:6.2f} s")
+    prev = _T0
+    for name, t in _MARKS:
+        lines.append(f"{name:28s} {t - prev:6.2f} s")
+        prev = t
+    total = (_MARKS[-1][1] - _T0 if _MARKS else 0) + (_AGE0 or 0)
+    lines.append(f"{'TOTAL until usable':28s} {total:6.2f} s")
+    txt = "\n".join(lines)
+    try:
+        from vfxexplorer.core import data_dir
+        with open(os.path.join(data_dir(), "startup.log"), "w", encoding="utf-8") as f:
+            f.write(txt + "\n")
+    except Exception:
+        pass
+    if extra_print:
+        import tempfile
+        with open(os.path.join(tempfile.gettempdir(), "vfxexplorer_startup.log"), "w", encoding="utf-8") as f:
+            f.write(txt + "\n")
+        try:
+            print(txt)
+        except Exception:
+            pass
 
 
 def selftest():
@@ -118,14 +174,49 @@ def main():
         except Exception:
             pass
     from PySide6.QtWidgets import QApplication
+    from PySide6.QtCore import QTimer
+    _mark("import Qt")
     app = QApplication(sys.argv)
     app.setApplicationName("VFX Explorer")
+    _mark("QApplication")
+    for mod in ("numpy", "OpenImageIO", "pypdfium2"):
+        try:
+            __import__(mod)
+        except Exception:
+            pass
+        _mark(f"import {mod}")
     from vfxexplorer.widgets import apply_dark
     from vfxexplorer.mainwindow import MainWindow
+    _mark("import app modules")
     apply_dark(app)
     args = [a for a in sys.argv[1:] if not a.startswith("-")]
+    timing = "--startup-timing" in sys.argv
+    prof = None
+    if timing:
+        import cProfile
+        prof = cProfile.Profile()
+        prof.enable()
     w = MainWindow(args[0] if args else None)
+    if prof:
+        prof.disable()
+    _mark("build window")
     w.show()
+    _mark("show")
+
+    def ready():
+        _mark("first paint / idle")
+        _write_timing(timing)
+        if prof:
+            import io
+            import pstats
+            out = io.StringIO()
+            pstats.Stats(prof, stream=out).sort_stats("cumulative").print_stats(30)
+            import tempfile
+            with open(os.path.join(tempfile.gettempdir(), "vfxexplorer_startup.log"), "a", encoding="utf-8") as f:
+                f.write("\n" + out.getvalue())
+        if timing:
+            QTimer.singleShot(300, w.close)
+    QTimer.singleShot(0, ready)
     sys.exit(app.exec())
 
 
