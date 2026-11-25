@@ -168,7 +168,7 @@ class EntryModel(QAbstractTableModel):
         if not index.isValid():
             return Qt.ItemIsDropEnabled
         if self.entries[index.row()].kind == "header":
-            return Qt.ItemIsEnabled
+            return Qt.NoItemFlags            # los títulos de grupo no son ítems: las flechas los saltan
         f = Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsDragEnabled
         if index.column() == C_NAME:
             f |= Qt.ItemIsEditable

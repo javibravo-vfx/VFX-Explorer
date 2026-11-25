@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.31.0
+- VFX Library Details: selecting a video shows its details again, and they follow as you move from video to video.
+- «Folder PDF» is now «Cover»: the PDF or cover image of the folder — or of its main folder — stays in Details (an image named cover / preview / portada / thumb / poster…, or named like the folder; in the folder itself also its only image next to other files). Without a cover, or with Cover off, Details shows each selected file (videos included).
+- VFX Library tree: a library root that is a folder (not a whole drive) shows its clean name («04_vfx_stock_elements» → «VFX Stock Elements») with its keyword icon; its subfolders use plain folder icons.
+- Grouped views (e.g. Downloads by date): the arrow keys skip the group titles («Earlier this week»…).
+
 ## 0.30.1
 - NAS waking up: found (by simulating every network read as slow) the last reads that ran on the window's thread and moved them to the background — only for network paths, local files work exactly as before:
   - entering a network folder no longer asks the server whether it exists first (the background listing reports it);

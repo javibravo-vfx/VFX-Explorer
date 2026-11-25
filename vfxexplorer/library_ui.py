@@ -194,10 +194,10 @@ class LibrarySidebar(QWidget):
         for r in roots:
             name = os.path.basename(r.rstrip("\\/")) or r
             is_drive = not os.path.basename(r.rstrip("\\/"))
-            if single:
-                name = "VFX Library"                  # una sola raíz (p. ej. todo un disco): como «This PC»
-            elif is_drive:
-                name = f"VFX Library ({r.rstrip(chr(92)).rstrip('/')})"
+            # un disco entero: «VFX Library» (como This PC) y sus carpetas llevan ícono según el nombre;
+            # una carpeta elegida: su propio nombre (prolijo) con su ícono, y adentro carpetas comunes
+            if is_drive:
+                name = "VFX Library" if single else f"VFX Library ({r.rstrip(chr(92)).rstrip('/')})"
             if not reachable(r):                  # NAS apagado: se muestra, sin tocarlo, y se reintenta solo
                 it = QTreeWidgetItem([name + "   (offline)"])
                 it.setData(0, Qt.UserRole, r)
@@ -208,9 +208,9 @@ class LibrarySidebar(QWidget):
                 it.setChildIndicatorPolicy(QTreeWidgetItem.DontShowIndicator)
                 self.tree.addTopLevelItem(it)
                 continue
-            it = self._item(r, name, pretty=not (single or is_drive))
+            it = self._item(r, name, pretty=not is_drive)
             it.setToolTip(0, r)
-            if single or is_drive:
+            if is_drive:
                 it.setIcon(0, root_icon(18))
                 it.setData(0, Qt.UserRole + 4, True)     # sus carpetas son las «principales»
             else:
