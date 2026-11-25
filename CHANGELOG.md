@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.23.0
+- Blow Up (hold on the Details preview): true 1:1 pixels (Windows display scaling taken into account), opens at the real size right away, and moving the mouse pans the whole image in every direction (reaching a screen edge shows that edge of the image).
+- Hover box back on, only for images, image sequences and PDFs (no videos or folders).
+- Double-clicking an image opens it in the default app with its neighboring images, like from Windows Explorer: in Photos you can go to the next / previous image of the folder.
+
 ## 0.22.0
 - Mouse Down Blow Up in the Details pane: hold the mouse button on the preview to see the image at 100 % (full-resolution EXR, image, video frame or PDF page), centered on the point you pressed; move to pan, release to close. The floating hover box is now off by default (View › Hover box).
 - F7 in the VFX Library goes back to the previous folder with the same video selected and playing from where it was — press again to go back: handy for comparing two videos.

@@ -801,7 +801,7 @@ class Config:
         # 0.6
         "folder_color": "yellow",       # yellow (Windows) | blue
         "splitter_left2": "",
-        "cfg_version": 11,
+        "cfg_version": 12,
         "pipeline_task_depts": None,    # None = "3D": departamentos que tienen tasks
         "pipeline_stages": None,        # None = "1_projects, 2_review, 3_publish"
         "pipeline_templates": {},       # (0.17, reemplazado por pipeline_departments)
@@ -818,7 +818,7 @@ class Config:
         "hidden_sys": ["onedrive"],
         "collapse_seqs": True,
         "mini_tree_on": True,
-        "hover_box": False,
+        "hover_box": True,
         "col_layouts": {},              # layouts de columnas propios {nombre: [columnas en orden]}
         "col_order": None,              # orden de columnas del último layout aplicado              # preview flotante al dejar el mouse sobre un ítem           # árbol solo con las carpetas visitadas
         "mini_tree": [],                # carpetas visitadas (más recientes primero)          # secuencias de imágenes en una sola entrada
@@ -866,6 +866,9 @@ class Config:
                     self.data["lib_tree_line_color"] = "#ffcf48"
                 self.data["hover_box"] = False
                 self.data["cfg_version"] = 11
+            if int(saved.get("cfg_version", 0)) < 12:           # 0.23: hover box de nuevo (solo imágenes y PDF)
+                self.data["hover_box"] = True
+                self.data["cfg_version"] = 12
         except Exception:
             pass
 

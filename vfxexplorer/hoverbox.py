@@ -94,7 +94,10 @@ class HoverBox(QFrame):
                 or not self.app.isActiveWindow() or QApplication.activePopupWidget() is not None:
             return
         e = ix.data(ROLE_ENTRY)
-        if e is None or e.kind in ("header", "drive"):
+        # solo imágenes (y secuencias de imágenes) y PDF: los videos se abren más fácil y trabarían
+        if e is None or not (e.cat == "image" or e.ext == ".pdf" or
+                             (e.kind == "seq" and os.path.splitext(e.name)[1].lower() not in
+                              (".wav", ".aif", ".aiff"))):
             return
         self._entry = e
         self.pic.clear()

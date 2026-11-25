@@ -67,6 +67,20 @@ def selftest():
         except Exception as ex:
             ok = False
             log.append(f"pdf: {ex}")
+        # Windows: abrir imágenes con «archivos vecinos» (winrt incluido en el exe)
+        if sys.platform == "win32":
+            from vfxexplorer import winlaunch
+            log.append(f"winrt launcher: {winlaunch.HAS_WINRT}")
+            if getattr(sys, "frozen", False):
+                ok = ok and winlaunch.HAS_WINRT
+            if winlaunch.HAS_WINRT:
+                try:
+                    from winrt.windows.storage.search import QueryOptions, CommonFileQuery
+                    QueryOptions(CommonFileQuery.ORDER_BY_NAME, [".jpg", ".png"])
+                    log.append("winrt query options: ok")
+                except Exception as ex:
+                    ok = False
+                    log.append(f"winrt query options: {ex}")
         from vfxexplorer.mainwindow import MainWindow
         w = MainWindow(tmp)
         w.show()

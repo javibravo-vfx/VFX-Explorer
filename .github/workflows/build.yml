@@ -34,7 +34,7 @@ jobs:
       - name: Compilar exe portable
         run: >
           pyinstaller --noconfirm --clean --windowed --name VFXExplorer
-          --icon assets/icon.ico --collect-all OpenImageIO --collect-all pypdfium2 --collect-all pypdfium2_raw --exclude-module tkinter main.py
+          --icon assets/icon.ico --collect-all OpenImageIO --collect-all pypdfium2 --collect-all pypdfium2_raw --collect-all winrt --exclude-module tkinter main.py
 
       - name: Incluir ffmpeg (LGPL, shared) en bin
         shell: pwsh

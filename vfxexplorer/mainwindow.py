@@ -2091,6 +2091,12 @@ class MainWindow(QMainWindow):
                 return
             except Exception as ex:
                 self.status.setText(f"Could not open the player: {ex}")
+        if IS_WIN and e.kind == "file" and e.cat == "image":
+            # como desde el Explorador: el visor (Fotos…) puede pasar a las otras imágenes de la carpeta
+            from .winlaunch import open_with_neighbors
+            from .core import IMAGE_EXTS
+            open_with_neighbors(e.path, sorted(IMAGE_EXTS), lambda p: os.startfile(p))
+            return
         self.open_default(e.path)
 
     def open_default(self, path):

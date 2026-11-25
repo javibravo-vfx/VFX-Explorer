@@ -4,7 +4,7 @@ al 100 % (centrada en el punto donde se apretó); moviendo el mouse se panea, al
 
 import os
 
-from PySide6.QtCore import Qt, QThread, Signal, QPoint, QPointF, QRect, QEvent, QObject
+from PySide6.QtCore import Qt, QThread, Signal, QPoint, QPointF, QRect, QRectF, QEvent, QObject
 from PySide6.QtGui import QImage, QPainter, QColor, QGuiApplication, QCursor
 from PySide6.QtWidgets import QWidget
 
@@ -26,6 +26,35 @@ def full_image(e, settings):
     if e2 in OIIO_EXTS and HAS_OIIO:
         return oiio_thumb(src, settings, maxdim=FULL_MAX)
     return QImage()
+
+
+def quick_size(e, app):
+    """Tamaño real (leído del encabezado, rápido) para abrir el popup ya al 100 % mientras carga."""
+    src = e.thumb_source()
+    ext = os.path.splitext(src)[1].lower()
+    try:
+        if ext == ".pdf":
+            return None
+        if e.cat == "video" or ext in VIDEO_EXTS:
+            m = app.meta.cache.get(app.meta.key_for(e)) if hasattr(app, "meta") else None
+            if m and "×" in (m.get("res") or ""):
+                w, h = m["res"].split("×")
+                return int(w), int(h)
+            return None
+        if ext.lstrip(".") in OIIO_EXTS and HAS_OIIO and ext.lstrip(".") not in QT_FAST:
+            from .imaging import oiio
+            inp = oiio.ImageInput.open(src)
+            if inp:
+                sp = inp.spec()
+                inp.close()
+                return sp.width, sp.height
+        from PySide6.QtGui import QImageReader
+        sz = QImageReader(src).size()
+        if sz.isValid():
+            return sz.width(), sz.height()
+    except Exception:
+        pass
+    return None
 
 
 class _Loader(QThread):
@@ -57,23 +86,25 @@ class BlowUp(QWidget):
         self.loading = False
 
     def set_image(self, img, fx, fy, cursor, provisional=False, full_size=None):
-        """fx, fy: punto relativo (0-1) de la imagen que tiene que quedar bajo el cursor."""
+        """fx, fy: punto relativo (0-1) de la imagen que tiene que quedar bajo el cursor.
+        1 píxel de la imagen = 1 píxel de pantalla (se descuenta el escalado de Windows)."""
         self.img = img
+        scr = QGuiApplication.screenAt(cursor) or QGuiApplication.primaryScreen()
+        dpr = scr.devicePixelRatio() or 1.0
         W, H = full_size if full_size else (img.width(), img.height())
         self.scale = W / max(1, img.width())
+        W, H = W / dpr, H / dpr                       # tamaño en unidades de Qt = píxeles reales 1:1
         self.loading = provisional
-        scr = QGuiApplication.screenAt(cursor) or QGuiApplication.primaryScreen()
-        g = scr.availableGeometry()
-        w, h = min(W, g.width()), min(H, g.height())
+        g = scr.geometry()                            # toda la pantalla: más lugar para recorrer
+        w, h = int(min(W, g.width())), int(min(H, g.height()))
         x = min(max(g.left(), cursor.x() - int(fx * w)), g.right() - w + 1)
         y = min(max(g.top(), cursor.y() - int(fy * h)), g.bottom() - h + 1)
         self.setGeometry(x, y, w, h)
         self._W, self._H = W, H
-        # el punto (fx, fy) de la imagen queda bajo el cursor
         lx, ly = cursor.x() - x, cursor.y() - y
         self.ox = self._clampx(lx - fx * W)
         self.oy = self._clampy(ly - fy * H)
-        self._anchor = (cursor, self.ox, self.oy)
+        self._anchor = (QPoint(cursor), self.ox, self.oy)
         self.update()
 
     def _clampx(self, v):
@@ -82,14 +113,28 @@ class BlowUp(QWidget):
     def _clampy(self, v):
         return min(0.0, max(self.height() - self._H, v)) if self._H > self.height() else (self.height() - self._H) / 2
 
+    @staticmethod
+    def _axis(o0, c0, c, view, size, start, end):
+        """Paneo en un eje: llevar el mouse hasta el borde de la pantalla muestra el borde de la imagen de
+        ese lado (a cada lado su propia velocidad), así se recorre toda la imagen en cualquier dirección."""
+        if size <= view:
+            return o0
+        lo = view - size                              # offset mínimo (se ve el borde derecho / de abajo)
+        d = c - c0
+        if d > 0:
+            room = max(1, end - c0)
+            return max(lo, o0 - d * (o0 - lo) / room)
+        room = max(1, c0 - start)
+        return min(0.0, o0 - d * (0.0 - o0) / room)
+
     def pan_to(self, cursor):
-        """Mover el mouse recorre la imagen: llevar el mouse de un borde al otro de la ventana alcanza
-        para ver toda la imagen."""
         c0, ox0, oy0 = self._anchor
-        kx = max(1.0, (self._W - self.width()) / max(1, self.width() / 2))
-        ky = max(1.0, (self._H - self.height()) / max(1, self.height() / 2))
-        self.ox = self._clampx(ox0 - (cursor.x() - c0.x()) * kx)
-        self.oy = self._clampy(oy0 - (cursor.y() - c0.y()) * ky)
+        scr = QGuiApplication.screenAt(c0) or QGuiApplication.primaryScreen()
+        g = scr.geometry()
+        cx0 = min(max(c0.x(), g.left()), g.right())
+        cy0 = min(max(c0.y(), g.top()), g.bottom())
+        self.ox = self._axis(ox0, cx0, cursor.x(), self.width(), self._W, g.left(), g.right())
+        self.oy = self._axis(oy0, cy0, cursor.y(), self.height(), self._H, g.top(), g.bottom())
         self.update()
 
     def paintEvent(self, ev):
@@ -97,7 +142,7 @@ class BlowUp(QWidget):
         p.fillRect(self.rect(), QColor("#101010"))
         if not self.img.isNull():
             p.setRenderHint(QPainter.SmoothPixmapTransform, self.scale != 1.0)
-            p.drawImage(QRect(int(self.ox), int(self.oy), int(self._W), int(self._H)), self.img)
+            p.drawImage(QRectF(self.ox, self.oy, self._W, self._H), self.img)
         p.setPen(QColor(255, 255, 255, 60))
         p.drawRect(self.rect().adjusted(0, 0, -1, -1))
         if self.loading:
@@ -151,7 +196,8 @@ class BlowUpController(QObject):
             else:
                 thumb = self.label.pixmap().toImage()
                 ratio = thumb.width() / max(1, thumb.height())
-                guess = (max(thumb.width() * 3, 1280), int(max(thumb.width() * 3, 1280) / ratio))
+                guess = quick_size(e, self.app) or \
+                    (max(thumb.width() * 3, 1280), int(max(thumb.width() * 3, 1280) / ratio))
                 self.box.set_image(thumb, self._fx, self._fy, cur, provisional=True, full_size=guess)
                 self.loader = _Loader(e, self.app.thumbs.settings)
                 self.loader.done.connect(self._loaded)
