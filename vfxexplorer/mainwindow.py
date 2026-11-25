@@ -2338,7 +2338,7 @@ class MainWindow(QMainWindow):
             # como desde el Explorador: el visor puede pasar a las otras imágenes de la carpeta
             from .winlaunch import open_image
             try:
-                open_image(e.path, self.cfg["image_opener"] or "system")
+                open_image(e.path, self.cfg["image_opener"] or "auto")
             except OSError as ex:
                 self.status.setText(str(ex))
             return

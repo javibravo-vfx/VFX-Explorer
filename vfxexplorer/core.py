@@ -801,7 +801,7 @@ class Config:
         # 0.6
         "folder_color": "yellow",       # yellow (Windows) | blue
         "splitter_left2": "",
-        "cfg_version": 13,
+        "cfg_version": 14,
         "pipeline_task_depts": None,    # None = "3D": departamentos que tienen tasks
         "pipeline_stages": None,        # None = "1_projects, 2_review, 3_publish"
         "pipeline_templates": {},       # (0.17, reemplazado por pipeline_departments)
@@ -819,7 +819,7 @@ class Config:
         "collapse_seqs": True,
         "mini_tree_on": True,
         "hover_box": True,
-        "image_opener": "system",      # doble clic en una imagen: "default" (con sus vecinas) o "photoviewer"
+        "image_opener": "auto",      # doble clic en una imagen: "default" (con sus vecinas) o "photoviewer"
         "lib_slots": [None, None, None, None],
         "lib_tree_autocollapse": True,  # VFX Library: el árbol cierra las carpetas fuera del camino actual
         "lib_tree_sort_name": True,     # VFX Library: raíces por nombre (si no, en el orden en que se agregaron)
@@ -878,6 +878,10 @@ class Config:
                 if self.data.get("image_opener") in (None, "default"):
                     self.data["image_opener"] = "system"
                 self.data["cfg_version"] = 13
+            if int(saved.get("cfg_version", 0)) < 14:           # 0.27.1: Fotos con anterior/siguiente en esta PC
+                if self.data.get("image_opener") in (None, "default", "system"):
+                    self.data["image_opener"] = "auto"
+                self.data["cfg_version"] = 14
         except Exception:
             pass
 

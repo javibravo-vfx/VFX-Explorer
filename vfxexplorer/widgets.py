@@ -1494,10 +1494,12 @@ class SettingsDialog(QDialog):
         lay.addRow("Player:", w)
         lay.addRow("", _hint("Opens sequences and videos on double click. Empty = default app."))
         self.img_open = QComboBox()
-        self.img_open.addItem("The default app of the system", "system")
+        self.img_open.addItem("Default app · Windows Photos with previous / next when the image is on this PC "
+                              "(also drives remapped to this PC)", "auto")
+        self.img_open.addItem("The default app of the system, plain", "system")
         self.img_open.addItem("Windows Photos with previous / next (slower; may ask on network drives)", "photos")
         self.img_open.addItem("Windows Photo Viewer (classic, instant, browses the folder)", "photoviewer")
-        self.img_open.setCurrentIndex(max(0, self.img_open.findData(cfg["image_opener"] or "system")))
+        self.img_open.setCurrentIndex(max(0, self.img_open.findData(cfg["image_opener"] or "auto")))
         lay.addRow("Images open in:", self.img_open)
         lay.addRow("", _hint("Windows Photos only lists the other images of the folder by itself when it is "
                              "opened from Windows Explorer; from any other program it opens just one image, "

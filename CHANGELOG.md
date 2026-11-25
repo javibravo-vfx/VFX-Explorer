@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.27.1
+- Images: new default "auto" — when Windows Photos is the default app and the image is on this PC, it opens with previous / next. Drives that are a share of this same PC remapped as a network drive (e.g. T: → \\this-pc\share) are resolved to the real local folder first, so there is no security prompt and it is as fast as a local file. Real network drives (a NAS) open plainly with the default app.
+
 ## 0.27.0
 - Images open with the system's default app again (instant, no prompts). Settings › "Images open in" keeps the Photos-with-previous/next and classic Photo Viewer options.
 - Numbered photos grouped as a sequence (IMG_0001.jpg…) open like single photos (the first one) instead of failing.
