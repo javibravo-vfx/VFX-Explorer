@@ -210,6 +210,8 @@ class MainWindow(QMainWindow):
         self.modebar.setTabToolTip(0, "File Explorer (Ctrl+Shift+E)")
         self.modebar.setTabToolTip(1, "VFX Library: viewer on top, elements below (Ctrl+Shift+L)")
         self.modebar.currentChanged.connect(lambda i: self.set_mode("library" if i == 1 else "explorer"))
+        from .workspaces import WorkspaceButton
+        self.wsbutton = WorkspaceButton(self)      # a la izquierda de File Explorer / VFX Library
 
         # --- fila de herramientas: ＋ | pipeline (Carpetas) o tags rápidos (VFX Library) | doble panel, detalles, ⚙
         self.pipebar_top = PipelineBar(self, vertical=False)
@@ -821,7 +823,9 @@ class MainWindow(QMainWindow):
         lp = self.libpane
         if lp.header.parent() is not lp:
             lp.layout().insertWidget(0, lp.header)
-        (B if side else A).corner.addWidget(self.modebar)
+        corner = (B if side else A).corner
+        corner.addWidget(self.wsbutton)
+        corner.addWidget(self.modebar)
         for p in self.all_panes:
             p.footer.setVisible(dual and p is not lp)
         self.pane_split.setOrientation(Qt.Vertical if orient == "v" else Qt.Horizontal)
@@ -1235,6 +1239,18 @@ class MainWindow(QMainWindow):
         k = ev.key()
         i = -1
         act = None
+        if mods == (Qt.AltModifier | Qt.ShiftModifier):            # Alt+Shift+1…9: workspaces
+            sc = ev.nativeScanCode()
+            i = (sc - 2) if IS_WIN else (sc - 10)
+            if not 0 <= i <= 8:
+                return False
+            if i >= len(self.wsbutton.items()):
+                return False
+            if ev.type() == QEvent.ShortcutOverride:
+                ev.accept()
+                return True
+            self.wsbutton.switch_index(i)
+            return True
         if mods == (Qt.ControlModifier | Qt.ShiftModifier):        # Ctrl+Shift+1 / 2: vista íconos / lista
             i = self._digit(ev)
             if i not in (0, 1):

@@ -343,6 +343,10 @@ class Icons:
         elif kind == "dual":
             p.drawRoundedRect(QRectF(s * .12, s * .2, s * .76, s * .6), 2, 2)
             path.moveTo(s * .5, s * .2); path.lineTo(s * .5, s * .8)
+        elif kind == "workspace":           # ventana con panel izquierdo y dos paneles (un layout guardado)
+            p.drawRoundedRect(QRectF(s * .1, s * .18, s * .8, s * .64), 2, 2)
+            path.moveTo(s * .36, s * .18); path.lineTo(s * .36, s * .82)
+            path.moveTo(s * .36, s * .5); path.lineTo(s * .9, s * .5)
         elif kind == "collapse":            # dos flechas que se juntan hacia una línea
             path.moveTo(s * .3, s * .14); path.lineTo(s * .5, s * .34); path.lineTo(s * .7, s * .14)
             path.moveTo(s * .3, s * .86); path.lineTo(s * .5, s * .66); path.lineTo(s * .7, s * .86)
@@ -517,8 +521,11 @@ def app_icon_pixmap(S):
     p = QPainter(pm)
     p.setRenderHint(QPainter.Antialiasing)
     p.setPen(Qt.NoPen)
-    k = S / 64.0
-    fx, fy, fw, fh = 12 * k, 10 * k, 49 * k, 40 * k          # carpeta de adelante
+    # el conjunto (carpeta de adelante 49×40 + la de atrás corrida 7, 7) ocupa casi todo el cuadro,
+    # centrado, para que en la barra de tareas se vea del mismo tamaño que los demás íconos
+    k = S / 64.0 * (62.0 / 56.0)
+    ox, oy = (S - 56 * k) / 2, (S - 47 * k) / 2
+    fx, fy, fw, fh = ox + 7 * k, oy, 49 * k, 40 * k          # carpeta de adelante
     r = 6 * k
     p.setBrush(QColor(APP_ICON_FOLDERS[0]))                    # la de atrás asoma apenas
     p.drawRoundedRect(QRectF(fx - 7 * k, fy + 7 * k, fw, fh), r, r)

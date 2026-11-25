@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.32.0
+- Workspaces: a «Workspace» button left of File Explorer / VFX Library saves the interface as it is — mode, the tabs of each pane and their folders, view, dual pane and its orientation, Details pane and the panel sizes — and switches between saved layouts, like 3D and editing programs. Save as new, update, reset, rename, reorder and delete; Alt+Shift+1…9 switch to the first nine.
+- Filters: «Camera RAW» (only camera RAW / DNG) and the new «Hide Camera RAW» (everything except them). With a file-type filter on, folders are no longer shown in the center pane (they stay with Hide Camera RAW).
+- App icon: bigger, it now fills its square like the other taskbar icons.
+
 ## 0.31.1
 - VFX Library: the video keeps playing while you click other folders or move through the tree with the arrows; it only changes when you pick another video.
 

@@ -381,11 +381,11 @@ class EntryProxy(QSortFilterProxyModel):
         if m.virtual:
             if self.query.empty and self.cat == "all":
                 return True
-            if e.kind == "dir" and self.cat not in ("all", "dir"):
+            if e.kind == "dir" and self.cat not in ("all", "dir", "noraw"):
                 return False
             return entry_matches(e, self.query, self.cat, meta=self.app.lib.meta)
-        if e.kind == "dir" and self.cat not in ("all", "dir"):
-            return entry_matches(e, Query(names=self.query.names), "all") if self.query.names else True
+        if e.kind == "dir" and self.cat not in ("all", "dir", "noraw"):
+            return False                  # con un filtro de tipo se ven solo esos archivos, sin carpetas
         return entry_matches(e, self.query, self.cat, meta=self.app.lib.meta)
 
     def lessThan(self, left, right):

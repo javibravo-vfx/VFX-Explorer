@@ -10,6 +10,7 @@ SHORTCUTS = [
         ("F10", "Dual pane, one above the other (on / off)"),
         ("F6", "Switch between the two panes"),
         ("Alt+Shift+P", "Details pane on / off"),
+        ("Alt+Shift+1…9", "Switch to workspace 1…9 (Workspace menu, left of File Explorer)"),
     ]),
     ("Navigation", [
         ("Alt+←  /  Alt+→", "Back / Forward"),

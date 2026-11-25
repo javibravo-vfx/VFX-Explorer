@@ -44,7 +44,8 @@ FILTERS = [
     ("Media (no others)", "media"),
     ("Sequences", "seq"),
     ("EXR", "exr"),
-    ("RAW (camera / DNG)", "raw"),
+    ("Camera RAW", "raw"),
+    ("Hide Camera RAW", "noraw"),
     ("Videos", "video"),
     ("Single images", "image"),
     ("Models / scenes", "model"),
@@ -706,6 +707,9 @@ def entry_matches(e, q, cat, recursive=False, meta=None):
         elif cat == "raw":
             if e.ext not in RAW_EXTS:
                 return False
+        elif cat == "noraw":              # todo menos los RAW de cámara (las carpetas siguen)
+            if e.ext in RAW_EXTS:
+                return False
         elif c != cat:
             return False
     if q.empty:
@@ -890,6 +894,8 @@ class Config:
         "hidden_drives": [],
         "list_cols": {},
         "system_icons": True,           # ícono original de programas/documentos (no en imágenes, video, audio)
+        "workspaces": [],               # Workspaces: [{name, state}] — pestañas, paneles y medidas guardados
+        "workspace_current": "",
         "dual_orient": "h",             # doble panel: h = lado a lado (F9) · v = uno arriba del otro (F10)
         "color_filters_on": False,      # pintar nombres por tipo / patrón
         "color_filters": None,          # None = DEFAULT_COLOR_FILTERS
