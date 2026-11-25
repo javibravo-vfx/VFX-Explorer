@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.29.0
+- Downloads really opens grouped by date: folders with their own default (Downloads, Pictures…) are no longer switched to Large icons because they contain images (reset once on update).
+- NAS waking up no longer freezes the window: network folders in the VFX Library tree and the folder tree are read in the background ("loading…"), library roots and tabs are checked without waiting, the folder PDF / cover is searched in the background, file-type icons come from a local probe (no network access), and navigation doesn't ask the server whether a folder is a file. Tested with every network access taking 2 s: the app opens in about 1 s.
+- VFX Library: clean names on by default — «01_assets_3d» shows as «Assets 3D» (no order number, spaces, capitals, 3D / 2D / VFX / HDRI… in upper case), in the tree and the grid; the address bar and F2 show the real name. Settings › VFX Library to turn it off.
+- VFX Library: main folders with "3d" in the name get a light-blue rotated cube icon.
+
 ## 0.28.1
 - Documents back to the normal default view (the date grouping is for Downloads, which already had it).
 - No more flash of the wrong view when entering a folder: the folder's view is applied together with its contents.

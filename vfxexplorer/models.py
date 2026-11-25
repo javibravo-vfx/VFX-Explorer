@@ -123,6 +123,13 @@ class EntryModel(QAbstractTableModel):
             self.key_rows.setdefault(e.thumb_source(), []).append(i)
             self.path_rows.setdefault(e.path, []).append(i)
 
+    def display_name(self, e):
+        """Nombre que se ve (en la VFX Library, prolijo si está la opción; F2 y la barra muestran el real)."""
+        if getattr(self, "lib_mode", False) and self.app.cfg["lib_pretty_names"] and e.kind in ("dir", "file", "seq"):
+            from .core import pretty_name
+            return pretty_name(e.name, keep_ext=e.kind != "dir")
+        return e.name
+
     def meta_ready(self, path):
         for r in getattr(self, "path_rows", {}).get(path, []):
             self.dataChanged.emit(self.index(r, C_RES), self.index(r, C_CS), [Qt.DisplayRole])
@@ -225,7 +232,7 @@ class EntryModel(QAbstractTableModel):
             return e.name
         if role == Qt.DisplayRole:
             if col == C_NAME:
-                return e.name
+                return self.display_name(e)
             if col == C_TYPE:
                 return e.type_label()
             if col == C_RANGE:

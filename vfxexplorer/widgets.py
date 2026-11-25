@@ -786,7 +786,9 @@ class GridDelegate(QStyledItemDelegate):
         p.setFont(f)
         fm = QFontMetrics(f)
         cf = self.app.color_filter_for(e)
-        lines = wrap_name(e.name, fm, r.width() - 12)
+        src = index.model().sourceModel() if hasattr(index.model(), "sourceModel") else None
+        shown = src.display_name(e) if src is not None and hasattr(src, "display_name") else e.name
+        lines = wrap_name(shown, fm, r.width() - 12)
         lh = fm.height()
         y = th.bottom() + 4
         if cf and cf[1]:
@@ -1696,6 +1698,9 @@ class SettingsDialog(QDialog):
         self.vloop = QCheckBox("Loop by default")
         self.vloop.setChecked(bool(cfg["viewer_loop"]))
         ll.addRow("", self.vloop)
+        self.lpretty = QCheckBox("Clean names: «01_assets_3d» shows as «Assets 3D» (F2 shows the real name)")
+        self.lpretty.setChecked(bool(cfg["lib_pretty_names"]))
+        ll.addRow("", self.lpretty)
         ll.addRow("", _hint("Library folders are added with the ＋ of «VFX LIBRARY» in the left pane. "
                             "Videos play with the ffmpeg set in General."))
         tabs.addTab(lw, "VFX Library")
@@ -1768,6 +1773,7 @@ class SettingsDialog(QDialog):
         old_p = (cfg["pipeline_root"], cfg["pipeline_prefix"], cfg["pipeline_seq_exclude"],
                  json.dumps(cfg["pipeline_departments"]), cfg["pipeline_only_depts"])
         cfg["player"] = self.player.text().strip().strip('"')
+        cfg["lib_pretty_names"] = self.lpretty.isChecked()
         cfg["image_viewer"] = self.img_viewer.text().strip().strip('"')
         cfg["ffmpeg"] = self.ffmpeg.text().strip().strip('"')
         cfg["colorspace"] = self.cs.currentData()

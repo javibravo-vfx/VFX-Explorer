@@ -349,6 +349,8 @@ class LibTree(_LinedMixin, QTreeWidget):
         if rel in (".", ""):
             return it
         for part in rel.split(os.sep):
+            if not expand and not it.data(0, Qt.UserRole + 1):
+                return it
             self._expand_item(it)
             nxt = None
             for j in range(it.childCount()):
@@ -564,7 +566,28 @@ class FolderTree(_LinedMixin, QTreeWidget):
         if it.data(0, Qt.UserRole + 1) and not force:
             return
         path = it.data(0, Qt.UserRole)
+        from .core import net_root, reachable
+        if net_root(path):                          # red: en otro hilo (un NAS despertando no traba nada)
+            if not reachable(path):
+                return
+            if not hasattr(self, "_lister"):
+                from .asyncdir import AsyncLister
+                self._lister = AsyncLister(self)
+                self._lister.done.connect(self._net_listed)
+            self._lister.request(path, bool(self.app.cfg["show_hidden"]))
+            return
         names = self._list_dirs(path)
+        self._apply_names(it, path, names)
+
+    def _net_listed(self, path, names):
+        it = self._items.get(self._key(path))
+        if it is None:
+            return
+        self._apply_names(it, path, names)
+        if self._trace_path and self._key(self._trace_path).startswith(self._key(path)):
+            self.sync(self._trace_path)
+
+    def _apply_names(self, it, path, names):
         if names is None:                          # servidor caído: se reintenta al volver a abrir
             it.setData(0, Qt.UserRole + 1, False)
             return

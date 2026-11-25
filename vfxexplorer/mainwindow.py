@@ -988,16 +988,16 @@ class MainWindow(QMainWindow):
         """0.17: Downloads (agrupado por fecha) y Videos (íconos grandes) arrancan con su vista de fábrica,
         aunque ya se hubiera guardado otra antes."""
         done = int(self.cfg["sys_view_defaults"] or 0)
-        if done >= 2:
+        if done >= 3:
             return
         fv = dict(self.cfg["folder_views"] or {})
-        # 1: Downloads y Videos (0.17) · 2: Documents en Details agrupado por fecha (0.28)
-        for kind in (("downloads", "videos", "documents") if done < 1 else ("documents",)):
+        # 1: Downloads y Videos (0.17) · 2: Documents (0.28) · 3: Downloads otra vez (0.29: por fecha de verdad)
+        for kind in ("downloads", "videos", "documents") if done < 1 else ("documents", "downloads"):
             p = self._sys_path(kind)
             if p:
                 fv.pop(norm_key(p), None)
         self.cfg["folder_views"] = fv
-        self.cfg["sys_view_defaults"] = 2
+        self.cfg["sys_view_defaults"] = 3
         self.cfg.save()
 
     def _sys_path(self, kind):
@@ -2109,11 +2109,15 @@ class MainWindow(QMainWindow):
             v.pause()
         if not self.cfg["lib_folder_pdf"] or self.mode() != "library":
             return
-        doc = self._folder_doc(d)
-        if doc:
+
+        def got(doc):                             # se busca en otro hilo (en el NAS puede tardar)
+            if not doc or self.mode() != "library" or not same_path(self.libpane.current_dir() or "", d):
+                return
             ext = os.path.splitext(doc)[1].lower()
             self._lib_show(Entry(kind="file", dirpath=os.path.dirname(doc), name=os.path.basename(doc),
                                  path=doc, ext=ext))
+        from .asyncdir import run_async
+        run_async(lambda: self._folder_doc(d), got, self)
 
     def _clear_details(self):
         self.info_token += 1
@@ -2948,6 +2952,8 @@ class MainWindow(QMainWindow):
                 or e.ext in AUDIO_EXTS:
             return None
         per_file = e.ext in (".exe", ".lnk", ".ico", ".url", ".msi", ".appref-ms", "")
+        if per_file and net_root(e.path):          # en la red: el Explorador de Windows tarda; sin ícono propio
+            return None
         key = (e.path if per_file else e.ext, int(size))
         cache = self.__dict__.setdefault("_sysic", {})
         if key in cache:
@@ -2957,7 +2963,14 @@ class MainWindow(QMainWindow):
         prov = self.__dict__.setdefault("_iconprov", QFileIconProvider())
         pm = None
         try:
-            ic = prov.icon(QFileInfo(e.path))
+            src = e.path
+            if not per_file:
+                # el ícono del tipo sale de un archivito vacío local con la misma extensión: no toca la red
+                src = os.path.join(self.data_dir, "icons", "type" + e.ext)
+                if not os.path.exists(src):
+                    os.makedirs(os.path.dirname(src), exist_ok=True)
+                    open(src, "w").close()
+            ic = prov.icon(QFileInfo(src))
             if not ic.isNull():
                 pm = ic.pixmap(int(size), int(size))
                 if pm.isNull():
@@ -3285,7 +3298,7 @@ class MainWindow(QMainWindow):
             self._cf_rules = None
             self.icons.set_default_folder(self.cfg["folder_color"] or "yellow")
             self._reload_sidebar()
-            self.libside.tree.viewport().update()
+            self.libside.reload()
             if not self.cfg["folder_sizes"]:
                 self.dirsizes.clear()
             self.apply_features()

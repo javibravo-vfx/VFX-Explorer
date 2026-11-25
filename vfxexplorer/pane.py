@@ -842,6 +842,7 @@ class FilePane(QFrame):
         if not k:
             return
         st = (self.app.cfg["folder_views"] or {}).get(k)
+        self._fv_generic = False
         if not st:
             sp = getattr(self.app, "_sys_path", None)
             pics = sp("pictures") if sp else ""
@@ -858,12 +859,14 @@ class FilePane(QFrame):
                 st = self.PICTURES_DEFAULT
             else:
                 st = self.app.cfg["folder_view_default"] or self.VIEW_DEFAULT
+                self._fv_generic = True            # solo estas carpetas pasan solas a íconos si hay imágenes
         self._apply_state(st)
 
     def _auto_image_view(self, entries):
         """Carpeta sin vista guardada con secuencias o imágenes → Íconos grandes directamente."""
         k = self._fv_key()
-        if not k or k == THISPC or (self.app.cfg["folder_views"] or {}).get(k):
+        if not k or k == THISPC or (self.app.cfg["folder_views"] or {}).get(k) \
+                or not getattr(self, "_fv_generic", False):      # Downloads, Pictures… tienen la suya
             return
         if any(e.kind == "seq" or (e.kind == "file" and e.ext in IMAGE_EXTS) for e in entries):
             self._apply_state(self.PICTURES_DEFAULT, details=False)
@@ -1155,7 +1158,8 @@ class FilePane(QFrame):
     def restore(self, st, fallback):
         tabs = [t.get("path") for t in (st or {}).get("tabs", []) if t.get("path")]
         # una pestaña en un NAS apagado no traba el arranque: se abre igual y avisa (al volver la red, Refresh)
-        tabs = [p for p in tabs if p == THISPC or not reachable(p, 0.3) or os.path.isdir(p)] or [fallback]
+        from .core import safe_isdir
+        tabs = [p for p in tabs if p == THISPC or not reachable(p, 0.3) or safe_isdir(p, 0.3)] or [fallback]
         if self.root_lock:
             tabs = [p for p in tabs if self.allowed(p)] or ([fallback] if fallback else [])
         for p in tabs:
@@ -1195,7 +1199,10 @@ class FilePane(QFrame):
             self._set_status(f"Network location not available: {path}  (it retries by itself; Refresh when it's back)")
             self.crumb.set_path(self.tab_path())
             return
-        if os.path.isfile(path):
+        from .core import net_root
+        ext = os.path.splitext(path)[1]
+        # en la red solo se pregunta si es archivo cuando el nombre lo parece (un NAS lento no traba la navegación)
+        if (not net_root(path) or (ext and len(ext) <= 6 and ext[1:].isalnum())) and os.path.isfile(path):
             select = os.path.basename(path)
             path = os.path.dirname(path)
         if not os.path.isdir(path):

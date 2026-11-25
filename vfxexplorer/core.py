@@ -174,8 +174,66 @@ def net_offline_roots():
         return [r for r, st in _NET.items() if st["ok"] is False]
 
 
+_ISDIR = {}          # ruta de red -> [resultado, momento, chequeando]
+_ISDIR_TTL = 30.0
+
+
 def safe_isdir(path, timeout=0.6):
-    return bool(path) and reachable(path, timeout) and os.path.isdir(path)
+    """isdir que no traba con carpetas de red: si el servidor está lento (un NAS despertando), contesta lo
+    último conocido (o que sí, si el servidor responde) y lo confirma en otro hilo."""
+    if not path:
+        return False
+    if not net_root(path):
+        return os.path.isdir(path)
+    if not reachable(path, timeout):
+        return False
+    now = time.monotonic()
+    with _NET_LOCK:
+        st = _ISDIR.get(path)
+        if st and (now - st[1] < _ISDIR_TTL or st[2]):
+            return st[0]
+        st = _ISDIR.setdefault(path, [True, 0.0, False])
+        st[2] = True
+        ev = _thr.Event()
+
+    def work():
+        try:
+            r = os.path.isdir(path)
+        except Exception:
+            r = False
+        with _NET_LOCK:
+            st[0], st[1], st[2] = r, time.monotonic(), False
+        ev.set()
+    _thr.Thread(target=work, daemon=True).start()
+    ev.wait(min(timeout, 0.25))
+    return st[0]
+
+
+_PRETTY_UPPER = {"3d": "3D", "2d": "2D", "vfx": "VFX", "fx": "FX", "cg": "CG", "hdri": "HDRI", "hdr": "HDR",
+                 "exr": "EXR", "pbr": "PBR", "4k": "4K", "8k": "8K", "2k": "2K", "1k": "1K", "16k": "16K",
+                 "uv": "UV", "ai": "AI", "fbx": "FBX", "usd": "USD", "obj": "OBJ", "dmp": "DMP", "sfx": "SFX",
+                 "ui": "UI", "suv": "SUV", "rgb": "RGB", "lut": "LUT", "aces": "ACES", "ocio": "OCIO", "tv": "TV"}
+
+
+def pretty_name(name, keep_ext=False):
+    """«01_assets_3d» → «Assets 3D» (solo para mostrar): saca el número de orden del principio, cambia _ por
+    espacios, mayúscula al comienzo de cada palabra y siglas conocidas en mayúsculas (3D, 2D, VFX, HDRI…)."""
+    base, ext = (os.path.splitext(name) if keep_ext else (name, ""))
+    t = re.sub(r"^\d{1,3}[ _.-]+(?=\D)", "", base)          # 01_ · 02 - · 3. (si sigue texto)
+    t = re.sub(r"[_]+", " ", t).strip()
+    words = []
+    for w in t.split(" "):
+        if not w:
+            continue
+        lw = w.lower()
+        if lw in _PRETTY_UPPER:
+            words.append(_PRETTY_UPPER[lw])
+        elif w[0].isalpha():
+            words.append(w[0].upper() + w[1:])
+        else:
+            words.append(w)
+    out = " ".join(words) or base
+    return out + ext
 
 
 def norm_key(path):
@@ -823,7 +881,8 @@ class Config:
         "lib_slots": [None, None, None, None],
         "lib_tree_autocollapse": True,  # VFX Library: el árbol cierra las carpetas fuera del camino actual
         "lib_tree_sort_name": True,     # VFX Library: raíces por nombre (si no, en el orden en que se agregaron)
-        "lib_folder_pdf": True,         # VFX Library: el PDF de la carpeta (o de una madre) se ve en Details   # canales del player de la librería (Ctrl / Shift + 1…4)
+        "lib_folder_pdf": True,
+        "lib_pretty_names": True,       # VFX Library: «01_assets_3d» se ve «Assets 3D» (F2 muestra el nombre real)         # VFX Library: el PDF de la carpeta (o de una madre) se ve en Details   # canales del player de la librería (Ctrl / Shift + 1…4)
         "col_layouts": {},              # layouts de columnas propios {nombre: [columnas en orden]}
         "col_order": None,              # orden de columnas del último layout aplicado              # preview flotante al dejar el mouse sobre un ítem           # árbol solo con las carpetas visitadas
         "mini_tree": [],                # carpetas visitadas (más recientes primero)          # secuencias de imágenes en una sola entrada

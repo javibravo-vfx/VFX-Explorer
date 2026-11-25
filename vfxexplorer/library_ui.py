@@ -2,6 +2,7 @@
 """VFX Library: página con viewer arriba y archivos abajo, y la sección del sidebar con las raíces de la librería."""
 
 import os
+import re
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QKeySequence, QShortcut
@@ -60,6 +61,34 @@ class LibraryPage(QWidget):
         self.viewer.shutdown()
 
 
+def cube_icon(size, color="#4cc2ff"):
+    """Cubito celeste girado (vista isométrica, tres caras con luz) para las carpetas principales de 3D."""
+    from PySide6.QtGui import QPixmap, QPainter, QColor, QPolygonF, QIcon, QPen
+    from PySide6.QtCore import QPointF
+    dpr = 2
+    pm = QPixmap(size * dpr, size * dpr)
+    pm.setDevicePixelRatio(dpr)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+    c = QColor(color)
+    s = float(size)
+    cx, top, mid, bot = s / 2, s * .06, s * .32, s * .94
+    lx, rx, cy = s * .09, s * .91, s * .5
+    topf = QPolygonF([QPointF(cx, top), QPointF(rx, mid - s * .06 + s * .06), QPointF(cx, cy), QPointF(lx, mid)])
+    left = QPolygonF([QPointF(lx, mid), QPointF(cx, cy), QPointF(cx, bot), QPointF(lx, s * .72)])
+    right = QPolygonF([QPointF(cx, cy), QPointF(rx, mid), QPointF(rx, s * .72), QPointF(cx, bot)])
+    p.setPen(QPen(c.darker(220), 0.6))
+    p.setBrush(c.lighter(150))
+    p.drawPolygon(topf)
+    p.setBrush(c)
+    p.drawPolygon(left)
+    p.setBrush(c.darker(160))
+    p.drawPolygon(right)
+    p.end()
+    return QIcon(pm)
+
+
 class LibrarySidebar(QWidget):
     """Árbol de las raíces de la librería (con sus subcarpetas), con líneas con líneas."""
 
@@ -69,6 +98,9 @@ class LibrarySidebar(QWidget):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(1)
+        from .asyncdir import AsyncLister
+        self._lister = AsyncLister(self)
+        self._lister.done.connect(self._listed)
         self.tree = LibTree(app, self._item, self._expand)
         self.tree.setIconSize(app.icons.folder(None, 18).size())
         self.tree.itemExpanded.connect(self._expand)
@@ -199,14 +231,20 @@ class LibrarySidebar(QWidget):
                 continue
             it = self._item(r, name)
             it.setToolTip(0, r)
+            if re.search(r"(?<![a-z0-9])3d(?![a-z0-9])", name.lower().replace("_", " ")):
+                it.setIcon(0, cube_icon(18))             # carpeta principal de 3D: cubito girado
             self.tree.addTopLevelItem(it)
             it.setExpanded(len(roots) <= 3)      # las raíces arrancan abiertas
         if cur:
             self.sync(cur)
 
     def _item(self, path, label):
+        if self.app.cfg["lib_pretty_names"]:
+            from .core import pretty_name
+            label = pretty_name(label)
         it = QTreeWidgetItem([label])
         it.setData(0, Qt.UserRole, path)
+        it.setToolTip(0, path)
         it.setIcon(0, self.app.icons.folder_icon(self.app.dir_color(path) or self.app.LIB_FOLDER, 18))
         it.setChildIndicatorPolicy(QTreeWidgetItem.ShowIndicator)
         return it
@@ -214,20 +252,45 @@ class LibrarySidebar(QWidget):
     def _expand(self, it):
         if it.data(0, Qt.UserRole + 1):
             return
-        it.setData(0, Qt.UserRole + 1, True)
         path = it.data(0, Qt.UserRole)
         if not reachable(path):
-            it.setData(0, Qt.UserRole + 1, False)
             return
+        from .core import net_root
+        if net_root(path):                        # red (NAS): se lee en otro hilo, sin trabar la ventana
+            it.setData(0, Qt.UserRole + 1, True)
+            if not it.childCount():
+                ph = QTreeWidgetItem(["loading…"])
+                ph.setForeground(0, Qt.gray)
+                ph.setData(0, Qt.UserRole, "")
+                it.addChild(ph)
+            self._lister.request(path)
+            return
+        it.setData(0, Qt.UserRole + 1, True)
         try:
             with os.scandir(path) as sc:
                 dirs = sorted((d.name for d in sc if d.is_dir() and not d.name.startswith(".")), key=str.lower)
         except OSError:
             dirs = []
+        self._fill(it, path, dirs)
+
+    def _fill(self, it, path, dirs):
+        for i in reversed(range(it.childCount())):
+            if not it.child(i).data(0, Qt.UserRole):          # «loading…»
+                it.takeChild(i)
         if not dirs:
             it.setChildIndicatorPolicy(QTreeWidgetItem.DontShowIndicator)
         for d in dirs:
             it.addChild(self._item(os.path.join(path, d), d))
+
+    def _listed(self, path, dirs):
+        it = self.tree.item_for(path, expand=False) if hasattr(self.tree, "item_for") else None
+        if it is None or os.path.normcase(os.path.normpath(it.data(0, Qt.UserRole) or "")) != \
+                os.path.normcase(os.path.normpath(path)):
+            return
+        self._fill(it, path, [d for d in dirs if not d.startswith(".")])
+        cur = self.tree._trace_path
+        if cur and os.path.normcase(cur).startswith(os.path.normcase(os.path.normpath(path))):
+            self.sync(cur)                        # el camino actual pasaba por acá: completar el trazo
 
     def add_root(self):
         d = QFileDialog.getExistingDirectory(self, "VFX Library folder",
