@@ -1078,6 +1078,36 @@ class SixKeyEdit(QLineEdit):
             self.go.emit(t, alt)
 
 
+class CrumbArrow(QToolButton):
+    """Flechita entre las carpetas de la dirección: dibujada del mismo tamaño y trazo que la de New / Sort / View;
+    apunta a la derecha y, con el menú de subcarpetas abierto, hacia abajo (como Windows)."""
+
+    def __init__(self, tooltip=""):
+        super().__init__()
+        self.setToolTip(tooltip)
+        self.setAutoRaise(True)
+        self.setFixedWidth(20)
+        self.setPopupMode(QToolButton.InstantPopup)
+
+    def paintEvent(self, ev):
+        from PySide6.QtGui import QPainter, QPen, QColor
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        if self.underMouse() or self.isDown():
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor("#3d3d3d"))
+            p.drawRoundedRect(QRectF(self.rect()).adjusted(1, 3, -1, -3), 4, 4)
+        p.setPen(QPen(QColor("#c5c5c5"), 1.3, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        cx, cy = self.width() / 2, self.height() / 2
+        if self.isDown():
+            p.drawLine(QPointF(cx - 3, cy - 1.5), QPointF(cx, cy + 1.5))
+            p.drawLine(QPointF(cx, cy + 1.5), QPointF(cx + 3, cy - 1.5))
+        else:
+            p.drawLine(QPointF(cx - 1.5, cy - 3), QPointF(cx + 1.5, cy))
+            p.drawLine(QPointF(cx + 1.5, cy), QPointF(cx - 1.5, cy + 3))
+        p.end()
+
+
 class BreadcrumbBar(QWidget):
     navigate = Signal(str)
     open_alt = Signal(str)          # Ctrl+Enter en la barra: abrir el archivo / la carpeta en una pestaña nueva
@@ -1228,8 +1258,7 @@ class BreadcrumbBar(QWidget):
             b = self._btn(lbl, p)
             b.clicked.connect(lambda c=False, p=p: self.navigate.emit(p))
             self.cl.addWidget(b)
-            a = self._btn("›", "Subfolders")
-            a.setProperty("arrow", True)
+            a = CrumbArrow("Subfolders")
             a.setMenu(self._sub_menu(p, a))
             a.setPopupMode(QToolButton.InstantPopup)
             self.cl.addWidget(a)

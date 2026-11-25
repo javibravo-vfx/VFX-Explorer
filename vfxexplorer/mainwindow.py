@@ -6,7 +6,7 @@ import sys
 import subprocess
 
 from PySide6.QtCore import Qt, QSize, QTimer, QByteArray, QDir, QUrl, QEvent, Signal, QRectF, QPointF, QObject
-from PySide6.QtGui import QKeySequence, QShortcut, QDesktopServices, QCursor, QAction, QPixmap
+from PySide6.QtGui import QKeySequence, QShortcut, QDesktopServices, QCursor, QAction, QPixmap, QFont
 from PySide6.QtWidgets import (QLineEdit, QPlainTextEdit, QTreeWidgetItem, QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QTreeView,
                                QListWidget, QListWidgetItem, QComboBox, QSlider, QToolBar, QLabel, QMenu,
                                QFileSystemModel, QAbstractItemView, QToolButton, QScrollArea, QFrame,
@@ -826,13 +826,25 @@ class MainWindow(QMainWindow):
         corner = (B if side else A).corner
         corner.addWidget(self.wsbutton)
         corner.addWidget(self.modebar)
+        self.wsbutton.setFixedHeight(max(28, self.modebar.sizeHint().height()))
         for p in self.all_panes:
             p.footer.setVisible(dual and p is not lp)
         self.pane_split.setOrientation(Qt.Vertical if orient == "v" else Qt.Horizontal)
+        self._fix_modebar_width()
         self.modebar.ensurePolished()
         QTimer.singleShot(0, lambda: self.modebar.setMinimumWidth(
             sum(self.modebar.tabRect(i).width() for i in range(self.modebar.count())) + 8))
         QTimer.singleShot(0, self._sync_cmd_left)
+
+    def _fix_modebar_width(self):
+        """File Explorer / VFX Library con ancho fijo (el de su texto en negrita): al seleccionarse no cambian
+        de tamaño y lo que está a su izquierda (Workspace) no se corre."""
+        from PySide6.QtGui import QFontMetrics
+        f = QFont(self.modebar.font())
+        f.setBold(True)
+        fm = QFontMetrics(f)
+        w = max(fm.horizontalAdvance(self.modebar.tabText(i)) for i in range(self.modebar.count())) + 22
+        self.modebar.setStyleSheet(f"QTabBar::tab{{min-width:{w}px; max-width:{w}px;}}")
 
     def _gpane(self):
         return self.explorer_active

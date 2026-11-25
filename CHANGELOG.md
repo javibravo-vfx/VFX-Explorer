@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.32.1
+- Workspace button: an icon (window with its panels) with the active workspace's name (cut with … if long) and a down arrow, aligned with File Explorer / VFX Library and a little apart from them. File Explorer / VFX Library have a fixed width, so turning bold when selected doesn't move anything.
+- Address bar: the arrows between folders are drawn the size of the New / Sort / View arrows (and point down while the subfolder menu is open).
+- Startup: every launch writes VFXExplorer_data/startup.log with how long each step takes (to find what slows it down on each PC). The CI build measures it too: about 1.1 s on a clean Windows.
+
 ## 0.32.0
 - Workspaces: a «Workspace» button left of File Explorer / VFX Library saves the interface as it is — mode, the tabs of each pane and their folders, view, dual pane and its orientation, Details pane and the panel sizes — and switches between saved layouts, like 3D and editing programs. Save as new, update, reset, rename, reorder and delete; Alt+Shift+1…9 switch to the first nine.
 - Filters: «Camera RAW» (only camera RAW / DNG) and the new «Hide Camera RAW» (everything except them). With a file-type filter on, folders are no longer shown in the center pane (they stay with Hide Camera RAW).
