@@ -852,6 +852,8 @@ class FilePane(QFrame):
                 st = self.PICTURES_DEFAULT
             elif downs and norm_key(downs) == k:
                 st = self.DOWNLOADS_DEFAULT
+            elif sp and sp("documents") and norm_key(sp("documents")) == k:
+                st = self.DOWNLOADS_DEFAULT              # Documents: Details (lista), agrupado por fecha
             elif sp and sp("videos") and norm_key(sp("videos")) == k:
                 st = self.PICTURES_DEFAULT               # Videos: Íconos grandes
             elif self.root_lock:                     # VFX Library: Íconos grandes para todo

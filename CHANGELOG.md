@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.28.0
+- Documents opens in Details (list) grouped by date modified, like Windows (reset once on update).
+- Arrow keys in Quick access and the other side lists open the folder, like in the trees.
+- Folder trees: moving with the arrows opens the folder instantly (no delay).
+- VFX Library tree: after clicking a folder the keyboard stays in the tree (the grid no longer takes the focus), so the arrows keep moving through folders.
+
 ## 0.27.2
 - Images open right away with Windows' default app, like a normal double click (no remapping, no special launch). Settings › General › "Image viewer": pick a program to open images with instead, like the Player for videos. Removed the "Images open in" options (Photos link and classic Photo Viewer).
 

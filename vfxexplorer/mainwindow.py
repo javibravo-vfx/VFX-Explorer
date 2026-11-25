@@ -7,7 +7,7 @@ import subprocess
 
 from PySide6.QtCore import Qt, QSize, QTimer, QByteArray, QDir, QUrl, QEvent, Signal, QRectF, QPointF
 from PySide6.QtGui import QKeySequence, QShortcut, QDesktopServices, QCursor, QAction, QPixmap
-from PySide6.QtWidgets import (QLineEdit, QPlainTextEdit, QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QTreeView,
+from PySide6.QtWidgets import (QLineEdit, QPlainTextEdit, QTreeWidgetItem, QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QTreeView,
                                QListWidget, QListWidgetItem, QComboBox, QSlider, QToolBar, QLabel, QMenu,
                                QFileSystemModel, QAbstractItemView, QToolButton, QScrollArea, QFrame,
                                QMessageBox, QInputDialog, QProgressDialog, QStyledItemDelegate, QSizePolicy, QStyleOptionViewItem,
@@ -330,6 +330,7 @@ class MainWindow(QMainWindow):
             w.setContextMenuPolicy(Qt.CustomContextMenu)
             w.customContextMenuRequested.connect(lambda pos, w=w, f=menu_fn: f(w, pos))
             w.itemClicked.connect(click_fn)
+            self.hook_list_keys(w, click_fn)
             w.model().rowsMoved.connect(self._favs_reordered)
             w.dropped.connect(lambda dirs, lib=lib: self._quick_dropped(dirs, lib))
         self.colls = self._mk_list(self._colls_menu, lambda it: self.open_collection(it.data(Qt.UserRole)))
@@ -986,15 +987,17 @@ class MainWindow(QMainWindow):
     def _sys_view_defaults(self):
         """0.17: Downloads (agrupado por fecha) y Videos (íconos grandes) arrancan con su vista de fábrica,
         aunque ya se hubiera guardado otra antes."""
-        if int(self.cfg["sys_view_defaults"] or 0) >= 1:
+        done = int(self.cfg["sys_view_defaults"] or 0)
+        if done >= 2:
             return
         fv = dict(self.cfg["folder_views"] or {})
-        for kind in ("downloads", "videos"):
+        # 1: Downloads y Videos (0.17) · 2: Documents en Details agrupado por fecha (0.28)
+        for kind in (("downloads", "videos", "documents") if done < 1 else ("documents",)):
             p = self._sys_path(kind)
             if p:
                 fv.pop(norm_key(p), None)
         self.cfg["folder_views"] = fv
-        self.cfg["sys_view_defaults"] = 1
+        self.cfg["sys_view_defaults"] = 2
         self.cfg.save()
 
     def _sys_path(self, kind):
@@ -1048,7 +1051,7 @@ class MainWindow(QMainWindow):
         """Moverse con las flechas por un árbol abre la carpeta (con una pequeña espera, para no cargar
         cada carpeta por la que se pasa rápido)."""
         tree._syncing = False
-        timer = QTimer(tree, singleShot=True, interval=220)
+        timer = QTimer(tree, singleShot=True, interval=0)      # inmediato (la carpeta se lee en otro hilo)
         state = {"path": None}
 
         def fire():
@@ -1066,11 +1069,21 @@ class MainWindow(QMainWindow):
         timer.timeout.connect(fire)
 
         def changed(cur, prev):
-            if tree._syncing or cur is None or not tree.hasFocus():
+            if getattr(tree, "_syncing", False) or cur is None or not tree.hasFocus() \
+                    or QApplication.mouseButtons() != Qt.NoButton:      # con el mouse ya abre el clic
                 return
-            state["path"] = cur.data(0, Qt.UserRole)
+            state["path"] = cur.data(0, Qt.UserRole) if isinstance(cur, QTreeWidgetItem) else cur.data(Qt.UserRole)
             timer.start()
         tree.currentItemChanged.connect(changed)
+
+    def hook_list_keys(self, w, click_fn):
+        """Listas del panel izquierdo (Quick access, colecciones, tags): moverse con las flechas abre."""
+        def changed(cur, prev):
+            if cur is None or not w.hasFocus() or QApplication.mouseButtons() != Qt.NoButton:
+                return
+            if cur.data(Qt.UserRole):
+                QTimer.singleShot(0, lambda it=cur: click_fn(it))
+        w.currentItemChanged.connect(changed)
 
     def reload_tree_drives(self):
         """Discos del árbol (This PC): se leen en segundo plano (una unidad de red caída no traba)."""
@@ -1403,6 +1416,7 @@ class MainWindow(QMainWindow):
         w.setContextMenuPolicy(Qt.CustomContextMenu)
         w.customContextMenuRequested.connect(lambda pos, w=w: menu_fn(w, pos))
         w.itemClicked.connect(click_fn)
+        self.hook_list_keys(w, click_fn)
         return w
 
     def _section(self, text):
@@ -1697,8 +1711,10 @@ class MainWindow(QMainWindow):
             roots = self.libpane.root_lock()
             if not self.libpane.tabs and roots:
                 self.libpane.add_tab(roots[0])
+            was_lib = self.cfg["mode"] == "library"
             self.set_active(self.libpane)
-            self.libpane.view().setFocus()
+            if not was_lib:                       # al cambiar de modo; si no, el foco queda donde estaba
+                self.libpane.view().setFocus()
             if not self.cfg["library_roots"]:
                 self.libpage.viewer.show_message("Choose your VFX library folder with the ＋ next to the "
                                                  "«VFX LIBRARY» tab in the left pane (videos, sequences, "
