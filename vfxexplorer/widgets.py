@@ -1493,17 +1493,9 @@ class SettingsDialog(QDialog):
         w, self.player = self._path_row(cfg["player"], "Player (mrv2, DJV, RV…)", exe_f)
         lay.addRow("Player:", w)
         lay.addRow("", _hint("Opens sequences and videos on double click. Empty = default app."))
-        self.img_open = QComboBox()
-        self.img_open.addItem("Default app · Windows Photos with previous / next when the image is on this PC "
-                              "(also drives remapped to this PC)", "auto")
-        self.img_open.addItem("The default app of the system, plain", "system")
-        self.img_open.addItem("Windows Photos with previous / next (slower; may ask on network drives)", "photos")
-        self.img_open.addItem("Windows Photo Viewer (classic, instant, browses the folder)", "photoviewer")
-        self.img_open.setCurrentIndex(max(0, self.img_open.findData(cfg["image_opener"] or "auto")))
-        lay.addRow("Images open in:", self.img_open)
-        lay.addRow("", _hint("Windows Photos only lists the other images of the folder by itself when it is "
-                             "opened from Windows Explorer; from any other program it opens just one image, "
-                             "unless you pick the Photos option above."))
+        w, self.img_viewer = self._path_row(cfg["image_viewer"], "Image viewer", exe_f)
+        lay.addRow("Image viewer:", w)
+        lay.addRow("", _hint("Opens images on double click. Empty = default app."))
         w, self.ffmpeg = self._path_row(cfg["ffmpeg"], "ffmpeg.exe", exe_f)
         lay.addRow("ffmpeg:", w)
         found = find_tool(cfg["ffmpeg"], "ffmpeg")
@@ -1763,7 +1755,7 @@ class SettingsDialog(QDialog):
         old_p = (cfg["pipeline_root"], cfg["pipeline_prefix"], cfg["pipeline_seq_exclude"],
                  json.dumps(cfg["pipeline_departments"]), cfg["pipeline_only_depts"])
         cfg["player"] = self.player.text().strip().strip('"')
-        cfg["image_opener"] = self.img_open.currentData()
+        cfg["image_viewer"] = self.img_viewer.text().strip().strip('"')
         cfg["ffmpeg"] = self.ffmpeg.text().strip().strip('"')
         cfg["colorspace"] = self.cs.currentData()
         cfg["use_chromaticities"] = self.chroma.isChecked()

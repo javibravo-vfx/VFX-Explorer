@@ -2334,14 +2334,13 @@ class MainWindow(QMainWindow):
                 return
             except Exception as ex:
                 self.status.setText(f"Could not open the player: {ex}")
-        if IS_WIN and e.kind == "file" and e.cat == "image":
-            # como desde el Explorador: el visor puede pasar a las otras imágenes de la carpeta
-            from .winlaunch import open_image
+        viewer = self.cfg["image_viewer"]
+        if with_player and viewer and os.path.isfile(viewer) and e.kind == "file" and e.cat == "image":
             try:
-                open_image(e.path, self.cfg["image_opener"] or "auto")
-            except OSError as ex:
-                self.status.setText(str(ex))
-            return
+                subprocess.Popen([viewer, e.path])     # visor de imágenes elegido en Settings
+                return
+            except Exception as ex:
+                self.status.setText(f"Could not open the image viewer: {ex}")
         self.open_default(e.path)
 
     def open_default(self, path):

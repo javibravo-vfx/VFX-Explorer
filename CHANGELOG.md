@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.27.2
+- Images open right away with Windows' default app, like a normal double click (no remapping, no special launch). Settings › General › "Image viewer": pick a program to open images with instead, like the Player for videos. Removed the "Images open in" options (Photos link and classic Photo Viewer).
+
 ## 0.27.1
 - Images: new default "auto" — when Windows Photos is the default app and the image is on this PC, it opens with previous / next. Drives that are a share of this same PC remapped as a network drive (e.g. T: → \\this-pc\share) are resolved to the real local folder first, so there is no security prompt and it is as fast as a local file. Real network drives (a NAS) open plainly with the default app.
 

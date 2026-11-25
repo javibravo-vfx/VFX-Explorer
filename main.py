@@ -67,9 +67,6 @@ def selftest():
         except Exception as ex:
             ok = False
             log.append(f"pdf: {ex}")
-        if sys.platform == "win32":
-            from vfxexplorer import winlaunch
-            log.append(f"photos default for .jpg: {winlaunch.default_is_photos('.jpg')}")
         from vfxexplorer.mainwindow import MainWindow
         w = MainWindow(tmp)
         w.show()
