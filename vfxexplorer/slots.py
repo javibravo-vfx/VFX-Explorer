@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
-"""Slots del player de la VFX Library: Ctrl+1…4 guardan el video que se está viendo en un canal,
-Shift+1…4 (o clic en el circulito) saltan a ese video, en su carpeta y reproduciéndose desde donde estaba."""
+"""Slots del player de la VFX Library: Ctrl+1…4 (o clic derecho en el circulito) guardan lo seleccionado
+(video, secuencia, imagen, sonido…) en un canal; 1…4 (o clic en el circulito) saltan a eso, en su carpeta y
+reproduciéndose desde donde estaba."""
 
 import os
 
@@ -9,8 +10,8 @@ from PySide6.QtGui import QPainter, QColor, QFont, QPen
 from PySide6.QtWidgets import QWidget
 
 N_SLOTS = 4
-D = 24          # diámetro de cada circulito
-GAP = 8
+D = 19          # diámetro de cada circulito
+GAP = 6
 
 
 class SlotBar(QWidget):
@@ -51,9 +52,10 @@ class SlotBar(QWidget):
             self._hover = h
             s = self.ctl.slots()[h] if h >= 0 else None
             self.setToolTip(
-                (f"{h + 1}: {s['name']}\n{s['dir']}\nClick or Shift+{h + 1}: go · right-click: clear · "
-                 f"Ctrl+{h + 1}: set to the current video") if s else
-                (f"Slot {h + 1} empty — Ctrl+{h + 1} puts the current video here" if h >= 0 else ""))
+                (f"{h + 1}: {s['name']}\n{s['dir']}\nClick or {h + 1}: go · right-click: put the selected item "
+                 f"here (or clear it if it's the same) · Ctrl+{h + 1}: put the selected item here") if s else
+                (f"Slot {h + 1} empty — right-click or Ctrl+{h + 1} puts the selected item here"
+                 if h >= 0 else ""))
             self.update()
 
     def leaveEvent(self, ev):
@@ -65,7 +67,7 @@ class SlotBar(QWidget):
         if i < 0:
             return
         if ev.button() == Qt.RightButton:
-            self.ctl.clear(i)
+            self.ctl.toggle(i)
         else:
             self.ctl.go(i)
 
@@ -73,7 +75,7 @@ class SlotBar(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         f = QFont(self.font())
-        f.setPointSizeF(8.5)
+        f.setPointSizeF(7.2)
         f.setBold(True)
         p.setFont(f)
         slots = self.ctl.slots()
@@ -111,8 +113,16 @@ class SlotController(QObject):
         s = list(self.app.cfg["lib_slots"] or [])
         return (s + [None] * N_SLOTS)[:N_SLOTS]
 
-    def current_slot(self):
+    def _selected(self):
+        """Lo seleccionado en la librería (video, secuencia, imagen, sonido…); si no, lo que muestra el player."""
+        ents = self.app.libpane.selected_entries() if self.app.libpane.tabs else []
+        if len(ents) == 1 and ents[0].kind in ("file", "seq"):
+            return ents[0]
         e = self.viewer.entry
+        return e if (e is not None and e.kind in ("file", "seq")) else None
+
+    def current_slot(self):
+        e = self._selected()
         if e is None:
             return -1
         for i, s in enumerate(self.slots()):
@@ -120,10 +130,20 @@ class SlotController(QObject):
                 return i
         return -1
 
+    def toggle(self, i):
+        """Clic derecho: pone ahí lo seleccionado; si ya estaba en ese slot, lo saca."""
+        e = self._selected()
+        s = self.slots()[i]
+        if s and (e is None or s.get("path") == e.path):
+            self.clear(i)
+            self.app.status.setText(f"Slot {i + 1} cleared")
+        else:
+            self.assign(i)
+
     def assign(self, i):
-        e = self.viewer.entry
-        if e is None or e.kind not in ("file", "seq"):
-            self.app.status.setText("Select a video (or sequence) in the VFX Library first")
+        e = self._selected()
+        if e is None:
+            self.app.status.setText("Select a video, sequence, image or sound in the VFX Library first")
             return
         s = self.slots()
         s = [x if not (x and x.get("path") == e.path) else None for x in s]   # un video, un solo canal

@@ -58,9 +58,9 @@ SHORTCUTS = [
         ("Space", "Play / pause"),
         (",  /  .", "Previous / next frame"),
         ("Home", "First frame (with the player focused)"),
-        ("Ctrl+1 … Ctrl+4", "Put the current video in slot 1–4"),
-        ("Shift+1 … Shift+4  ·  Click on a circle", "Go to the video of slot 1–4 (keeps playing where it was)"),
-        ("Right click on a circle", "Clear that slot"),
+        ("Ctrl+1 … Ctrl+4", "Put the selected video / sequence / image / sound in slot 1–4"),
+        ("1 … 4  ·  Click on a circle", "Go to slot 1–4 (a video keeps playing where it was)"),
+        ("Right click on a circle", "Put the selected item there (or clear it if it's the same)"),
         ("F7", "Previous folder, with its video playing where it was"),
     ]),
     ("Mouse", [

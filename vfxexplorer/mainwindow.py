@@ -1169,9 +1169,8 @@ class MainWindow(QMainWindow):
             return False
         if mods == Qt.ControlModifier and Qt.Key_1 <= k <= Qt.Key_4:
             i, act = k - Qt.Key_1, "set"
-        elif mods == Qt.ShiftModifier:
-            i = self._digit(ev)
-            act = "go" if i >= 0 else None
+        elif not mods and Qt.Key_1 <= k <= Qt.Key_4:          # 1…4 (fila de números o teclado numérico)
+            i, act = k - Qt.Key_1, "go"
         if i < 0 or act is None:
             return False
         if ev.type() == QEvent.ShortcutOverride:
@@ -2147,18 +2146,26 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ abrir
     def open_entry(self, e, with_player=True):
         player = self.cfg["player"]
-        if with_player and player and os.path.isfile(player) and e.cat in ("seq", "video", "image"):
+        if with_player and player and os.path.isfile(player) and e.cat in ("seq", "video"):
             try:
                 subprocess.Popen([player, e.path])
                 return
             except Exception as ex:
                 self.status.setText(f"Could not open the player: {ex}")
         if IS_WIN and e.kind == "file" and e.cat == "image":
-            # como desde el Explorador: el visor (Fotos…) puede pasar a las otras imágenes de la carpeta
-            from .winlaunch import open_with_neighbors
-            from .core import IMAGE_EXTS
-            open_with_neighbors(e.path, sorted(IMAGE_EXTS), lambda p: os.startfile(p))
-            return
+            # como desde el Explorador: el visor puede pasar a las otras imágenes de la carpeta
+            mode = self.cfg["image_opener"] or "default"
+            if mode == "photoviewer":
+                from .winlaunch import open_photo_viewer
+                if open_photo_viewer(e.path):
+                    return
+            else:
+                from .winlaunch import NeighborLauncher
+                from .core import IMAGE_EXTS
+                if not hasattr(self, "_nlauncher"):
+                    self._nlauncher = NeighborLauncher(os.path.join(self.data_dir, "launch.log"))
+                self._nlauncher.open(e.path, sorted(IMAGE_EXTS), lambda p: os.startfile(p))
+                return
         self.open_default(e.path)
 
     def open_default(self, path):

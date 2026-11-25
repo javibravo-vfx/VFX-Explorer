@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.25.0
+- Player slots: 1…4 (no modifier) switch to the slot; right-click a circle puts the selected item there (or clears it if it's the same); slots work with videos, sequences, images and sounds; smaller circles.
+- Opening an image with its neighbors: the Windows launch now runs on the UI thread as the API requires (it fell back to a plain open before), with a log in VFXExplorer_data/launch.log. New Settings › General › "Images open in": default app or the classic Windows Photo Viewer (always browses the folder). The external player is now only for sequences and videos, as its hint says.
+- First start: the tab opens directly in This PC (it showed the user folder first).
+
 ## 0.24.0
 - VFX Library player slots: Ctrl+1…4 puts the current video in a slot, Shift+1…4 (or clicking its circle on the left of the player) jumps to it — in its folder, playing from where it was. Right-click a circle clears it. Four circles: dim when empty, brighter when set, light blue for the one playing.
 - Mode bar: the File Explorer icon is yellow when active, the VFX Library icon light blue when active; the inactive one is gray.

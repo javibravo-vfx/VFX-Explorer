@@ -992,17 +992,11 @@ class FilePane(QFrame):
         return not self.root_lock or self.lock_root_for(path) is not None
 
     def add_tab(self, path, activate=True):
+        virtual = None
         if path == THISPC and not self.root_lock:
-            home = os.path.expanduser("~")
-            self.add_tab(home, activate=activate)
-            t = self.tabs[-1]
-            t["virtual"] = {"title": "This PC", "kind": "thispc", "name": ""}
-            self.tabbar.setTabText(len(self.tabs) - 1, "This PC")
-            self.tabbar.setTabIcon(len(self.tabs) - 1, self._tab_icon(t))
-            if self.tabs[self.ti] is t:
-                self._show_location()
-                self._load_virtual()
-            return
+            # la pestaña nace ya como This PC (antes se abría la carpeta del usuario y después cambiaba)
+            virtual = {"title": "This PC", "kind": "thispc", "name": ""}
+            path = os.path.expanduser("~")
         if self.root_lock:
             roots = self.root_lock()
             if not self.allowed(path):
@@ -1010,11 +1004,12 @@ class FilePane(QFrame):
             if not path:
                 return
         path = path or os.path.expanduser("~")
-        t = {"path": os.path.normpath(path), "history": [os.path.normpath(path)], "hpos": 0, "virtual": None}
+        t = {"path": os.path.normpath(path), "history": [THISPC if virtual else os.path.normpath(path)], "hpos": 0,
+             "virtual": virtual}
         self.tabs.append(t)
         self.tabbar.blockSignals(True)
         i = self.tabbar.addTab(self._tab_icon(t), self._tab_title(t))
-        self.tabbar.setTabToolTip(i, t["path"])
+        self.tabbar.setTabToolTip(i, "This PC" if virtual else t["path"])
         close = QWidget()                       # contenedor: deja aire a la derecha, como Windows
         close.setFixedSize(34, 28)
         cl = QHBoxLayout(close)

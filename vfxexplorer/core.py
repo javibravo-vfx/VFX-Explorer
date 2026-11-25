@@ -819,6 +819,7 @@ class Config:
         "collapse_seqs": True,
         "mini_tree_on": True,
         "hover_box": True,
+        "image_opener": "default",      # doble clic en una imagen: "default" (con sus vecinas) o "photoviewer"
         "lib_slots": [None, None, None, None],   # canales del player de la librería (Ctrl / Shift + 1…4)
         "col_layouts": {},              # layouts de columnas propios {nombre: [columnas en orden]}
         "col_order": None,              # orden de columnas del último layout aplicado              # preview flotante al dejar el mouse sobre un ítem           # árbol solo con las carpetas visitadas
