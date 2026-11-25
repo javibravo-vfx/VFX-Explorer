@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.21.0
+- Folder tree with This PC as its root (in the full tree and the Mini tree): the path line starts at This PC, and going to This PC selects it (no grey box left on the last folder). The full tree reads folders by itself, network drives only when they answer.
+- Mini tree like the reference: only drives and folders you went into, everything open.
+- Corner of FILE EXPLORER: the eye's place shows scissors in Mini tree (clear it), then a new tree button to switch Mini / full tree.
+- Settings › Pipeline: the department fields keep their width when a department has tasks; new "Plates / input folder" (default _input with plates, refs): the ＋ creates it and the folder button jumps to the plates.
+
 ## 0.20.0
 - Reopen closed tabs with Ctrl+Shift+T (with their back/forward history), also from the tab right-click menu.
 - File hashes: right-click a file › File hashes shows its MD5, SHA-1 and SHA-256 (read once, in the background), with Copy and a Compare box to check a pasted hash.

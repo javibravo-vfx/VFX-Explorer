@@ -126,6 +126,32 @@ class Pipeline:
             return legacy_departments(self.cfg)
         return [d for d in v if (d.get("name") or "").strip()]
 
+    # ---------------- carpeta de plates / input
+    def input_name(self):
+        v = self.cfg["pipeline_input"]
+        return (v if v is not None else "_input").strip() or "_input"
+
+    def input_subs(self):
+        v = self.cfg["pipeline_input_subs"]
+        return split_list("plates, refs" if v is None else v)
+
+    def input_dir(self, project, seq, shot):
+        return self.dept_path(project, seq, shot, self.input_name())
+
+    def plates_dir(self, project, seq, shot):
+        d = self.input_dir(project, seq, shot)
+        subs = self.input_subs()
+        return os.path.join(d, self._existing(d, subs[0])) if (d and subs) else d
+
+    def create_input(self, project, seq, shot):
+        d = self.input_dir(project, seq, shot)
+        if not d:
+            return ""
+        os.makedirs(d, exist_ok=True)
+        for sub in self.input_subs():
+            os.makedirs(os.path.join(d, sub), exist_ok=True)
+        return d
+
     def only_listed(self):
         """El desplegable Dept muestra solo los departamentos definidos (si no, todas las carpetas del shot)."""
         v = self.cfg["pipeline_only_depts"]
@@ -205,6 +231,8 @@ class Pipeline:
         · «folder»: carpetas sueltas (_input)."""
         if not dept:
             return "task"
+        if dept.lower() == self.input_name().lower():
+            return "folder"
         dd = self.dept_def(dept)
         if dd:
             return "task" if dd.get("has_tasks") else "stage"
@@ -242,7 +270,8 @@ class Pipeline:
 
     # departamento = carpeta al nivel de 3D dentro del shot (3D, Comp, DMP, 2D…)
     def dept_filter(self):
-        return [d["name"].strip().lower() for d in self.departments()] if self.only_listed() else []
+        return [d["name"].strip().lower() for d in self.departments()] + [self.input_name().lower()] \
+            if self.only_listed() else []
 
     def depts(self, project, seq, shot):
         dirs = _listdirs(self.shot_dir(project, seq, shot))

@@ -806,7 +806,9 @@ class Config:
         "pipeline_stages": None,        # None = "1_projects, 2_review, 3_publish"
         "pipeline_templates": {},       # (0.17, reemplazado por pipeline_departments)
         "pipeline_departments": None,   # None = DEFAULT_DEPTS (o lo que había en la config vieja)
-        "pipeline_only_depts": None,    # el desplegable Dept muestra solo los definidos
+        "pipeline_only_depts": None,
+        "pipeline_input": None,         # carpeta de plates dentro del shot (None = "_input")
+        "pipeline_input_subs": None,    # sus subcarpetas (None = "plates, refs"); la primera = plates    # el desplegable Dept muestra solo los definidos
         "sys_view_defaults": 0,         # vistas por defecto de Downloads / Videos ya aplicadas
         # 0.7
         "lib_favorites": [],            # acceso rápido de la VFX Library

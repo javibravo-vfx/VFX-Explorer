@@ -230,6 +230,13 @@ class PipelineBar(QWidget):
         if not sh:
             m.addAction("Pick a shot first").setEnabled(False)
             return
+        inp = pipe.input_name()
+        ex = os.path.isdir(pipe.input_dir(p, s, sh))
+        a = m.addAction(("✓  " if ex else "") + inp + "   (plates)")
+        a.setEnabled(not ex)
+        a.setToolTip(inp + " \\ " + ", ".join(pipe.input_subs()))
+        a.triggered.connect(lambda: self._create("__input__"))
+        m.addSeparator()
         for dep in pipe.departments():
             name = dep["name"].strip()
             path = pipe.dept_path(p, s, sh, name)
@@ -257,7 +264,9 @@ class PipelineBar(QWidget):
     def _create(self, dept, task=None):
         p, s, sh, d, t = self._vals()
         try:
-            if task:
+            if dept == "__input__":
+                target = self.pipe.create_input(p, s, sh)
+            elif task:
                 target = self.pipe.create_task(p, s, sh, dept, task)
             else:
                 target = self.pipe.create_dept(p, s, sh, dept)
@@ -294,6 +303,9 @@ class PipelineBar(QWidget):
         if sh:
             m.addSeparator()
             add(f"Shot  {sh}", pipe.shot_dir(p, s, sh))
+            pd = pipe.plates_dir(p, s, sh)
+            if pd and os.path.isdir(pd):
+                add("Plates  ▸  " + os.path.relpath(pd, pipe.shot_dir(p, s, sh)), pd, 1)
             for dd in pipe.shot_subdirs(p, s, sh):
                 add(dd, os.path.join(pipe.shot_dir(p, s, sh), dd), 1)
         if d:

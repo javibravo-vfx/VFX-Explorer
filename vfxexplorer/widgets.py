@@ -338,6 +338,17 @@ class Icons:
         elif kind == "dual":
             p.drawRoundedRect(QRectF(s * .12, s * .2, s * .76, s * .6), 2, 2)
             path.moveTo(s * .5, s * .2); path.lineTo(s * .5, s * .8)
+        elif kind == "minitree":            # arbolito sintético: un nodo arriba y dos ramas
+            p.drawRect(QRectF(s * .16, s * .14, s * .2, s * .2))
+            path.moveTo(s * .26, s * .34); path.lineTo(s * .26, s * .8); path.lineTo(s * .56, s * .8)
+            path.moveTo(s * .26, s * .55); path.lineTo(s * .56, s * .55)
+            p.drawEllipse(QPointF(s * .7, s * .55), s * .1, s * .1)
+            p.drawEllipse(QPointF(s * .7, s * .8), s * .1, s * .1)
+        elif kind == "scissors":
+            p.drawEllipse(QPointF(s * .3, s * .74), s * .13, s * .13)
+            p.drawEllipse(QPointF(s * .7, s * .74), s * .13, s * .13)
+            path.moveTo(s * .38, s * .63); path.lineTo(s * .74, s * .14)
+            path.moveTo(s * .62, s * .63); path.lineTo(s * .26, s * .14)
         elif kind == "image":
             p.drawRoundedRect(QRectF(s * .14, s * .2, s * .72, s * .6), s * .08, s * .08)
             path.moveTo(s * .2, s * .72); path.lineTo(s * .42, s * .48); path.lineTo(s * .58, s * .62)
@@ -1336,22 +1347,28 @@ class DeptEditor(QWidget):
         self.form = QWidget()
         f = QFormLayout(self.form)
         f.setContentsMargins(8, 0, 0, 0)
+        lw = self.fontMetrics().horizontalAdvance("Folders in each task:") + 12
+
+        def lab(t):                       # ancho fijo: el campo no se achica al cambiar el texto
+            lb = QLabel(t)
+            lb.setFixedWidth(lw)
+            return lb
         self.f_name = QLineEdit()
         self.f_name.setPlaceholderText("Folder name inside the shot (3D, Comp, DMP…)")
-        f.addRow("Folder:", self.f_name)
+        f.addRow(lab("Folder:"), self.f_name)
         self.f_has = QCheckBox("Has tasks  (Department › Task › folders)")
-        f.addRow("", self.f_has)
+        f.addRow(lab(""), self.f_has)
         self.f_tasks = QPlainTextEdit()
         self.f_tasks.setPlaceholderText("One task per line; after «:» what goes inside its first folder\n"
                                         "1_matchmove: footage, textures\n7_fx: textures, cache")
         self.f_tasks.setMinimumHeight(130)
-        f.addRow("Tasks:", self.f_tasks)
+        f.addRow(lab("Tasks:"), self.f_tasks)
         self.f_folders = QLineEdit()
         self.f_folders.setPlaceholderText("1_projects, 2_review, 3_publish")
-        self.l_folders = QLabel("Folders:")
+        self.l_folders = lab("Folders:")
         f.addRow(self.l_folders, self.f_folders)
         self.f_hint = _hint("")
-        f.addRow("", self.f_hint)
+        f.addRow(lab(""), self.f_hint)
         lay.addWidget(self.form, 1)
         self.f_name.textEdited.connect(self._store)
         self.f_has.toggled.connect(self._store)
@@ -1520,6 +1537,19 @@ class SettingsDialog(QDialog):
                             "Sequences are folders starting with a number; shots start with PROJECT_."))
         self.p_deps = DeptEditor(app.pipeline.departments())
         pl.addRow(self.p_deps)
+        self.p_input = QLineEdit(cfg["pipeline_input"] if cfg["pipeline_input"] is not None else "_input")
+        self.p_input.setPlaceholderText("_input")
+        self.p_input_subs = QLineEdit(cfg["pipeline_input_subs"] if cfg["pipeline_input_subs"] is not None
+                                      else "plates, refs")
+        irow = QWidget()
+        il = QHBoxLayout(irow)
+        il.setContentsMargins(0, 0, 0, 0)
+        il.addWidget(self.p_input, 1)
+        il.addWidget(QLabel("  with"))
+        il.addWidget(self.p_input_subs, 2)
+        pl.addRow("Plates / input folder:", irow)
+        pl.addRow("", _hint("Folder inside the shot where the plates arrive (and its subfolders; the first one is "
+                            "where the plates go). The ＋ creates it and the folder button jumps to the plates."))
         self.p_only = QCheckBox("Dept dropdown shows only these departments (otherwise every folder of the shot)")
         self.p_only.setChecked(app.pipeline.only_listed())
         pl.addRow("", self.p_only)
@@ -1679,6 +1709,8 @@ class SettingsDialog(QDialog):
         new_t = (cfg["colorspace"], cfg["use_chromaticities"], cfg["ffmpeg"], cfg["sidecar_previews"])
         cfg["pipeline_departments"] = self.p_deps.value()
         cfg["pipeline_only_depts"] = self.p_only.isChecked()
+        cfg["pipeline_input"] = self.p_input.text().strip().strip("\\/") or "_input"
+        cfg["pipeline_input_subs"] = self.p_input_subs.text().strip()
         cfg["pipeline_location"] = self.p_loc.currentData()
         new_p = (cfg["pipeline_root"], cfg["pipeline_prefix"], cfg["pipeline_seq_exclude"],
                  json.dumps(cfg["pipeline_departments"]), cfg["pipeline_only_depts"])

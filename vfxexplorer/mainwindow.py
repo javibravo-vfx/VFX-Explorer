@@ -22,7 +22,7 @@ from .imaging import ThumbManager, InfoTask, Signals, init_formats
 from .widgets import Icons, TAG_COLORS, TagDialog, RenameDialog, SettingsDialog, ACCENT
 from .pane import FilePane
 from .colors import ColorEngine, COLOR_MODES, DEFAULT_NAME_RULES
-from .tree import LinedTree, MiniTree
+from .tree import FolderTree, MiniTree
 from .dirsize import DirSizeManager
 from .library_ui import LibraryPage, LibrarySidebar
 from .pipebar import PipelineBar
@@ -164,9 +164,6 @@ class MainWindow(QMainWindow):
         self.thumbs = ThumbManager(self.cfg, self.data_dir)
         from .meta import MetaManager
         self.meta = MetaManager(self)
-        self.fs = QFileSystemModel()
-        self.fs.setFilter(QDir.AllDirs | QDir.NoDotAndDotDot | QDir.Drives)
-        self.fs.setRootPath("")
         self.info_signals = Signals()
         self.info_signals.info.connect(self._info_ready)
         self.thumbs.ready.connect(self._thumb_for_info)
@@ -327,27 +324,17 @@ class MainWindow(QMainWindow):
         self.colls = self._mk_list(self._colls_menu, lambda it: self.open_collection(it.data(Qt.UserRole)))
         self.tagl = self._mk_list(self._tags_menu, lambda it: self.open_tag(it.data(Qt.UserRole)))
 
-        self.tree = LinedTree(self)
-        self.tree.setModel(self.fs)
-        for c in (1, 2, 3):
-            self.tree.hideColumn(c)
-        self.tree.setHeaderHidden(True)
-        self.tree.setIconSize(QSize(18, 18))
-        self.tree.header().setStretchLastSection(False)
-        self.tree.header().setSectionResizeMode(0, self.tree.header().ResizeMode.ResizeToContents)
-        self.tree.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.tree.clicked.connect(lambda ix: self.open_in_explorer(self.fs.filePath(ix)))
-        self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.tree.customContextMenuRequested.connect(self._tree_menu)
-        self.tree.setDragEnabled(True)            # arrastrar carpetas a Acceso rápido / a otros paneles
-        self.fs.rowsInserted.connect(lambda parent, *_: (not parent.isValid()) and
-                                     QTimer.singleShot(0, self._apply_hidden_drives))
-        # Mini tree: solo las carpetas visitadas (botón del árbol en la esquina para pasar al árbol completo)
+        # árbol de File Explorer con This PC como raíz: completo o Mini tree (solo lo visitado)
+        self.tree = FolderTree(self)
         self.minitree = MiniTree(self)
-        self.minitree.itemClicked.connect(lambda it, c: it.data(0, Qt.UserRole) and
-                                          self.open_in_explorer(it.data(0, Qt.UserRole)))
-        self.minitree.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.minitree.customContextMenuRequested.connect(self._minitree_menu)
+        for t in (self.tree, self.minitree):
+            t.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+            t.itemClicked.connect(lambda it, c: it.data(0, Qt.UserRole) and
+                                  self.open_in_explorer(it.data(0, Qt.UserRole)))
+            t.setContextMenuPolicy(Qt.CustomContextMenu)
+            t.customContextMenuRequested.connect(lambda pos, t=t: self._tree_menu(t, pos))
+        self._drives_gen = 0
+        QTimer.singleShot(0, self.reload_tree_drives)
         self.tree_stack = QStackedWidget()
         self.tree_stack.addWidget(self.tree)
         self.tree_stack.addWidget(self.minitree)
@@ -395,19 +382,12 @@ class MainWindow(QMainWindow):
         self.side_boxes["favs"] = quick
 
         # tab CARPETAS: (pipeline vertical) + Este equipo + árbol
-        self.thispc = self._mk_list(lambda w, pos: None, lambda it: self.open_in_explorer("::thispc"))
-        it = QListWidgetItem(ic.glyph("pc", 18, "#4cc2ff"), "This PC")
-        it.setToolTip("Drives and network locations")
-        self.thispc.addItem(it)
-        self.thispc.setFixedHeight(34)
-        self.thispc.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         folders_page = QWidget()
         fpl = QVBoxLayout(folders_page)
         fpl.setContentsMargins(0, 0, 0, 0)
         fpl.setSpacing(0)
         self.side_boxes["pipeline"] = boxed("PIPELINE", self.pipebar_side)
         fpl.addWidget(self.side_boxes["pipeline"])
-        fpl.addWidget(self.thispc)
         fpl.addWidget(self.tree_stack, 1)
         self.side_boxes["tree"] = folders_page
 
@@ -457,8 +437,15 @@ class MainWindow(QMainWindow):
         self.b_minitree.setChecked(bool(self.cfg["mini_tree_on"]))
         self.b_minitree.toggled.connect(self._toggle_minitree)
         self._popfix(self.b_minitree)
-        crl.addWidget(self.b_minitree)
+        self.b_mini_clear = QToolButton()          # en Mini tree, el lugar del ojito: tijera para vaciarlo
+        self.b_mini_clear.setAutoRaise(True)
+        self.b_mini_clear.setIcon(ic.glyph("scissors", 15, "#c9ccd1"))
+        self.b_mini_clear.setToolTip("Clear the Mini tree (start again from the current folder)")
+        self.b_mini_clear.clicked.connect(self._clear_minitree)
+        self._popfix(self.b_mini_clear)
         crl.addWidget(self.b_eye_tree)
+        crl.addWidget(self.b_mini_clear)
+        crl.addWidget(self.b_minitree)
         crl.addWidget(self.b_colors)
         crl.addWidget(self.b_side_add)
         self.sidetabs.setCornerWidget(corner, Qt.TopRightCorner)
@@ -1034,15 +1021,23 @@ class MainWindow(QMainWindow):
 
     def _apply_hidden_drives(self):
         """Oculta en el árbol de Carpetas los discos marcados (salvo con el ojito prendido)."""
-        from PySide6.QtCore import QModelIndex
-        hidden = {norm_key(p) for p in (self.cfg["hidden_drives"] or [])}
-        show = bool(self.cfg["show_hidden_drives"])
-        root = QModelIndex()
-        for r in range(self.fs.rowCount(root)):
-            ix = self.fs.index(r, 0, root)
-            self.tree.setRowHidden(r, root, (not show) and norm_key(self.fs.filePath(ix)) in hidden)
-        self.tree.viewport().update()
-        self.minitree.refresh_colors()
+        self.tree.apply_hidden()
+        self.minitree.apply_hidden()
+
+    def reload_tree_drives(self):
+        """Discos del árbol (This PC): se leen en segundo plano (una unidad de red caída no traba)."""
+        from .models import DrivesWorker
+        self._drives_gen += 1
+        w = DrivesWorker(self._drives_gen)
+        w.done.connect(self._tree_drives_ready)
+        self._drives_worker = w
+        w.start()
+
+    def _tree_drives_ready(self, gen, drives):
+        if gen != self._drives_gen:
+            return
+        self.tree.set_drives(drives)
+        self.minitree.set_drives(drives)
 
     def _toggle_drive(self, path):
         hidden = list(self.cfg["hidden_drives"] or [])
@@ -1138,18 +1133,26 @@ class MainWindow(QMainWindow):
         on = self.b_minitree.isChecked() if on is None else on
         self.cfg["mini_tree_on"] = bool(on)
         self.tree_stack.setCurrentIndex(1 if on else 0)
-        self.b_minitree.setIcon(self.icons.glyph("branch", 15, "#4cc2ff" if on else "#9d9d9d"))
+        self.b_minitree.setIcon(self.icons.glyph("minitree", 15, "#4cc2ff" if on else "#9d9d9d"))
         self.b_minitree.setToolTip("Mini tree: only the folders you visited  (click: full folder tree)" if on
                                    else "Full folder tree  (click: Mini tree, only the folders you visited)")
         self._side_tooltip(self.sidetabs.currentIndex() if hasattr(self, "sidetabs") else 0)
         if not on:
             cur = self.explorer_active.current_dir() if hasattr(self, "explorer_active") else None
-            if cur and reachable(cur):
-                self.tree.set_trace_path(cur)
-                ix = self.fs.index(cur)
-                if ix.isValid():
-                    self.tree.setCurrentIndex(ix)
-                    self.tree.scrollTo(ix)
+            t = self.explorer_active.tab() if hasattr(self, "explorer_active") else None
+            here = "::thispc" if (t and t["virtual"] and t["virtual"]["kind"] == "thispc") else cur
+            if here and (here == "::thispc" or reachable(here)):
+                self.tree.sync(here)
+
+    def _clear_minitree(self):
+        self.minitree.clear_all()
+        t = self.explorer_active.tab()
+        cur = self.explorer_active.current_dir()
+        here = "::thispc" if (t and t["virtual"] and t["virtual"]["kind"] == "thispc") else cur
+        if cur:
+            self.minitree.add(cur)
+        self.minitree.sync(here or "")
+        self.status.setText("Mini tree cleared")
 
     def _minitree_menu(self, pos):
         it = self.minitree.itemAt(pos)
@@ -1159,7 +1162,7 @@ class MainWindow(QMainWindow):
             m.addAction("Open in new tab", lambda: self.open_in_explorer(p, new_tab=True))
             m.addAction("Remove from Mini tree", lambda: self.minitree.remove(p))
             m.addSeparator()
-        m.addAction("Clear Mini tree", self.minitree.clear_all)
+        m.addAction("Clear Mini tree", self._clear_minitree)
         m.addAction("Show the full folder tree", lambda: self.b_minitree.setChecked(False))
         m.exec(self.minitree.viewport().mapToGlobal(pos))
 
@@ -1168,6 +1171,7 @@ class MainWindow(QMainWindow):
         self.b_eye.setVisible(i == 0)
         self.b_minitree.setVisible(i == 0)
         self.b_eye_tree.setVisible(i == 0 and not self.b_minitree.isChecked())
+        self.b_mini_clear.setVisible(i == 0 and self.b_minitree.isChecked())
 
     def _sidetab_changed(self, i):
         """Los tabs del panel izquierdo solo cambian el árbol (y el acceso rápido): el modo del centro cambia
@@ -1803,22 +1807,18 @@ class MainWindow(QMainWindow):
             if d:
                 self.setWindowTitle(f"{os.path.basename(d.rstrip(chr(92) + '/')) or d} — {APP_NAME} {VERSION}")
             return
-        if d and not reachable(d):
-            d_tree = ""
-        else:
-            d_tree = d
+        t = pane.tab()
+        here = "::thispc" if (t and t["virtual"] and t["virtual"]["kind"] == "thispc") else (d or "")
+        d_tree = d if (d and reachable(d)) else ""
         if d:
             self.minitree.add(d)
-        self.minitree.sync(d or "")
-        self.tree.set_trace_path(d_tree or "")
+        self.minitree.sync(here)
+        if not self.b_minitree.isChecked():       # el árbol completo se sincroniza solo si está a la vista
+            self.tree.sync(here if (here == "::thispc" or d_tree) else "")
         if not d:
             for pb in self.pipebars:
                 pb.clear()
         if d_tree:
-            ix = self.fs.index(d)
-            if ix.isValid():
-                self.tree.setCurrentIndex(ix)
-                self.tree.scrollTo(ix)
             for pb in self.pipebars:
                 pb.sync(d)
             self.setWindowTitle(f"{os.path.basename(d.rstrip(chr(92) + '/')) or d} — {APP_NAME} {VERSION}")
@@ -1870,6 +1870,9 @@ class MainWindow(QMainWindow):
 
     def refresh_dirs(self, dirs):
         keys = {norm_key(d) for d in dirs if d}
+        for d in dirs:
+            if d:
+                self.tree.refresh_dir(d)
         for p in self.all_panes:
             if p.isVisible() or p is self.paneA or p is self.libpane:
                 cur = p.current_dir()
@@ -2584,14 +2587,28 @@ class MainWindow(QMainWindow):
             m.addAction("Rename tag…", rename)
         m.exec(w.viewport().mapToGlobal(pos))
 
-    def _tree_menu(self, pos):
-        ix = self.tree.indexAt(pos)
-        if not ix.isValid():
+    def _tree_menu(self, tree, pos):
+        it = tree.itemAt(pos)
+        if it is None:
+            if tree.mini:
+                self._minitree_menu(pos)
             return
-        p = self.fs.filePath(ix)
+        p = it.data(0, Qt.UserRole)
+        if p == "::thispc":
+            m = QMenu(self)
+            m.addAction("Open", lambda: self.open_in_explorer(p))
+            m.addAction("Open in new tab", lambda: self.open_in_explorer(p, new_tab=True))
+            m.addAction("Refresh drives", self.reload_tree_drives)
+            if tree.mini:
+                m.addSeparator()
+                m.addAction("Clear Mini tree", self._clear_minitree)
+            m.exec(tree.viewport().mapToGlobal(pos))
+            return
         m = QMenu(self)
         m.addAction("Open", lambda: self.open_in_explorer(p))
-        if not ix.parent().isValid():          # disco: se puede ocultar del árbol
+        if tree.mini:
+            m.addAction("Remove from Mini tree", lambda: self.minitree.remove(p))
+        if it.parent() is tree.root and not tree.mini:   # disco: se puede ocultar del árbol
             hid = norm_key(p) in {norm_key(x) for x in (self.cfg["hidden_drives"] or [])}
             m.addAction(self.icons.eye(16, on=hid), "Show drive" if hid else "Hide drive",
                         lambda: self._toggle_drive(p))
@@ -2607,7 +2624,7 @@ class MainWindow(QMainWindow):
             m.addAction("Add to the VFX Library", lambda: self.open_library(p))
         self._color_menu(m, [dir_target(p)])
         m.addAction("Open in Windows Explorer", lambda: self.open_default(p))
-        m.exec(self.tree.viewport().mapToGlobal(pos))
+        m.exec(tree.viewport().mapToGlobal(pos))
 
     # ------------------------------------------------------------------ menú contextual de ítems
     def _toggle_row_numbers(self):
@@ -2972,17 +2989,3 @@ class MainWindow(QMainWindow):
                     p.refresh()
 
 
-class _TreeColorDelegate(QStyledItemDelegate):
-    """Pinta el ícono de carpeta con su color en el árbol."""
-
-    def __init__(self, app, view):
-        super().__init__(view)
-        self.app = app
-
-    def initStyleOption(self, option, index):
-        super().initStyleOption(option, index)
-        if index.parent().isValid() and option.features & QStyleOptionViewItem.HasDecoration:
-            c = self.app.lib.color(norm_key(self.app.fs.filePath(index)))
-            option.icon = self.app.icons.folder_icon(c, 18)
-            if option.decorationSize.width() < 8:
-                option.decorationSize = QSize(18, 18)

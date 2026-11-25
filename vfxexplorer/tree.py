@@ -373,52 +373,285 @@ class LibTree(_LinedMixin, QTreeWidget):
         return QColor(self._cfg("lib_tree_line_color", "#4cc2ff"))
 
 
-class MiniTree(_LinedMixin, QTreeWidget):
-    """Mini tree: solo las carpetas que visitaste (y sus carpetas madre). Se arma con las rutas guardadas,
-    sin leer el disco, así que es chico, rápido y no se traba con un NAS apagado."""
+
+THISPC_KEY = "::thispc"
+
+
+class FolderTree(_LinedMixin, QTreeWidget):
+    """Árbol de File Explorer con «This PC» como raíz (la línea del camino sale de ahí, como en Windows).
+    Completo: los discos y, al abrir una carpeta, sus subcarpetas (las de red solo si el servidor responde).
+    Mini (mini=True): solo las carpetas que visitaste, armado con las rutas guardadas, sin leer el disco."""
 
     MAX = 400
 
-    def __init__(self, app):
+    def __init__(self, app, mini=False):
         super().__init__()
         self._lined_init(app)
+        self.mini = mini
         self.setItemDelegate(_LibDelegate(self))
         self.setHeaderHidden(True)
         self.setDragEnabled(True)
         self.setIconSize(QSize(18, 18))
         self.setExpandsOnDoubleClick(False)
-        self._items = {}          # norm_key -> item
-        self.rebuild()
+        self._items = {}            # norm_key -> item
+        self.drives = []            # Entries de list_drives (cuando llegan)
+        self.root = None
+        self.itemExpanded.connect(self._on_expand)
+        self._make_root()
+        if mini:
+            self.rebuild()
 
-    # ---------------- datos
+    # ---------------- util
+    @staticmethod
+    def _key(p):
+        if p == THISPC_KEY:
+            return p
+        return os.path.normcase(os.path.normpath(p))
+
+    def _make_root(self):
+        self.clear()
+        self._items = {}
+        self.root = QTreeWidgetItem(["This PC"])
+        self.root.setData(0, Qt.UserRole, THISPC_KEY)
+        self.root.setIcon(0, self.app.icons.glyph("pc", 18, "#4cc2ff"))
+        self.root.setToolTip(0, "Drives and network locations")
+        self.root.setChildIndicatorPolicy(QTreeWidgetItem.ShowIndicator)
+        self.addTopLevelItem(self.root)
+        self._items[THISPC_KEY] = self.root
+        self.root.setExpanded(True)
+
+    def _drive_label(self, root_path):
+        k = self._key(root_path)
+        for d in self.drives:
+            if self._key(d.path) == k:
+                return d.name
+        return root_path.rstrip("\\") or root_path
+
+    def _drive_kind(self, root_path):
+        k = self._key(root_path)
+        for d in self.drives:
+            if self._key(d.path) == k:
+                return getattr(d, "drive_kind", "local")
+        return "network" if root_path.startswith(("\\\\", "//")) else "local"
+
+    def _drive_root(self, path):
+        """Raíz (disco / share / punto de montaje) que contiene la ruta."""
+        p = os.path.normpath(path)
+        best = None
+        for d in self.drives:
+            r = os.path.normpath(d.path)
+            rk, pk = self._key(r), self._key(p)
+            if pk == rk or pk.startswith(rk.rstrip("\\/") + os.sep):
+                if best is None or len(r) > len(best):
+                    best = r
+        if best:
+            return best
+        drive, _ = os.path.splitdrive(p)
+        if drive:
+            return drive + (os.sep if not drive.startswith(("\\\\", "//")) else "")
+        return os.sep
+
+    def _new_item(self, parent, path, label, drive=False):
+        it = QTreeWidgetItem([label])
+        it.setData(0, Qt.UserRole, path)
+        it.setToolTip(0, path)
+        if drive:
+            it.setIcon(0, self.app.icons.drive_icon(self._drive_kind(path), 18))
+        else:
+            it.setIcon(0, self.app.icons.folder_icon(self.app.dir_color(path), 18))
+        it.setChildIndicatorPolicy(QTreeWidgetItem.DontShowIndicatorWhenChildless if self.mini
+                                   else QTreeWidgetItem.ShowIndicator)
+        self._insert_sorted(parent, it, drive)
+        self._items[self._key(path)] = it
+        return it
+
+    def _insert_sorted(self, parent, it, drive=False):
+        name = (it.data(0, Qt.UserRole) if drive else it.text(0)).lower()
+        n = parent.childCount()
+        pos = n
+        for i in range(n):
+            c = parent.child(i)
+            cn = (c.data(0, Qt.UserRole) if drive else c.text(0)).lower()
+            if cn > name:
+                pos = i
+                break
+        parent.insertChild(pos, it)
+
+    # ---------------- discos
+    def set_drives(self, drives):
+        self.drives = list(drives or [])
+        if self.mini:
+            for i in range(self.root.childCount()):        # el mini tree solo cambia los nombres
+                c = self.root.child(i)
+                c.setText(0, self._drive_label(c.data(0, Qt.UserRole)))
+                c.setIcon(0, self.app.icons.drive_icon(self._drive_kind(c.data(0, Qt.UserRole)), 18))
+        else:
+            have = {self._key(self.root.child(i).data(0, Qt.UserRole)): self.root.child(i)
+                    for i in range(self.root.childCount())}
+            want = {self._key(d.path): d for d in self.drives}
+            for k, it in have.items():
+                if k not in want:
+                    self.root.removeChild(it)
+                    self._forget(it)
+            for k, d in want.items():
+                if k not in have:
+                    self._new_item(self.root, d.path, d.name, drive=True)
+                else:
+                    have[k].setText(0, d.name)
+        self.apply_hidden()
+        if self._trace_path:
+            self.sync(self._trace_path)
+
+    def apply_hidden(self):
+        hidden = {self._key(p) for p in (self.app.cfg["hidden_drives"] or [])}
+        show = bool(self.app.cfg["show_hidden_drives"])
+        for i in range(self.root.childCount()):
+            c = self.root.child(i)
+            hid = self._key(c.data(0, Qt.UserRole)) in hidden
+            c.setHidden(hid and not show and not self.mini)
+            c.setForeground(0, QColor("#6a6a6a") if hid else QColor("#e6e6e6"))
+
+    def _forget(self, it):
+        self._items.pop(self._key(it.data(0, Qt.UserRole)), None)
+        for i in range(it.childCount()):
+            self._forget(it.child(i))
+
+    # ---------------- carga perezosa (árbol completo)
+    def _on_expand(self, it):
+        if self.mini or it is self.root:
+            return
+        self._load(it)
+
+    def _list_dirs(self, path):
+        from .core import reachable
+        if not reachable(path):
+            return None
+        show_hidden = bool(self.app.cfg["show_hidden"])
+        out = []
+        try:
+            with os.scandir(path) as sc:
+                for d in sc:
+                    try:
+                        if not d.is_dir():
+                            continue
+                        if not show_hidden:
+                            if d.name.startswith((".", "$")):
+                                continue
+                            attrs = getattr(d.stat(follow_symlinks=False), "st_file_attributes", 0)
+                            if attrs & 0x6:            # oculto o de sistema (Windows)
+                                continue
+                    except OSError:
+                        continue
+                    out.append(d.name)
+        except OSError:
+            return []
+        return sorted(out, key=str.lower)
+
+    def _has_subdirs(self, path):
+        try:
+            with os.scandir(path) as sc:
+                for d in sc:
+                    try:
+                        if d.is_dir() and not d.name.startswith((".", "$")):
+                            return True
+                    except OSError:
+                        continue
+        except OSError:
+            pass
+        return False
+
+    def _load(self, it, force=False):
+        if it.data(0, Qt.UserRole + 1) and not force:
+            return
+        path = it.data(0, Qt.UserRole)
+        names = self._list_dirs(path)
+        if names is None:                          # servidor caído: se reintenta al volver a abrir
+            it.setData(0, Qt.UserRole + 1, False)
+            return
+        it.setData(0, Qt.UserRole + 1, True)
+        it.setChildIndicatorPolicy(QTreeWidgetItem.DontShowIndicatorWhenChildless)
+        old = {it.child(i).text(0).lower(): it.child(i) for i in range(it.childCount())}
+        new = {n.lower(): n for n in names}
+        for k, c in old.items():
+            if k not in new:
+                it.removeChild(c)
+                self._forget(c)
+        from .core import net_root
+        peek = net_root(path) is None and len(names) <= 300     # local: solo con flechita si tiene carpetas
+        for k, n in new.items():
+            if k in old:
+                continue
+            full = os.path.join(path, n)
+            c = self._new_item(it, full, n)
+            if peek and not self._has_subdirs(full):
+                c.setChildIndicatorPolicy(QTreeWidgetItem.DontShowIndicatorWhenChildless)
+
+    def refresh_dir(self, path):
+        """Después de crear / borrar / mover: la carpeta ya abierta en el árbol vuelve a leer sus hijos."""
+        if self.mini or not path:
+            return
+        it = self._items.get(self._key(path))
+        if it is not None and it.data(0, Qt.UserRole + 1):
+            self._load(it, force=True)
+
+    # ---------------- buscar el ítem de una ruta
+    def item_for(self, path, load=True):
+        if not path:
+            return None
+        if path == THISPC_KEY:
+            return self.root
+        it = self._items.get(self._key(path))
+        if it is not None or self.mini:
+            return it
+        if not load:
+            return None
+        from .core import reachable
+        root = self._drive_root(path)
+        cur = self._items.get(self._key(root))
+        if cur is None:
+            return None
+        rel = os.path.relpath(os.path.normpath(path), root)
+        if rel in (".", ""):
+            return cur
+        if not reachable(path):
+            return cur
+        for part in rel.split(os.sep):
+            self._load(cur)
+            nxt = self._items.get(self._key(os.path.join(cur.data(0, Qt.UserRole), part)))
+            if nxt is None:
+                return cur
+            cur = nxt
+        return cur
+
+    def sync(self, path):
+        """Marca la ubicación actual (con el camino celeste desde This PC); si no está, no queda nada marcado."""
+        it = self.item_for(path) if path else None
+        exact = it is not None and (path == THISPC_KEY or self._key(it.data(0, Qt.UserRole)) == self._key(path))
+        if exact:
+            p = it.parent()
+            while p is not None:
+                p.setExpanded(True)
+                p = p.parent()
+            self.setCurrentItem(it)
+            self.scrollToItem(it)
+            self.set_trace_path(path)
+        else:
+            self.clearSelection()
+            self.setCurrentItem(None)
+            self.set_trace_path("")
+
+    def refresh_colors(self):
+        for k, it in self._items.items():
+            if k != THISPC_KEY and it.parent() is not self.root:
+                it.setIcon(0, self.app.icons.folder_icon(self.app.dir_color(it.data(0, Qt.UserRole)), 18))
+        self.viewport().update()
+
+    # ---------------- mini tree
     def paths(self):
         return list(self.app.cfg["mini_tree"] or [])
 
-    @staticmethod
-    def _key(p):
-        return os.path.normcase(os.path.normpath(p))
-
-    @staticmethod
-    def _chain(path):
-        """C:\\a\\b → [C:\\, C:\\a, C:\\a\\b] · \\\\srv\\share\\x → [\\\\srv\\share, …] · /a/b → [/, /a, /a/b]."""
-        p = os.path.normpath(path)
-        drive, rest = os.path.splitdrive(p)
-        out = []
-        if drive:
-            root = drive + (os.sep if not drive.startswith(("\\\\", "//")) else "")
-            out.append(root)
-            cur = root
-        else:
-            out.append(os.sep)
-            cur = os.sep
-        for part in [x for x in rest.split(os.sep) if x]:
-            cur = os.path.join(cur, part)
-            out.append(cur)
-        return out
-
     def add(self, path):
-        """Llamado al visitar una carpeta: queda en el mini tree (los más recientes primero en la lista)."""
-        if not path or path.startswith("::"):
+        if not self.mini or not path or path.startswith("::"):
             return
         p = os.path.normpath(path)
         lst = [x for x in self.paths() if self._key(x) != self._key(p)]
@@ -426,6 +659,24 @@ class MiniTree(_LinedMixin, QTreeWidget):
         self.app.cfg["mini_tree"] = lst[: self.MAX]
         if self._key(p) not in self._items:
             self._ensure(p)
+
+    def _ensure(self, path):
+        root = self._drive_root(path)
+        parent = self._items.get(self._key(root))
+        if parent is None:
+            parent = self._new_item(self.root, root, self._drive_label(root), drive=True)
+        self.root.setExpanded(True)
+        rel = os.path.relpath(os.path.normpath(path), root)
+        cur_path = root
+        if rel not in (".", ""):
+            for part in rel.split(os.sep):
+                cur_path = os.path.join(cur_path, part)
+                it = self._items.get(self._key(cur_path))
+                if it is None:
+                    it = self._new_item(parent, cur_path, part)
+                parent.setExpanded(True)
+                parent = it
+        return parent
 
     def remove(self, path):
         k = self._key(path)
@@ -439,83 +690,37 @@ class MiniTree(_LinedMixin, QTreeWidget):
         self.app.cfg.save()
         self.rebuild()
 
-    # ---------------- ítems
-    def _label(self, path):
-        b = os.path.basename(path.rstrip("\\/"))
-        return b or path.rstrip("\\") or path
-
-    def _ensure(self, path):
-        parent = None
-        for p in self._chain(path):
-            k = self._key(p)
-            it = self._items.get(k)
-            if it is None:
-                it = QTreeWidgetItem([self._label(p)])
-                it.setData(0, Qt.UserRole, p)
-                it.setToolTip(0, p)
-                it.setIcon(0, self.app.icons.folder_icon(self.app.dir_color(p), 18) if parent is not None
-                           else self.app.icons.glyph("drive", 18))
-                if parent is None:
-                    self._insert_sorted(None, it)
-                else:
-                    self._insert_sorted(parent, it)
-                    parent.setExpanded(True)
-                self._items[k] = it
-            parent = it
-        return parent
-
-    def _insert_sorted(self, parent, it):
-        name = it.text(0).lower()
-        n = parent.childCount() if parent else self.topLevelItemCount()
-        pos = n
-        for i in range(n):
-            c = parent.child(i) if parent else self.topLevelItem(i)
-            if c.text(0).lower() > name:
-                pos = i
-                break
-        if parent:
-            parent.insertChild(pos, it)
-        else:
-            self.insertTopLevelItem(pos, it)
-
     def rebuild(self):
         cur = self._trace_path
-        self.clear()
-        self._items = {}
+        self._make_root()
         for p in reversed(self.paths()):
             self._ensure(p)
         self.expandAll()
         if cur:
-            self.set_trace_path(cur)
+            self.sync(cur)
 
-    def refresh_colors(self):
-        for k, it in self._items.items():
-            if it.parent() is not None:
-                it.setIcon(0, self.app.icons.folder_icon(self.app.dir_color(it.data(0, Qt.UserRole)), 18))
-
-    # ---------------- _LinedMixin
+    # ---------------- _LinedMixin / drag
     def mimeTypes(self):
         return ["text/uri-list"]
 
     def mimeData(self, items):
         from PySide6.QtCore import QMimeData, QUrl
         md = QMimeData()
-        md.setUrls([QUrl.fromLocalFile(it.data(0, Qt.UserRole)) for it in items if it.data(0, Qt.UserRole)])
+        md.setUrls([QUrl.fromLocalFile(it.data(0, Qt.UserRole)) for it in items
+                    if it.data(0, Qt.UserRole) and it.data(0, Qt.UserRole) != THISPC_KEY])
         return md
 
     def supportedDropActions(self):
         return Qt.CopyAction | Qt.MoveAction
 
     def path_of(self, index):
-        return index.data(Qt.UserRole) or "" if index.isValid() else ""
+        p = index.data(Qt.UserRole) if index.isValid() else ""
+        return "" if (not p or p == THISPC_KEY) else p
 
     def index_of(self, path):
-        it = self._items.get(self._key(path)) if path else None
+        it = self.item_for(path, load=False) if path else None
         return self.indexFromItem(it) if it is not None else None
 
-    def sync(self, path):
-        it = self._items.get(self._key(path)) if path else None
-        if it is not None:
-            self.setCurrentItem(it)
-            self.scrollToItem(it)
-        self.set_trace_path(path if it is not None else "")
+
+def MiniTree(app):
+    return FolderTree(app, mini=True)

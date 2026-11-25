@@ -527,7 +527,7 @@ class FilePane(QFrame):
         self.nav_spacer.setFixedWidth(10)
         nrow.addWidget(self.nav_spacer)
         self.nav_buttons = (self.b_back, self.b_fwd, self.b_up, self.b_ref, self.nav_spacer)
-        self.crumb = BreadcrumbBar(self.app.fs)
+        self.crumb = BreadcrumbBar()
         self.crumb.setMinimumWidth(140)
         self.crumb.navigate.connect(self.navigate)
         self.crumb.open_alt.connect(self._crumb_alt)
