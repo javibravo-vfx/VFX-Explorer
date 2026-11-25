@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.20.0
+- Reopen closed tabs with Ctrl+Shift+T (with their back/forward history), also from the tab right-click menu.
+- File hashes: right-click a file › File hashes shows its MD5, SHA-1 and SHA-256 (read once, in the background), with Copy and a Compare box to check a pasted hash.
+
 ## 0.19.0
 - Network without freezing: a NAS or mapped drive that is off no longer hangs the app (startup, VFX Library, tabs, tree, This PC). It shows "(offline)", checks again by itself and comes back when the server answers.
 - F7: go to the previous location and back (between the last two).

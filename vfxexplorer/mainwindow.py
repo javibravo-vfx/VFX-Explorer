@@ -1122,6 +1122,11 @@ class MainWindow(QMainWindow):
         self.cfg["col_layouts"] = lay
         self.cfg.save()
 
+    def show_hashes(self, path):
+        from .hashdlg import HashDialog
+        d = HashDialog(self, path)
+        d.show()
+
     def _toggle_hover_box(self):
         self.cfg["hover_box"] = not self.cfg["hover_box"]
         self.cfg.save()
@@ -2892,6 +2897,8 @@ class MainWindow(QMainWindow):
             cp.addAction("First frame", lambda: self.copy_paths(pane, "first"))
             cp.addAction("Folder", lambda: self.copy_paths(pane, "dir"))
             cp.addAction("Name only", lambda: self.copy_paths(pane, "name"))
+            if len(ents) == 1 and e.kind == "file":
+                m.addAction("File hashes (MD5, SHA-1, SHA-256)…", lambda: self.show_hashes(e.path))
             m.addSeparator()
             targets = self._targets(ents)
             self._color_menu(m, targets)

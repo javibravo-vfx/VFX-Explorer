@@ -680,6 +680,7 @@ class FilePane(QFrame):
         sc("F5", self.refresh)
         sc("Ctrl+T", self.new_tab)
         sc("Ctrl+W", lambda: self.close_tab(self.ti))
+        sc("Ctrl+Shift+T", self.reopen_closed_tab)
         sc("Ctrl+Tab", lambda: self.tabbar.setCurrentIndex((self.ti + 1) % max(1, len(self.tabs))))
         sc("Ctrl+Shift+Tab", lambda: self.tabbar.setCurrentIndex((self.ti - 1) % max(1, len(self.tabs))))
         sc("Ctrl+L", self.crumb.start_edit)
@@ -1027,7 +1028,32 @@ class FilePane(QFrame):
                 self._tab_changed(i)
         self.app.save_soon()
 
+    def _remember_closed(self, t):
+        """Ctrl+Shift+T: la pestaña cerrada (con su historial) queda para volver a abrirla."""
+        here = THISPC if (t["virtual"] and t["virtual"]["kind"] == "thispc") else (None if t["virtual"] else t["path"])
+        if not here:
+            return
+        st = self.app.__dict__.setdefault("closed_tabs", {}).setdefault("lib" if self.root_lock else "exp", [])
+        st.append({"path": here, "history": list(t["history"]), "hpos": t["hpos"]})
+        del st[:-30]
+
+    def reopen_closed_tab(self):
+        st = self.app.__dict__.get("closed_tabs", {}).get("lib" if self.root_lock else "exp") or []
+        while st:
+            c = st.pop()
+            if c["path"] == THISPC or self.allowed(c["path"]):
+                self.add_tab(c["path"])
+                t = self.tabs[-1]
+                if c["path"] != THISPC and c["history"]:
+                    t["history"], t["hpos"] = c["history"], min(c["hpos"], len(c["history"]) - 1)
+                    self._show_location()
+                self.app.status.setText("Tab reopened")
+                return
+        self.app.status.setText("No closed tabs to reopen")
+
     def close_tab(self, i):
+        if 0 <= i < len(self.tabs):
+            self._remember_closed(self.tabs[i])
         if len(self.tabs) <= 1 and 0 <= i < len(self.tabs):
             self.app.close_pane(self)          # doble panel: cierra ese panel · un solo panel: cierra la app
             return
@@ -1104,6 +1130,9 @@ class FilePane(QFrame):
                 if self.tabs[j] is not keep:
                     self.close_tab(j)
         m.addAction("Close other tabs", close_others).setEnabled(len(self.tabs) > 1)
+        m.addSeparator()
+        st = self.app.__dict__.get("closed_tabs", {}).get("lib" if self.root_lock else "exp") or []
+        m.addAction("Reopen closed tab\tCtrl+Shift+T", self.reopen_closed_tab).setEnabled(bool(st))
         m.exec(self.tabbar.mapToGlobal(pos))
 
     def state(self):
