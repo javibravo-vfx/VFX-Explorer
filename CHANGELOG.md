@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.33.0
+- Sharp icons on scaled screens (125 %, 150 %…): the app's icons (This PC, tabs, Quick access, tree, address bar, buttons, folders in the grid) are drawn at the screen's real resolution instead of being stretched.
+- Quick access: Desktop, Documents, Downloads, Pictures, Videos, OneDrive and .nuke use line icons in the app's style, each with its color.
+- Workspace button: smaller icon (about the size of the filter's), closer to File Explorer, and the name in the same font size as File Explorer.
+
 ## 0.32.1
 - Workspace button: an icon (window with its panels) with the active workspace's name (cut with … if long) and a down arrow, aligned with File Explorer / VFX Library and a little apart from them. File Explorer / VFX Library have a fixed width, so turning bold when selected doesn't move anything.
 - Address bar: the arrows between folders are drawn the size of the New / Sort / View arrows (and point down while the subfolder menu is open).

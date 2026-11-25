@@ -41,6 +41,44 @@ def cat_color(e):
 FOLDER_COLORS = {"yellow": "#f4c443", "blue": "#8a96a8"}
 
 
+def icon_dpr():
+    """Escala de la pantalla (125 % = 1.25…): los íconos se dibujan a esa resolución para que no se vean blandos."""
+    try:
+        from PySide6.QtGui import QGuiApplication
+        return max([1.0] + [sc.devicePixelRatio() for sc in QGuiApplication.screens()])
+    except Exception:
+        return 1.0
+
+
+def hi_pixmap(size):
+    """Pixmap transparente de size×size lógicos dibujado a la resolución real de la pantalla (el QPainter que se
+    abra encima trabaja en coordenadas lógicas)."""
+    d = icon_dpr()
+    n = max(1, int(round(size * d)))
+    pm = QPixmap(n, n)
+    pm.setDevicePixelRatio(n / float(size))
+    pm.fill(Qt.transparent)
+    return pm
+
+
+def hi_scaled(pm, size):
+    """Achica un dibujo grande (p. ej. de 64 px) al tamaño lógico, a resolución de pantalla."""
+    d = icon_dpr()
+    n = max(1, int(round(size * d)))
+    out = pm.scaled(n, n, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+    out.setDevicePixelRatio(n / float(size))
+    return out
+
+
+def logical_size(pm):
+    d = pm.devicePixelRatio() or 1.0
+    return pm.width() / d, pm.height() / d
+
+
+SYS_LINE_COLORS = {"desktop": "#4ca8f0", "documents": "#7aa2f7", "downloads": "#2ec4a0", "pictures": "#4ca8f0",
+                   "videos": "#a78bfa", "onedrive": "#3b9ae8", "nuke": "#f5b81c"}
+
+
 class Icons:
     def __init__(self):
         self._c = {}
@@ -54,8 +92,7 @@ class Icons:
         key = ("drv", kind, size)
         if key in self._c:
             return self._c[key]
-        pm = QPixmap(size, size)
-        pm.fill(Qt.transparent)
+        pm = hi_pixmap(size)
         p = QPainter(pm)
         p.setRenderHint(QPainter.Antialiasing)
         s = size
@@ -90,13 +127,16 @@ class Icons:
             self._c[key] = QIcon(self.drive(kind, max(size, 18)))
         return self._c[key]
 
-    def folder(self, color=None, size=20):
-        key = ("f", color, size)
+    def folder(self, color=None, size=20, hi=False):
+        key = ("f", color, size, hi)
         if key in self._c:
             return self._c[key]
         base = QColor(color or self.default_folder)
-        pm = QPixmap(size, size)
-        pm.fill(Qt.transparent)
+        if hi:
+            pm = hi_pixmap(size)
+        else:
+            pm = QPixmap(size, size)
+            pm.fill(Qt.transparent)
         p = QPainter(pm)
         p.setRenderHint(QPainter.Antialiasing)
         s = size
@@ -112,73 +152,56 @@ class Icons:
         return pm
 
     def sysfolder(self, kind, size=16):
-        """Íconos tipo Windows 11 para Escritorio, Descargas, Imágenes y Videos."""
+        """Acceso rápido (Desktop, Documents, Downloads, Pictures, Videos, OneDrive, .nuke): íconos de líneas como
+        los glifos de la app, cada uno con su color."""
         key = ("sys", kind, size)
         if key in self._c:
             return self._c[key]
-        S = 64
-        pm = QPixmap(S, S)
-        pm.fill(Qt.transparent)
+        pm = hi_pixmap(size)
         p = QPainter(pm)
         p.setRenderHint(QPainter.Antialiasing)
-        p.setPen(Qt.NoPen)
+        u = size / 18.0
+        p.setPen(QPen(QColor(SYS_LINE_COLORS.get(kind, "#c9ccd1")), 1.3 * max(1.0, u * .9), Qt.SolidLine,
+                      Qt.RoundCap, Qt.RoundJoin))
+        p.setBrush(Qt.NoBrush)
+        P = lambda a, b: QPointF(a * u, b * u)
+        R = lambda a, b, w, h: QRectF(a * u, b * u, w * u, h * u)
         if kind == "desktop":
-            p.setBrush(QColor("#2f8fe0"))
-            p.drawRoundedRect(QRectF(6, 10, 52, 34), 5, 5)
-            p.setBrush(QColor("#7cc4ff"))
-            p.drawRoundedRect(QRectF(10, 14, 44, 26), 3, 3)
-            p.setBrush(QColor("#9aa4b0"))
-            p.drawRect(QRectF(28, 44, 8, 7))
-            p.drawRoundedRect(QRectF(18, 50, 28, 5), 2, 2)
-        elif kind == "downloads":
-            p.setPen(QPen(QColor("#2ec4a0"), 6, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-            p.drawLine(32, 8, 32, 40)
-            p.drawLine(18, 27, 32, 41)
-            p.drawLine(46, 27, 32, 41)
-            p.drawLine(12, 54, 52, 54)
-        elif kind == "pictures":
-            p.setBrush(QColor("#3a8ee6"))
-            p.drawRoundedRect(QRectF(6, 10, 52, 44), 6, 6)
-            p.setBrush(QColor("#b9e2ff"))
-            p.drawRoundedRect(QRectF(10, 14, 44, 36), 3, 3)
-            p.setBrush(QColor("#ffd24a"))
-            p.drawEllipse(QPointF(42, 24), 5, 5)
-            m = QPainterPath()
-            m.moveTo(10, 50); m.lineTo(26, 30); m.lineTo(36, 42); m.lineTo(42, 36); m.lineTo(54, 50)
-            m.closeSubpath()
-            p.fillPath(m, QColor("#2f9a5a"))
-        elif kind == "videos":
-            p.setBrush(QColor("#8b5cf6"))
-            p.drawRoundedRect(QRectF(6, 10, 52, 44), 6, 6)
-            p.setBrush(QColor("#c4b0ff"))
-            for y in (14, 24, 34, 44):
-                p.drawRect(QRectF(9, y, 5, 5))
-                p.drawRect(QRectF(50, y, 5, 5))
-            tri = QPainterPath()
-            tri.moveTo(26, 22); tri.lineTo(42, 32); tri.lineTo(26, 42); tri.closeSubpath()
-            p.fillPath(tri, QColor("#ffffff"))
-        elif kind == "onedrive":
-            p.setBrush(QColor("#2b88d8"))
-            cl = QPainterPath()
-            cl.setFillRule(Qt.WindingFill)
-            cl.addEllipse(QPointF(24, 36), 13, 12)
-            cl.addEllipse(QPointF(37, 28), 15, 15)
-            cl.addEllipse(QPointF(48, 39), 10, 9)
-            cl.addRoundedRect(QRectF(11, 36, 47, 12), 6, 6)
-            p.drawPath(cl.simplified())
-        elif kind == "nuke":                 # carpeta .nuke: nodos conectados (ícono propio, no el logo)
-            p.setBrush(QColor("#f5b81c"))          # círculo amarillo con un círculo negro adentro
-            p.drawEllipse(QPointF(32, 32), 26, 26)
-            p.setBrush(QColor("#141414"))
-            p.drawEllipse(QPointF(32, 32), 12, 12)
+            p.drawRoundedRect(R(2, 3, 14, 9.5), 1.6 * u, 1.6 * u)
+            p.drawLine(P(9, 12.5), P(9, 15))
+            p.drawLine(P(5.5, 15.2), P(12.5, 15.2))
         elif kind == "documents":
-            p.setBrush(QColor("#5b8def"))
-            p.drawRoundedRect(QRectF(14, 6, 36, 52), 4, 4)
-            p.setBrush(QColor("#e8f0ff"))
-            for y in (18, 28, 38):
-                p.drawRoundedRect(QRectF(20, y, 24, 4), 2, 2)
+            d = QPainterPath()
+            d.moveTo(P(4, 2)); d.lineTo(P(11, 2)); d.lineTo(P(14.5, 5.5)); d.lineTo(P(14.5, 16)); d.lineTo(P(4, 16))
+            d.closeSubpath()
+            p.drawPath(d)
+            p.drawPolyline([P(11, 2), P(11, 5.5), P(14.5, 5.5)])
+            p.drawLine(P(6.5, 8.5), P(12, 8.5))
+            p.drawLine(P(6.5, 11), P(12, 11))
+            p.drawLine(P(6.5, 13.5), P(10, 13.5))
+        elif kind == "downloads":
+            p.drawLine(P(9, 2.5), P(9, 11.5))
+            p.drawPolyline([P(5, 7.8), P(9, 11.8), P(13, 7.8)])
+            p.drawLine(P(3.5, 15.3), P(14.5, 15.3))
+        elif kind == "pictures":
+            p.drawRoundedRect(R(2, 3, 14, 12), 1.8 * u, 1.8 * u)
+            p.drawPolyline([P(4, 13), P(7.5, 9), P(10, 11.5), P(11.8, 9.8), P(14.2, 12.5)])
+            p.drawEllipse(P(12, 6.6), 1.2 * u, 1.2 * u)
+        elif kind == "videos":
+            p.drawRoundedRect(R(2, 3, 14, 12), 1.8 * u, 1.8 * u)
+            t = QPainterPath()
+            t.moveTo(P(7.5, 6.5)); t.lineTo(P(11.8, 9)); t.lineTo(P(7.5, 11.5)); t.closeSubpath()
+            p.drawPath(t)
+        elif kind == "onedrive":
+            c = QPainterPath()
+            c.moveTo(P(5, 14)); c.cubicTo(P(1.5, 14), P(1.5, 9), P(5, 9)); c.cubicTo(P(5.5, 5), P(11, 4), P(12.5, 7.8))
+            c.cubicTo(P(16.5, 7.5), P(17.5, 14), P(13.5, 14)); c.closeSubpath()
+            p.drawPath(c)
+        elif kind == "nuke":                 # carpeta .nuke: dos círculos (ícono propio, no el logo)
+            p.drawEllipse(P(9, 9), 6.8 * u, 6.8 * u)
+            p.drawEllipse(P(9, 9), 2.8 * u, 2.8 * u)
         p.end()
-        ic = QIcon(pm.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        ic = QIcon(pm)
         self._c[key] = ic
         return ic
 
@@ -198,7 +221,7 @@ class Icons:
         p.drawLine(32, 19, 32, 45)
         p.drawLine(19, 32, 45, 32)
         p.end()
-        ic = QIcon(pm.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        ic = QIcon(hi_scaled(pm, size))
         self._c[key] = ic
         return ic
 
@@ -219,14 +242,14 @@ class Icons:
         if not on:
             p.drawLine(12, 54, 52, 10)
         p.end()
-        ic = QIcon(pm.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        ic = QIcon(hi_scaled(pm, size))
         self._c[key] = ic
         return ic
 
     def folder_icon(self, color=None, size=20):
         key = ("fi", color, size)
         if key not in self._c:
-            self._c[key] = QIcon(self.folder(color, size))
+            self._c[key] = QIcon(self.folder(color, size, hi=True))
         return self._c[key]
 
     def badge(self, e, size=18):
@@ -234,8 +257,7 @@ class Icons:
         key = ("b", cat, color, size)
         if key in self._c:
             return self._c[key]
-        pm = QPixmap(size, size)
-        pm.fill(Qt.transparent)
+        pm = hi_pixmap(size)
         p = QPainter(pm)
         p.setRenderHint(QPainter.Antialiasing)
         p.setPen(Qt.NoPen)
@@ -280,8 +302,7 @@ class Icons:
     def swatch(self, color, size=14):
         key = ("sw", color, size)
         if key not in self._c:
-            pm = QPixmap(size, size)
-            pm.fill(Qt.transparent)
+            pm = hi_pixmap(size)
             p = QPainter(pm)
             p.setRenderHint(QPainter.Antialiasing)
             p.setPen(Qt.NoPen)
@@ -295,8 +316,7 @@ class Icons:
         key = ("g", kind, size, color)
         if key in self._c:
             return self._c[key]
-        pm = QPixmap(size, size)
-        pm.fill(Qt.transparent)
+        pm = hi_pixmap(size)
         p = QPainter(pm)
         p.setRenderHint(QPainter.Antialiasing)
         p.setPen(QPen(QColor(color), size * .1, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
@@ -646,7 +666,7 @@ class GridDelegate(QStyledItemDelegate):
         f.setBold(True)
         p.setFont(f)
         fm = QFontMetrics(f)
-        fp = self.app.icons.folder(None if e.name.startswith("(") else "#e8b84a", 16) \
+        fp = self.app.icons.folder(None if e.name.startswith("(") else "#e8b84a", 16, hi=True) \
             if self.view.model().sourceModel().group_mode == "folder" else None
         x = r.x()
         if fp is not None:
@@ -700,8 +720,9 @@ class GridDelegate(QStyledItemDelegate):
                 pm = spm
         if e.kind == "dir" and pm is None:
             s = int(min(th.height(), th.width()) * .95)
-            fp = app.icons.folder(tag, max(16, s))
-            p.drawPixmap(th.x() + (th.width() - fp.width()) // 2, th.y() + (th.height() - fp.height()) // 2, fp)
+            fp = app.icons.folder(tag, max(16, s), hi=True)
+            fw, fh = logical_size(fp)
+            p.drawPixmap(QPointF(th.x() + (th.width() - fw) / 2, th.y() + (th.height() - fh) / 2), fp)
         else:
             p.setPen(Qt.NoPen)
             p.setBrush(QColor("#232323"))
@@ -733,7 +754,7 @@ class GridDelegate(QStyledItemDelegate):
             p.setFont(f)
             fm = QFontMetrics(f)
             if e.kind == "dir":
-                fp = app.icons.folder(tag, 22)
+                fp = app.icons.folder(tag, 22, hi=True)
                 p.drawPixmap(th.x() + 4, th.y() + 4, fp)
             elif sysic is not None:
                 pass
@@ -942,7 +963,7 @@ def _drive_icon_cache(e):
 def _folder_pm():
     global _FOLDER_PM
     if _FOLDER_PM is None:
-        _FOLDER_PM = Icons().folder("#e8b84a", 16)
+        _FOLDER_PM = Icons().folder("#e8b84a", 16, hi=True)
     return _FOLDER_PM
 
 

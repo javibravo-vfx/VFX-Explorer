@@ -827,6 +827,8 @@ class MainWindow(QMainWindow):
         corner.addWidget(self.wsbutton)
         corner.addWidget(self.modebar)
         self.wsbutton.setFixedHeight(max(28, self.modebar.sizeHint().height()))
+        self.modebar.ensurePolished()
+        self.wsbutton.refresh()
         for p in self.all_panes:
             p.footer.setVisible(dual and p is not lp)
         self.pane_split.setOrientation(Qt.Vertical if orient == "v" else Qt.Horizontal)

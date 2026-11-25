@@ -4,7 +4,7 @@ panel de detalles y las medidas de los paneles."""
 import os
 
 from PySide6.QtCore import Qt, QByteArray, QSize, QTimer, QRectF, QPointF, QPoint
-from PySide6.QtGui import QPainter, QPen, QColor, QFontMetrics
+from PySide6.QtGui import QPainter, QPen, QColor, QFontMetrics, QFont
 from PySide6.QtWidgets import QToolButton, QMenu, QInputDialog, QMessageBox
 
 from .core import IS_WIN, THISPC, safe_isdir
@@ -79,7 +79,7 @@ class WorkspaceButton(QToolButton):
     """A la izquierda de File Explorer / VFX Library: ícono (ventana con sus paneles) + el nombre del workspace
     activo (cortado con … si es largo) + flechita. El recuadro al pasar el mouse coincide con el de las pestañas
     de modo; queda separado de ellas un poco (GAP)."""
-    GAP = 11
+    GAP = 5                      # + el margen de la pestaña: apenas más que entre File Explorer y VFX Library
     MAX_TEXT = 150
 
     def __init__(self, app):
@@ -97,15 +97,15 @@ class WorkspaceButton(QToolButton):
         self.refresh()
 
     def _font(self):
-        f = self.font()
-        f.setPointSizeF(9.5)
+        f = QFont(self.app.modebar.font())       # la misma letra que File Explorer / VFX Library, sin negrita
+        f.setBold(False)
         return f
 
     def _apply_width(self):
         fm = QFontMetrics(self._font())
         t = fm.elidedText(self._label, Qt.ElideRight, self.MAX_TEXT) if self._label else ""
         self._shown = t
-        self.setFixedWidth(44 + (fm.horizontalAdvance(t) + 6 if t else 0) + self.GAP)
+        self.setFixedWidth(22 + (5 + fm.horizontalAdvance(t) if t else 0) + 9 + 6 + 9 + self.GAP)
 
     def _box(self):
         """El recuadro, a la misma altura que el de File Explorer / VFX Library."""
@@ -137,17 +137,17 @@ class WorkspaceButton(QToolButton):
             p.setBrush(QColor("#333333" if self.isDown() else "#2d2d2d"))
             p.drawRoundedRect(r, 6, 6)
         c = QColor("#c5c5c5")
-        cy, cx = r.center().y(), 17.0
+        cy, cx = r.center().y(), 15.0
         p.setPen(QPen(c, 1.1, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
         p.setBrush(Qt.NoBrush)
-        p.drawRoundedRect(QRectF(cx - 9, cy - 7, 18, 14), 2, 2)
-        p.drawLine(QPointF(cx - 3, cy - 7), QPointF(cx - 3, cy + 7))
-        p.drawLine(QPointF(cx - 3, cy), QPointF(cx + 9, cy))
+        p.drawRoundedRect(QRectF(cx - 7, cy - 5.5, 14, 11), 1.8, 1.8)
+        p.drawLine(QPointF(cx - 2.5, cy - 5.5), QPointF(cx - 2.5, cy + 5.5))
+        p.drawLine(QPointF(cx - 2.5, cy), QPointF(cx + 7, cy))
         if self._shown:
             p.setFont(self._font())
             p.setPen(QColor("#c9ccd1"))
-            p.drawText(QRectF(cx + 15, r.top(), r.width(), r.height()), Qt.AlignVCenter | Qt.AlignLeft, self._shown)
-        x = r.right() - 9
+            p.drawText(QRectF(cx + 12, r.top(), r.width(), r.height()), Qt.AlignVCenter | Qt.AlignLeft, self._shown)
+        x = r.right() - 12
         p.setPen(QPen(c, 1.1, Qt.SolidLine, Qt.RoundCap))
         p.drawLine(QPointF(x - 3, cy - 1), QPointF(x, cy + 2))
         p.drawLine(QPointF(x, cy + 2), QPointF(x + 3, cy - 1))
