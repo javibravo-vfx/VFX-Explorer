@@ -76,7 +76,66 @@ class LibrarySidebar(QWidget):
         self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._menu)
         lay.addWidget(self.tree)
+        # abajo del árbol: auto colapsar · ordenar por nombre
+        bar = QHBoxLayout()
+        bar.setContentsMargins(6, 2, 6, 4)
+        bar.setSpacing(2)
+        self.b_collapse = self._tbtn("collapse", "Auto collapse: close the folders outside the current path",
+                                     "lib_tree_autocollapse", self._collapse_toggled)
+        self.b_sort = self._tbtn("sortaz", "Sort library folders by name (off: in the order they were added)",
+                                 "lib_tree_sort_name", lambda on: self.reload())
+        bar.addWidget(self.b_collapse)
+        bar.addWidget(self.b_sort)
+        bar.addStretch(1)
+        lay.addLayout(bar)
         self.reload()
+
+    def _tbtn(self, glyph, tip, key, fn):
+        from PySide6.QtWidgets import QToolButton
+        b = QToolButton()
+        b.setCheckable(True)
+        b.setAutoRaise(True)
+        b.setChecked(bool(self.app.cfg[key]))
+        b.setToolTip(tip)
+
+        def paint(on):
+            b.setIcon(self.app.icons.glyph(glyph, 16, "#4cc2ff" if on else "#8a8f96"))
+
+        def toggled(on):
+            self.app.cfg[key] = bool(on)
+            self.app.cfg.save()
+            paint(on)
+            fn(on)
+        paint(b.isChecked())
+        b.toggled.connect(toggled)
+        return b
+
+    def _collapse_toggled(self, on):
+        if on and self.tree._trace_path:
+            self.sync(self.tree._trace_path)
+
+    def _auto_collapse(self, keep):
+        """Cierra todo lo que no está en el camino hasta la carpeta actual."""
+        chain = set()
+        p = keep
+        while p is not None:
+            chain.add(id(p))
+            p = p.parent()
+
+        def walk(it):
+            for i in range(it.childCount()):
+                c = it.child(i)
+                if c.isExpanded():
+                    if id(c) not in chain:
+                        c.setExpanded(False)
+                    else:
+                        walk(c)
+        for i in range(self.tree.topLevelItemCount()):
+            t = self.tree.topLevelItem(i)
+            if id(t) not in chain:
+                t.setExpanded(False)
+            else:
+                walk(t)
 
     def sync(self, path):
         """La carpeta de la pestaña activa queda marcada en el árbol (con su trazo)."""
@@ -86,6 +145,8 @@ class LibrarySidebar(QWidget):
             while p is not None:
                 p.setExpanded(True)
                 p = p.parent()
+            if self.app.cfg["lib_tree_autocollapse"]:
+                self._auto_collapse(it)
             self.tree.setCurrentItem(it)
             self.tree.scrollToItem(it)
         self.tree.set_trace_path(path if it is not None else "")
@@ -103,6 +164,8 @@ class LibrarySidebar(QWidget):
             it.setData(0, Qt.UserRole, "")
             self.tree.addTopLevelItem(it)
             return
+        if self.app.cfg["lib_tree_sort_name"]:
+            roots = sorted(roots, key=lambda r: (os.path.basename(r.rstrip("\\/")) or r).lower())
         for r in roots:
             name = os.path.basename(r.rstrip("\\/")) or r
             if not reachable(r):                  # NAS apagado: se muestra, sin tocarlo, y se reintenta solo

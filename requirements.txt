@@ -2,9 +2,4 @@ PySide6-Essentials>=6.6
 OpenImageIO>=3.0
 numpy
 pypdfium2
-winrt-runtime; sys_platform == "win32"
-winrt-Windows.Foundation; sys_platform == "win32"
-winrt-Windows.Foundation.Collections; sys_platform == "win32"
-winrt-Windows.Storage; sys_platform == "win32"
-winrt-Windows.Storage.Search; sys_platform == "win32"
-winrt-Windows.System; sys_platform == "win32"
+

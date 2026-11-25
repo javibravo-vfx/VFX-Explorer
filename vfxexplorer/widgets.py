@@ -338,6 +338,24 @@ class Icons:
         elif kind == "dual":
             p.drawRoundedRect(QRectF(s * .12, s * .2, s * .76, s * .6), 2, 2)
             path.moveTo(s * .5, s * .2); path.lineTo(s * .5, s * .8)
+        elif kind == "collapse":            # dos flechas que se juntan hacia una línea
+            path.moveTo(s * .3, s * .14); path.lineTo(s * .5, s * .34); path.lineTo(s * .7, s * .14)
+            path.moveTo(s * .3, s * .86); path.lineTo(s * .5, s * .66); path.lineTo(s * .7, s * .86)
+            path.moveTo(s * .16, s * .5); path.lineTo(s * .84, s * .5)
+        elif kind == "sortaz":              # A sobre Z con flecha hacia abajo
+            path.moveTo(s * .14, s * .44); path.lineTo(s * .27, s * .12); path.lineTo(s * .4, s * .44)
+            path.moveTo(s * .19, s * .33); path.lineTo(s * .35, s * .33)
+            path.moveTo(s * .15, s * .58); path.lineTo(s * .39, s * .58); path.lineTo(s * .15, s * .88)
+            path.lineTo(s * .39, s * .88)
+            path.moveTo(s * .7, s * .14); path.lineTo(s * .7, s * .86)
+            path.moveTo(s * .58, s * .72); path.lineTo(s * .7, s * .86); path.lineTo(s * .82, s * .72)
+        elif kind == "doc":                 # hoja con la esquina doblada y renglones
+            path.moveTo(s * .22, s * .1); path.lineTo(s * .58, s * .1); path.lineTo(s * .78, s * .3)
+            path.lineTo(s * .78, s * .9); path.lineTo(s * .22, s * .9); path.closeSubpath()
+            path.moveTo(s * .58, s * .1); path.lineTo(s * .58, s * .3); path.lineTo(s * .78, s * .3)
+            path.moveTo(s * .34, s * .5); path.lineTo(s * .66, s * .5)
+            path.moveTo(s * .34, s * .64); path.lineTo(s * .66, s * .64)
+            path.moveTo(s * .34, s * .78); path.lineTo(s * .56, s * .78)
         elif kind == "minitree":            # arbolito sintético: un nodo arriba y dos ramas
             p.drawRect(QRectF(s * .16, s * .14, s * .2, s * .2))
             path.moveTo(s * .26, s * .34); path.lineTo(s * .26, s * .8); path.lineTo(s * .56, s * .8)
@@ -1476,8 +1494,9 @@ class SettingsDialog(QDialog):
         lay.addRow("Player:", w)
         lay.addRow("", _hint("Opens sequences and videos on double click. Empty = default app."))
         self.img_open = QComboBox()
-        self.img_open.addItem("Default app (Photos…), with the other images of the folder", "default")
-        self.img_open.addItem("Windows Photo Viewer (classic) — always browses the folder", "photoviewer")
+        self.img_open.addItem("Default app (Windows Photos opens with previous / next)", "default")
+        self.img_open.addItem("Windows Photos, always (with previous / next)", "photos")
+        self.img_open.addItem("Windows Photo Viewer (classic, browses the folder)", "photoviewer")
         self.img_open.setCurrentIndex(max(0, self.img_open.findData(cfg["image_opener"] or "default")))
         lay.addRow("Images open in:", self.img_open)
         w, self.ffmpeg = self._path_row(cfg["ffmpeg"], "ffmpeg.exe", exe_f)
@@ -1703,7 +1722,17 @@ class SettingsDialog(QDialog):
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
-        outer.addWidget(bb)
+        from . import VERSION
+        credit = QLabel(f"VFX Explorer {VERSION} · Created by Javi Bravo · "
+                        "<a href='https://github.com/javibravo-vfx' style='color:#4cc2ff; text-decoration:none'>"
+                        "github.com/javibravo-vfx</a>")
+        credit.setOpenExternalLinks(True)
+        credit.setStyleSheet("color:#7d8590; font-size:8pt;")
+        foot = QHBoxLayout()
+        foot.addWidget(credit)
+        foot.addStretch(1)
+        foot.addWidget(bb)
+        outer.addLayout(foot)
 
     def _path_row(self, value, title, filt):
         w = QWidget()

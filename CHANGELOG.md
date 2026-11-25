@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.26.0
+- Windows Photos now opens with previous / next: images are launched through Photos' own viewer link (ms-photos:viewer?fileName=…), the only way it accepts the folder from another program. Instant, no background work. Settings › "Images open in": default app, Photos always, or the classic Photo Viewer. (The winrt packages are no longer needed.)
+- VFX Library tree: buttons below it for auto collapse (closes the folders outside the current path) and sort by name (default; off = the order they were added).
+- VFX Library folder PDF: the PDF of the folder you are in — or of the nearest parent folder — stays in Details while you browse there (3D model collections). Toggle with the document button left of Color filters (on by default, only in the VFX Library).
+- Blow Up: full-screen backdrop and inverted panning for any size (mouse right → image left); images that fit the screen also move.
+- Settings: "Created by Javi Bravo" with a link to GitHub at the bottom.
+
 ## 0.25.0
 - Player slots: 1…4 (no modifier) switch to the slot; right-click a circle puts the selected item there (or clears it if it's the same); slots work with videos, sequences, images and sounds; smaller circles.
 - Opening an image with its neighbors: the Windows launch now runs on the UI thread as the API requires (it fell back to a plain open before), with a log in VFXExplorer_data/launch.log. New Settings › General › "Images open in": default app or the classic Windows Photo Viewer (always browses the folder). The external player is now only for sequences and videos, as its hint says.

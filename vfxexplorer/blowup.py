@@ -78,6 +78,7 @@ class BlowUp(QWidget):
     def __init__(self):
         super().__init__(None, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self.setAttribute(Qt.WA_TranslucentBackground)
         self.img = QImage()
         self.scale = 1.0              # >1 solo mientras se usa el thumbnail (todavía cargando)
         self.ox = self.oy = 0.0       # posición de la imagen dentro de la ventana
@@ -95,37 +96,39 @@ class BlowUp(QWidget):
         self.scale = W / max(1, img.width())
         W, H = W / dpr, H / dpr                       # tamaño en unidades de Qt = píxeles reales 1:1
         self.loading = provisional
-        g = scr.geometry()                            # toda la pantalla: más lugar para recorrer
-        w, h = int(min(W, g.width())), int(min(H, g.height()))
-        x = min(max(g.left(), cursor.x() - int(fx * w)), g.right() - w + 1)
-        y = min(max(g.top(), cursor.y() - int(fy * h)), g.bottom() - h + 1)
-        self.setGeometry(x, y, w, h)
+        g = scr.geometry()                            # toda la pantalla, con fondo oscuro
+        self.setGeometry(g)
         self._W, self._H = W, H
-        lx, ly = cursor.x() - x, cursor.y() - y
-        self.ox = self._clampx(lx - fx * W)
+        lx, ly = cursor.x() - g.x(), cursor.y() - g.y()
+        self.ox = self._clampx(lx - fx * W)               # el punto apretado queda bajo el cursor
         self.oy = self._clampy(ly - fy * H)
         self._anchor = (QPoint(cursor), self.ox, self.oy)
         self.update()
 
+    @staticmethod
+    def _clamp(v, view, size):
+        return min(0.0, max(view - size, v)) if size > view else min(view - size, max(0.0, v))
+
     def _clampx(self, v):
-        return min(0.0, max(self.width() - self._W, v)) if self._W > self.width() else (self.width() - self._W) / 2
+        return self._clamp(v, self.width(), self._W)
 
     def _clampy(self, v):
-        return min(0.0, max(self.height() - self._H, v)) if self._H > self.height() else (self.height() - self._H) / 2
+        return self._clamp(v, self.height(), self._H)
 
     @staticmethod
     def _axis(o0, c0, c, view, size, start, end):
-        """Paneo en un eje: llevar el mouse hasta el borde de la pantalla muestra el borde de la imagen de
-        ese lado (a cada lado su propia velocidad), así se recorre toda la imagen en cualquier dirección."""
-        if size <= view:
-            return o0
-        lo = view - size                              # offset mínimo (se ve el borde derecho / de abajo)
+        """Paneo invertido (mouse a la derecha → imagen a la izquierda). Si la imagen es más grande que la
+        pantalla, llegar con el mouse a un borde muestra ese borde de la imagen (cada lado con su velocidad);
+        si entra, se mueve 1 a 1 y no se sale de la pantalla."""
         d = c - c0
+        if size <= view:
+            return min(view - size, max(0.0, o0 - d))
+        lo = view - size
         if d > 0:
             room = max(1, end - c0)
-            return max(lo, o0 - d * (o0 - lo) / room)
+            return max(lo, o0 - d * max(1.0, (o0 - lo) / room))
         room = max(1, c0 - start)
-        return min(0.0, o0 - d * (0.0 - o0) / room)
+        return min(0.0, o0 - d * max(1.0, (0.0 - o0) / room))
 
     def pan_to(self, cursor):
         c0, ox0, oy0 = self._anchor
@@ -139,12 +142,12 @@ class BlowUp(QWidget):
 
     def paintEvent(self, ev):
         p = QPainter(self)
-        p.fillRect(self.rect(), QColor("#101010"))
+        p.fillRect(self.rect(), QColor(8, 8, 8, 215))
         if not self.img.isNull():
             p.setRenderHint(QPainter.SmoothPixmapTransform, self.scale != 1.0)
             p.drawImage(QRectF(self.ox, self.oy, self._W, self._H), self.img)
-        p.setPen(QColor(255, 255, 255, 60))
-        p.drawRect(self.rect().adjusted(0, 0, -1, -1))
+        p.setPen(QColor(255, 255, 255, 50))
+        p.drawRect(QRectF(self.ox, self.oy, self._W, self._H).adjusted(-0.5, -0.5, 0.5, 0.5))
         if self.loading:
             p.setPen(QColor("#d6d6d6"))
             p.drawText(self.rect().adjusted(10, 8, -10, -8), Qt.AlignLeft | Qt.AlignTop, "loading full resolution…")

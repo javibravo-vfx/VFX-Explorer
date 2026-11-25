@@ -820,7 +820,10 @@ class Config:
         "mini_tree_on": True,
         "hover_box": True,
         "image_opener": "default",      # doble clic en una imagen: "default" (con sus vecinas) o "photoviewer"
-        "lib_slots": [None, None, None, None],   # canales del player de la librería (Ctrl / Shift + 1…4)
+        "lib_slots": [None, None, None, None],
+        "lib_tree_autocollapse": True,  # VFX Library: el árbol cierra las carpetas fuera del camino actual
+        "lib_tree_sort_name": True,     # VFX Library: raíces por nombre (si no, en el orden en que se agregaron)
+        "lib_folder_pdf": True,         # VFX Library: el PDF de la carpeta (o de una madre) se ve en Details   # canales del player de la librería (Ctrl / Shift + 1…4)
         "col_layouts": {},              # layouts de columnas propios {nombre: [columnas en orden]}
         "col_order": None,              # orden de columnas del último layout aplicado              # preview flotante al dejar el mouse sobre un ítem           # árbol solo con las carpetas visitadas
         "mini_tree": [],                # carpetas visitadas (más recientes primero)          # secuencias de imágenes en una sola entrada

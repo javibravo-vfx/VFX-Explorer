@@ -293,6 +293,12 @@ class MainWindow(QMainWindow):
         self.act_cfilter.toggled.connect(self._toggle_color_filters)
         self.act_cfilter.setToolTip("Color filters: paint file names by type or pattern (e.g. .exe in red)\n"
                                     "Set the rules in ⚙ › Colors")
+        self.act_folderpdf = QAction(ic.glyph("doc", 18, ACCENT), "", self)
+        self.act_folderpdf.setCheckable(True)
+        self.act_folderpdf.setChecked(bool(self.cfg["lib_folder_pdf"]))
+        self.act_folderpdf.toggled.connect(self._toggle_folder_pdf)
+        self.act_folderpdf.setToolTip("Folder PDF (VFX Library): the PDF of the folder you are in — or of a parent "
+                                      "folder — stays in Details\n(e.g. the main PDF of a 3D model collection)")
         self.act_details = QAction(ic.glyph("details", 16, ACCENT), "Details", self)
         self.act_details.triggered.connect(lambda: self.toggle_details())
         self.act_details.setCheckable(True)
@@ -305,8 +311,12 @@ class MainWindow(QMainWindow):
         crr.setContentsMargins(6, 0, 6, 0)
         crr.setSpacing(2)
         crr.addStretch(1)
-        for a in (self.act_cfilter, self.act_dual, self.act_dual_v, self.act_details, a_set):
-            crr.addWidget(tool(a))
+        for a in (self.act_folderpdf, self.act_cfilter, self.act_dual, self.act_dual_v, self.act_details, a_set):
+            b = tool(a)
+            crr.addWidget(b)
+            if a is self.act_folderpdf:
+                self.b_folderpdf = b
+                b.setVisible(self.cfg["mode"] == "library")
         ch.addWidget(self.cmd_right)
 
         # --- sidebar: ACCESO RÁPIDO (de cada modo) arriba, y abajo los tabs CARPETAS / VFX LIBRARY
@@ -1648,6 +1658,8 @@ class MainWindow(QMainWindow):
         self._sidetab_changed(1 if lib else 0)
         self.act_dual.setEnabled(not lib)
         self.act_dual_v.setEnabled(not lib)
+        if hasattr(self, "b_folderpdf"):
+            self.b_folderpdf.setVisible(lib)
         self._place_headers()
         self.apply_pipeline_location()
         if lib:
@@ -1882,6 +1894,8 @@ class MainWindow(QMainWindow):
         self._sync_quick(d)
         if pane is self.libpane:
             self.libside.sync(d or "")
+            if self.cfg["lib_folder_pdf"]:
+                QTimer.singleShot(0, lambda p=pane: self._sel_changed(p))
             if d:
                 self.setWindowTitle(f"{os.path.basename(d.rstrip(chr(92) + '/')) or d} — {APP_NAME} {VERSION}")
             return
@@ -1962,6 +1976,16 @@ class MainWindow(QMainWindow):
         if pane is not self.active:
             return
         ents = pane.selected_entries()
+        if pane is self.libpane and self.cfg["lib_folder_pdf"] and not (
+                len(ents) == 1 and ents[0].kind == "file" and ents[0].ext == ".pdf"):
+            pdf = self._folder_pdf(pane.current_dir())
+            if pdf:
+                cur = self._info_entry
+                if not (cur is not None and cur.path == pdf and self.details_stack.currentIndex() == 2):
+                    self.info_token += 1
+                    self._show_info(Entry(kind="file", dirpath=os.path.dirname(pdf), name=os.path.basename(pdf),
+                                          path=pdf, ext=".pdf"))
+                return
         self.info_token += 1
         self._info_entry = None
         self.details_stack.setCurrentIndex(0)
@@ -1978,6 +2002,44 @@ class MainWindow(QMainWindow):
             self.status_right.setText(f"{len(ents)} selected · {human_size(tot)}")
             return
         self._show_info(ents[0])
+
+    def _folder_pdf(self, d):
+        """PDF de la carpeta actual o de la carpeta madre más cercana (dentro de la librería)."""
+        if not d or not reachable(d):
+            return None
+        roots = [os.path.normcase(os.path.normpath(r)) for r in self.libpane.root_lock()]
+        cache = self.__dict__.setdefault("_pdf_cache", {})
+        cur = os.path.normpath(d)
+        while True:
+            try:
+                mt = os.stat(cur).st_mtime
+            except OSError:
+                return None
+            hit = cache.get(cur)
+            if hit is None or hit[0] != mt:
+                found = None
+                try:
+                    with os.scandir(cur) as sc:
+                        pdfs = sorted((x.name for x in sc if x.name.lower().endswith(".pdf") and x.is_file()),
+                                      key=str.lower)
+                    found = os.path.join(cur, pdfs[0]) if pdfs else None
+                except OSError:
+                    pass
+                cache[cur] = hit = (mt, found)
+            if hit[1]:
+                return hit[1]
+            if os.path.normcase(cur) in roots:
+                return None
+            parent = os.path.dirname(cur)
+            if parent == cur:
+                return None
+            cur = parent
+
+    def _toggle_folder_pdf(self, on):
+        self.cfg["lib_folder_pdf"] = bool(on)
+        self.cfg.save()
+        self._info_entry = None
+        self._sel_changed(self.active)
 
     def _set_preview(self, e):
         pm = self.thumbs.get(e)
@@ -2154,18 +2216,12 @@ class MainWindow(QMainWindow):
                 self.status.setText(f"Could not open the player: {ex}")
         if IS_WIN and e.kind == "file" and e.cat == "image":
             # como desde el Explorador: el visor puede pasar a las otras imágenes de la carpeta
-            mode = self.cfg["image_opener"] or "default"
-            if mode == "photoviewer":
-                from .winlaunch import open_photo_viewer
-                if open_photo_viewer(e.path):
-                    return
-            else:
-                from .winlaunch import NeighborLauncher
-                from .core import IMAGE_EXTS
-                if not hasattr(self, "_nlauncher"):
-                    self._nlauncher = NeighborLauncher(os.path.join(self.data_dir, "launch.log"))
-                self._nlauncher.open(e.path, sorted(IMAGE_EXTS), lambda p: os.startfile(p))
-                return
+            from .winlaunch import open_image
+            try:
+                open_image(e.path, self.cfg["image_opener"] or "default")
+            except OSError as ex:
+                self.status.setText(str(ex))
+            return
         self.open_default(e.path)
 
     def open_default(self, path):
