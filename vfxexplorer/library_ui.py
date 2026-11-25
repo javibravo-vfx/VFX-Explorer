@@ -61,34 +61,6 @@ class LibraryPage(QWidget):
         self.viewer.shutdown()
 
 
-def cube_icon(size, color="#4cc2ff"):
-    """Cubito celeste girado (vista isométrica, tres caras con luz) para las carpetas principales de 3D."""
-    from PySide6.QtGui import QPixmap, QPainter, QColor, QPolygonF, QIcon, QPen
-    from PySide6.QtCore import QPointF
-    dpr = 2
-    pm = QPixmap(size * dpr, size * dpr)
-    pm.setDevicePixelRatio(dpr)
-    pm.fill(Qt.transparent)
-    p = QPainter(pm)
-    p.setRenderHint(QPainter.Antialiasing)
-    c = QColor(color)
-    s = float(size)
-    cx, top, mid, bot = s / 2, s * .06, s * .32, s * .94
-    lx, rx, cy = s * .09, s * .91, s * .5
-    topf = QPolygonF([QPointF(cx, top), QPointF(rx, mid - s * .06 + s * .06), QPointF(cx, cy), QPointF(lx, mid)])
-    left = QPolygonF([QPointF(lx, mid), QPointF(cx, cy), QPointF(cx, bot), QPointF(lx, s * .72)])
-    right = QPolygonF([QPointF(cx, cy), QPointF(rx, mid), QPointF(rx, s * .72), QPointF(cx, bot)])
-    p.setPen(QPen(c.darker(220), 0.6))
-    p.setBrush(c.lighter(150))
-    p.drawPolygon(topf)
-    p.setBrush(c)
-    p.drawPolygon(left)
-    p.setBrush(c.darker(160))
-    p.drawPolygon(right)
-    p.end()
-    return QIcon(pm)
-
-
 class LibrarySidebar(QWidget):
     """Árbol de las raíces de la librería (con sus subcarpetas), con líneas con líneas."""
 
@@ -217,8 +189,15 @@ class LibrarySidebar(QWidget):
             return
         if self.app.cfg["lib_tree_sort_name"]:
             roots = sorted(roots, key=lambda r: (os.path.basename(r.rstrip("\\/")) or r).lower())
+        from .libicons import root_icon, folder_icon_for
+        single = len(roots) == 1
         for r in roots:
             name = os.path.basename(r.rstrip("\\/")) or r
+            is_drive = not os.path.basename(r.rstrip("\\/"))
+            if single:
+                name = "VFX Library"                  # una sola raíz (p. ej. todo un disco): como «This PC»
+            elif is_drive:
+                name = f"VFX Library ({r.rstrip(chr(92)).rstrip('/')})"
             if not reachable(r):                  # NAS apagado: se muestra, sin tocarlo, y se reintenta solo
                 it = QTreeWidgetItem([name + "   (offline)"])
                 it.setData(0, Qt.UserRole, r)
@@ -229,17 +208,22 @@ class LibrarySidebar(QWidget):
                 it.setChildIndicatorPolicy(QTreeWidgetItem.DontShowIndicator)
                 self.tree.addTopLevelItem(it)
                 continue
-            it = self._item(r, name)
+            it = self._item(r, name, pretty=not (single or is_drive))
             it.setToolTip(0, r)
-            if re.search(r"(?<![a-z0-9])3d(?![a-z0-9])", name.lower().replace("_", " ")):
-                it.setIcon(0, cube_icon(18))             # carpeta principal de 3D: cubito girado
+            if single or is_drive:
+                it.setIcon(0, root_icon(18))
+                it.setData(0, Qt.UserRole + 4, True)     # sus carpetas son las «principales»
+            else:
+                ic = folder_icon_for(os.path.basename(r.rstrip("\\/")), 18)
+                if ic is not None:
+                    it.setIcon(0, ic)
             self.tree.addTopLevelItem(it)
             it.setExpanded(len(roots) <= 3)      # las raíces arrancan abiertas
         if cur:
             self.sync(cur)
 
-    def _item(self, path, label):
-        if self.app.cfg["lib_pretty_names"]:
+    def _item(self, path, label, pretty=True):
+        if pretty and self.app.cfg["lib_pretty_names"]:
             from .core import pretty_name
             label = pretty_name(label)
         it = QTreeWidgetItem([label])
@@ -279,8 +263,15 @@ class LibrarySidebar(QWidget):
                 it.takeChild(i)
         if not dirs:
             it.setChildIndicatorPolicy(QTreeWidgetItem.DontShowIndicator)
+        main = bool(it.data(0, Qt.UserRole + 4))
+        from .libicons import folder_icon_for
         for d in dirs:
-            it.addChild(self._item(os.path.join(path, d), d))
+            c = self._item(os.path.join(path, d), d)
+            if main:                                  # carpetas principales: ícono según el nombre
+                ic = folder_icon_for(d, 18)
+                if ic is not None:
+                    c.setIcon(0, ic)
+            it.addChild(c)
 
     def _listed(self, path, dirs):
         it = self.tree.item_for(path, expand=False) if hasattr(self.tree, "item_for") else None

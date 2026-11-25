@@ -212,7 +212,7 @@ def safe_isdir(path, timeout=0.6):
 _PRETTY_UPPER = {"3d": "3D", "2d": "2D", "vfx": "VFX", "fx": "FX", "cg": "CG", "hdri": "HDRI", "hdr": "HDR",
                  "exr": "EXR", "pbr": "PBR", "4k": "4K", "8k": "8K", "2k": "2K", "1k": "1K", "16k": "16K",
                  "uv": "UV", "ai": "AI", "fbx": "FBX", "usd": "USD", "obj": "OBJ", "dmp": "DMP", "sfx": "SFX",
-                 "ui": "UI", "suv": "SUV", "rgb": "RGB", "lut": "LUT", "aces": "ACES", "ocio": "OCIO", "tv": "TV"}
+                 "ui": "UI", "suv": "SUV", "vdb": "VDB", "abc": "ABC", "usdz": "USDZ", "rgb": "RGB", "lut": "LUT", "aces": "ACES", "ocio": "OCIO", "tv": "TV"}
 
 
 def pretty_name(name, keep_ext=False):

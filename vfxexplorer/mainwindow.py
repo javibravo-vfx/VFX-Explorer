@@ -192,6 +192,7 @@ class MainWindow(QMainWindow):
         self._net_known_bad = set(net_offline_roots())
         self.net_timer = QTimer(self, interval=4000, timeout=self._net_watch)
         self.net_timer.start()
+        self._start_freeze_watch()
 
     # ------------------------------------------------------------------ UI
     def _build(self):
@@ -2013,6 +2014,36 @@ class MainWindow(QMainWindow):
         self.tree.viewport().update()
         self.minitree.refresh_colors()
 
+    def _start_freeze_watch(self):
+        """Diagnóstico: si la ventana se traba más de 2 s, anota en VFXExplorer_data/freeze.log qué estaba
+        haciendo (para encontrar lo que traba con el NAS). No cuesta nada mientras todo anda."""
+        import threading
+        import time as _t
+        import traceback as _tb
+        self._hb = _t.monotonic()
+        self._hb_timer = QTimer(self, interval=250, timeout=lambda: setattr(self, "_hb", _t.monotonic()))
+        self._hb_timer.start()
+        log = os.path.join(self.data_dir, "freeze.log")
+        main_id = threading.main_thread().ident
+
+        def watch():
+            logged = False
+            while True:
+                _t.sleep(0.5)
+                stall = _t.monotonic() - self._hb
+                if stall > 2.0 and not logged:
+                    logged = True
+                    try:
+                        fr = sys._current_frames().get(main_id)
+                        stack = "".join(_tb.format_stack(fr)) if fr is not None else "?"
+                        with open(log, "a", encoding="utf-8") as f:
+                            f.write(f"\n=== {_t.strftime('%Y-%m-%d %H:%M:%S')} · window stuck > 2 s ===\n{stack}")
+                    except Exception:
+                        pass
+                elif stall < 1.0:
+                    logged = False
+        threading.Thread(target=watch, daemon=True).start()
+
     def _net_watch(self):
         bad = set(net_offline_roots())
         for r in list(self._net_known_bad | bad):
@@ -2090,8 +2121,8 @@ class MainWindow(QMainWindow):
     def _lib_details(self, ents):
         if len(ents) == 1:
             e = ents[0]
-            if (e.kind == "file" and (e.cat == "image" or e.ext == ".pdf")) or \
-                    (e.kind == "seq" and e.cat != "audio"):
+            # todo lo que no es video (eso lo muestra el player): imágenes, PDF, textos, modelos…
+            if (e.kind == "file" and e.cat != "video") or (e.kind == "seq" and e.cat != "audio"):
                 self._lib_show(e)
                 return
         if getattr(self, "_details_owner", "") != "library":
@@ -2111,7 +2142,13 @@ class MainWindow(QMainWindow):
             return
 
         def got(doc):                             # se busca en otro hilo (en el NAS puede tardar)
-            if not doc or self.mode() != "library" or not same_path(self.libpane.current_dir() or "", d):
+            if self.mode() != "library" or not same_path(self.libpane.current_dir() or "", d):
+                return
+            if not doc:                           # carpeta sin PDF ni portada: Details queda vacío
+                self._lib_details_entry = None
+                if getattr(self, "_details_owner", "") == "library" or self._info_entry is not None:
+                    self._clear_details()
+                    self._details_owner = "library"
                 return
             ext = os.path.splitext(doc)[1].lower()
             self._lib_show(Entry(kind="file", dirpath=os.path.dirname(doc), name=os.path.basename(doc),
@@ -2153,12 +2190,7 @@ class MainWindow(QMainWindow):
             if imgs:
                 named = [n for n in imgs if any(w in n.lower() for w in self.COVER_WORDS)]
                 return os.path.join(cur, (named or imgs)[0])
-            if os.path.normcase(cur) in roots:
-                return None
-            parent = os.path.dirname(cur)
-            if parent == cur:
-                return None
-            cur = parent
+            return None                           # la portada es solo de la carpeta misma
 
     def _folder_pdf(self, d):
         """PDF de la carpeta actual o de la carpeta madre más cercana (dentro de la librería)."""

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.30.0
+- VFX Library tree: with a single library root (e.g. a whole drive) its node is called «VFX Library» (like This PC) instead of the drive letter; several roots show «VFX Library (E:)» for drives.
+- VFX Library: main folders get an icon by the words in their name (3D / assets → cube, textures / surfaces → checker, lighting / HDRI → bulb, VDB / simulations → cloud, mocap → figure, VFX / stock / elements → spark, reference → photo, pipeline / tools → wrench, learning → cap, admin → briefcase, incoming → inbox, personal → person, archive / projects → box, library → books, audio → note, fonts → Aa, video / plates → film). The 3D cube is now a true isometric cube.
+- VFX Library Details: selecting any file that isn't a video (text, PDF, image, model…) shows it; with Folder PDF on, a folder without PDF or cover clears Details (the cover is taken only from the folder itself).
+- Quick access .nuke icon: yellow circle with a black circle inside.
+- Diagnostics: if the window gets stuck for more than 2 s, what it was doing is written to VFXExplorer_data/freeze.log (to track the NAS wake-up freeze).
+
 ## 0.29.0
 - Downloads really opens grouped by date: folders with their own default (Downloads, Pictures…) are no longer switched to Large icons because they contain images (reset once on update).
 - NAS waking up no longer freezes the window: network folders in the VFX Library tree and the folder tree are read in the background ("loading…"), library roots and tabs are checked without waiting, the folder PDF / cover is searched in the background, file-type icons come from a local probe (no network access), and navigation doesn't ask the server whether a folder is a file. Tested with every network access taking 2 s: the app opens in about 1 s.
