@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.31.1
+- VFX Library: the video keeps playing while you click other folders or move through the tree with the arrows; it only changes when you pick another video.
+
 ## 0.31.0
 - VFX Library Details: selecting a video shows its details again, and they follow as you move from video to video.
 - «Folder PDF» is now «Cover»: the PDF or cover image of the folder — or of its main folder — stays in Details (an image named cover / preview / portada / thumb / poster…, or named like the folder; in the folder itself also its only image next to other files). Without a cover, or with Cover off, Details shows each selected file (videos included).

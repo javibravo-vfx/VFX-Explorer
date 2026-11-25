@@ -2125,11 +2125,8 @@ class MainWindow(QMainWindow):
                               path=doc, ext=os.path.splitext(doc)[1].lower()))
 
     def _lib_folder_changed(self, d):
-        """Al entrar a una carpeta de la librería: se busca su cover (en otro hilo); el video de otra carpeta
-        se pausa (queda su cuadro) para no seguir sonando mientras se busca otra cosa."""
-        v = self.libpage.viewer
-        if v.entry is not None and d and not same_path(v.entry.dirpath, d) and v.playing:
-            v.pause()
+        """Al entrar a una carpeta de la librería: se busca su cover (en otro hilo). El video que se está
+        viendo sigue en play mientras se navega (árbol, flechas, otras carpetas) hasta elegir otro video."""
         if not self.cfg["lib_folder_pdf"]:
             self._lib_cover = None
             return
