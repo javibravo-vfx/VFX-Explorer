@@ -632,12 +632,16 @@ class FolderTree(_LinedMixin, QTreeWidget):
             while p is not None:
                 p.setExpanded(True)
                 p = p.parent()
+            self._syncing = True
             self.setCurrentItem(it)
+            self._syncing = False
             self.scrollToItem(it)
             self.set_trace_path(path)
         else:
+            self._syncing = True
             self.clearSelection()
             self.setCurrentItem(None)
+            self._syncing = False
             self.set_trace_path("")
 
     def refresh_colors(self):

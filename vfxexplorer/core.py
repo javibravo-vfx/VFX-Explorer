@@ -801,7 +801,7 @@ class Config:
         # 0.6
         "folder_color": "yellow",       # yellow (Windows) | blue
         "splitter_left2": "",
-        "cfg_version": 12,
+        "cfg_version": 13,
         "pipeline_task_depts": None,    # None = "3D": departamentos que tienen tasks
         "pipeline_stages": None,        # None = "1_projects, 2_review, 3_publish"
         "pipeline_templates": {},       # (0.17, reemplazado por pipeline_departments)
@@ -819,7 +819,7 @@ class Config:
         "collapse_seqs": True,
         "mini_tree_on": True,
         "hover_box": True,
-        "image_opener": "default",      # doble clic en una imagen: "default" (con sus vecinas) o "photoviewer"
+        "image_opener": "system",      # doble clic en una imagen: "default" (con sus vecinas) o "photoviewer"
         "lib_slots": [None, None, None, None],
         "lib_tree_autocollapse": True,  # VFX Library: el árbol cierra las carpetas fuera del camino actual
         "lib_tree_sort_name": True,     # VFX Library: raíces por nombre (si no, en el orden en que se agregaron)
@@ -874,6 +874,10 @@ class Config:
             if int(saved.get("cfg_version", 0)) < 12:           # 0.23: hover box de nuevo (solo imágenes y PDF)
                 self.data["hover_box"] = True
                 self.data["cfg_version"] = 12
+            if int(saved.get("cfg_version", 0)) < 13:           # 0.27: imágenes con la app del sistema
+                if self.data.get("image_opener") in (None, "default"):
+                    self.data["image_opener"] = "system"
+                self.data["cfg_version"] = 13
         except Exception:
             pass
 

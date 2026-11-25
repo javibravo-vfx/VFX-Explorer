@@ -297,8 +297,9 @@ class MainWindow(QMainWindow):
         self.act_folderpdf.setCheckable(True)
         self.act_folderpdf.setChecked(bool(self.cfg["lib_folder_pdf"]))
         self.act_folderpdf.toggled.connect(self._toggle_folder_pdf)
-        self.act_folderpdf.setToolTip("Folder PDF (VFX Library): the PDF of the folder you are in — or of a parent "
-                                      "folder — stays in Details\n(e.g. the main PDF of a 3D model collection)")
+        self.act_folderpdf.setToolTip("Folder PDF / cover (VFX Library): the PDF of the folder you are in — or of a "
+                                      "parent folder — stays in Details\n(e.g. the main PDF of a 3D model "
+                                      "collection); without a PDF, a cover image of the folder")
         self.act_details = QAction(ic.glyph("details", 16, ACCENT), "Details", self)
         self.act_details.triggered.connect(lambda: self.toggle_details())
         self.act_details.setCheckable(True)
@@ -343,6 +344,8 @@ class MainWindow(QMainWindow):
                                   self.open_in_explorer(it.data(0, Qt.UserRole)))
             t.setContextMenuPolicy(Qt.CustomContextMenu)
             t.customContextMenuRequested.connect(lambda pos, t=t: self._tree_menu(t, pos))
+        for t in (self.tree, self.minitree):
+            self.hook_tree_keys(t, self.open_in_explorer)
         self._drives_gen = 0
         QTimer.singleShot(0, self.reload_tree_drives)
         self.tree_stack = QStackedWidget()
@@ -1041,6 +1044,34 @@ class MainWindow(QMainWindow):
         self.tree.apply_hidden()
         self.minitree.apply_hidden()
 
+    def hook_tree_keys(self, tree, opener):
+        """Moverse con las flechas por un árbol abre la carpeta (con una pequeña espera, para no cargar
+        cada carpeta por la que se pasa rápido)."""
+        tree._syncing = False
+        timer = QTimer(tree, singleShot=True, interval=220)
+        state = {"path": None}
+
+        def fire():
+            p = state["path"]
+            if not p:
+                return
+            pane = self.libpane if opener == self.open_library else self.explorer_active
+            t = pane.tab() if pane.tabs else None
+            here = "::thispc" if (t and t["virtual"] and t["virtual"]["kind"] == "thispc") else pane.current_dir()
+            if here and (p == here or (not p.startswith("::") and not here.startswith("::")
+                                       and same_path(p, here))):
+                return
+            opener(p)
+
+        timer.timeout.connect(fire)
+
+        def changed(cur, prev):
+            if tree._syncing or cur is None or not tree.hasFocus():
+                return
+            state["path"] = cur.data(0, Qt.UserRole)
+            timer.start()
+        tree.currentItemChanged.connect(changed)
+
     def reload_tree_drives(self):
         """Discos del árbol (This PC): se leen en segundo plano (una unidad de red caída no traba)."""
         from .models import DrivesWorker
@@ -1675,6 +1706,14 @@ class MainWindow(QMainWindow):
         else:
             self.libpage.viewer.pause()
             self.set_active(self.explorer_active)
+        # Details: cada modo muestra lo suyo (no se mezcla lo de File Explorer con la librería)
+        if lib:
+            self._details_owner = ""
+            self._lib_details(self.libpane.selected_entries() if self.libpane.tabs else [])
+        else:
+            self._details_owner = "explorer"
+            self._clear_details()
+            self._sel_changed(self.explorer_active)
         # el ícono del modo activo en color (explorer amarillo, librería celeste), el otro gris
         self.modebar.setTabIcon(0, self.icons.glyph("folder", 16, "#9d9d9d" if lib else "#ffcf48"))
         self.modebar.setTabIcon(1, self.icons.glyph("library", 16, "#4cc2ff" if lib else "#9d9d9d"))
@@ -1894,8 +1933,7 @@ class MainWindow(QMainWindow):
         self._sync_quick(d)
         if pane is self.libpane:
             self.libside.sync(d or "")
-            if self.cfg["lib_folder_pdf"]:
-                QTimer.singleShot(0, lambda p=pane: self._sel_changed(p))
+            QTimer.singleShot(0, lambda dd=d: self._lib_folder_changed(dd))
             if d:
                 self.setWindowTitle(f"{os.path.basename(d.rstrip(chr(92) + '/')) or d} — {APP_NAME} {VERSION}")
             return
@@ -1976,16 +2014,10 @@ class MainWindow(QMainWindow):
         if pane is not self.active:
             return
         ents = pane.selected_entries()
-        if pane is self.libpane and self.cfg["lib_folder_pdf"] and not (
-                len(ents) == 1 and ents[0].kind == "file" and ents[0].ext == ".pdf"):
-            pdf = self._folder_pdf(pane.current_dir())
-            if pdf:
-                cur = self._info_entry
-                if not (cur is not None and cur.path == pdf and self.details_stack.currentIndex() == 2):
-                    self.info_token += 1
-                    self._show_info(Entry(kind="file", dirpath=os.path.dirname(pdf), name=os.path.basename(pdf),
-                                          path=pdf, ext=".pdf"))
-                return
+        if pane is self.libpane:
+            self._lib_details(ents)
+            return
+        self._details_owner = "explorer"
         self.info_token += 1
         self._info_entry = None
         self.details_stack.setCurrentIndex(0)
@@ -2002,6 +2034,87 @@ class MainWindow(QMainWindow):
             self.status_right.setText(f"{len(ents)} selected · {human_size(tot)}")
             return
         self._show_info(ents[0])
+
+    # ---------------- Details en la VFX Library
+    # Queda fija la última imagen / PDF: la seleccionada en la grilla o el PDF (o la portada) de la carpeta.
+    # Elegir videos, modelos o carpetas no la cambia (el player muestra eso): sirve para comparar.
+    def _lib_show(self, e):
+        cur = self._info_entry
+        if cur is not None and cur.path == e.path and getattr(self, "_details_owner", "") == "library":
+            return
+        self._details_owner = "library"
+        self._lib_details_entry = e
+        self.info_token += 1
+        self._show_info(e)
+
+    def _lib_details(self, ents):
+        if len(ents) == 1:
+            e = ents[0]
+            if (e.kind == "file" and (e.cat == "image" or e.ext == ".pdf")) or \
+                    (e.kind == "seq" and e.cat != "audio"):
+                self._lib_show(e)
+                return
+        if getattr(self, "_details_owner", "") != "library":
+            le = getattr(self, "_lib_details_entry", None)
+            if le is not None:
+                self._lib_show(le)
+            else:
+                self._clear_details()
+
+    def _lib_folder_changed(self, d):
+        """Al entrar a una carpeta de la librería: su PDF (o portada) pasa a Details; el video de otra
+        carpeta se pausa (queda su cuadro) para no seguir sonando mientras se busca otra cosa."""
+        v = self.libpage.viewer
+        if v.entry is not None and d and not same_path(v.entry.dirpath, d) and v.playing:
+            v.pause()
+        if not self.cfg["lib_folder_pdf"] or self.mode() != "library":
+            return
+        doc = self._folder_doc(d)
+        if doc:
+            ext = os.path.splitext(doc)[1].lower()
+            self._lib_show(Entry(kind="file", dirpath=os.path.dirname(doc), name=os.path.basename(doc),
+                                 path=doc, ext=ext))
+
+    def _clear_details(self):
+        self.info_token += 1
+        self._info_entry = None
+        self.details_stack.setCurrentIndex(0)
+        self.preview.clear()
+        self._preview_pm = None
+        self.info.setText("")
+        self.status_right.setText("")
+
+    COVER_WORDS = ("cover", "portada", "preview", "thumb", "poster", "folder", "front")
+
+    def _folder_doc(self, d):
+        """PDF de la carpeta o de la madre más cercana; si no hay ninguno, una imagen de portada."""
+        pdf = self._folder_pdf(d)
+        if pdf:
+            return pdf
+        return self._folder_cover(d)
+
+    def _folder_cover(self, d):
+        from .core import IMAGE_EXTS
+        if not d or not reachable(d):
+            return None
+        roots = [os.path.normcase(os.path.normpath(r)) for r in self.libpane.root_lock()]
+        cur = os.path.normpath(d)
+        while True:
+            try:
+                with os.scandir(cur) as sc:
+                    imgs = sorted((x.name for x in sc if os.path.splitext(x.name)[1].lower() in IMAGE_EXTS
+                                   and x.is_file()), key=str.lower)
+            except OSError:
+                imgs = []
+            if imgs:
+                named = [n for n in imgs if any(w in n.lower() for w in self.COVER_WORDS)]
+                return os.path.join(cur, (named or imgs)[0])
+            if os.path.normcase(cur) in roots:
+                return None
+            parent = os.path.dirname(cur)
+            if parent == cur:
+                return None
+            cur = parent
 
     def _folder_pdf(self, d):
         """PDF de la carpeta actual o de la carpeta madre más cercana (dentro de la librería)."""
@@ -2038,8 +2151,8 @@ class MainWindow(QMainWindow):
     def _toggle_folder_pdf(self, on):
         self.cfg["lib_folder_pdf"] = bool(on)
         self.cfg.save()
-        self._info_entry = None
-        self._sel_changed(self.active)
+        if on and self.mode() == "library":
+            self._lib_folder_changed(self.libpane.current_dir())
 
     def _set_preview(self, e):
         pm = self.thumbs.get(e)
@@ -2206,8 +2319,15 @@ class MainWindow(QMainWindow):
             self.info.setText(self._info_base + "<tr><td colspan=2><hr></td></tr>" + html + "</table>")
 
     # ------------------------------------------------------------------ abrir
+    PHOTO_EXTS = {".jpg", ".jpeg", ".jfif", ".png", ".gif", ".bmp", ".webp", ".heic", ".heif", ".avif",
+                  ".tif", ".tiff"}
+
     def open_entry(self, e, with_player=True):
         player = self.cfg["player"]
+        # fotos numeradas (IMG_0001.jpg…) agrupadas como secuencia: se abren como fotos sueltas
+        if e.kind == "seq" and e.ext in self.PHOTO_EXTS and e.files:
+            first = os.path.join(e.dirpath, e.files[0])
+            e = Entry(kind="file", dirpath=e.dirpath, name=e.files[0], path=first, ext=e.ext)
         if with_player and player and os.path.isfile(player) and e.cat in ("seq", "video"):
             try:
                 subprocess.Popen([player, e.path])
@@ -2218,7 +2338,7 @@ class MainWindow(QMainWindow):
             # como desde el Explorador: el visor puede pasar a las otras imágenes de la carpeta
             from .winlaunch import open_image
             try:
-                open_image(e.path, self.cfg["image_opener"] or "default")
+                open_image(e.path, self.cfg["image_opener"] or "system")
             except OSError as ex:
                 self.status.setText(str(ex))
             return

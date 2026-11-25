@@ -73,6 +73,9 @@ class LibrarySidebar(QWidget):
         self.tree.setIconSize(app.icons.folder(None, 18).size())
         self.tree.itemExpanded.connect(self._expand)
         self.tree.itemClicked.connect(lambda it, c: self.app.open_library(it.data(0, Qt.UserRole)))
+        self._collapse_next = False
+        self.tree.itemDoubleClicked.connect(self._double)
+        app.hook_tree_keys(self.tree, self.app.open_library)
         self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._menu)
         lay.addWidget(self.tree)
@@ -110,8 +113,21 @@ class LibrarySidebar(QWidget):
         b.toggled.connect(toggled)
         return b
 
+    def _double(self, it, col):
+        """Doble clic en una carpeta: entra y (con auto colapsar) cierra las que quedan fuera del camino."""
+        p = it.data(0, Qt.UserRole)
+        if not p:
+            return
+        self._collapse_next = True
+        if self.app.libpane.current_dir() and os.path.normcase(os.path.normpath(
+                self.app.libpane.current_dir())) == os.path.normcase(os.path.normpath(p)):
+            self.sync(p)
+        else:
+            self.app.open_library(p)
+
     def _collapse_toggled(self, on):
         if on and self.tree._trace_path:
+            self._collapse_next = True
             self.sync(self.tree._trace_path)
 
     def _auto_collapse(self, keep):
@@ -145,9 +161,12 @@ class LibrarySidebar(QWidget):
             while p is not None:
                 p.setExpanded(True)
                 p = p.parent()
-            if self.app.cfg["lib_tree_autocollapse"]:
-                self._auto_collapse(it)
+            if self.app.cfg["lib_tree_autocollapse"] and self._collapse_next:
+                self._auto_collapse(it)                # solo al entrar con doble clic
+            self._collapse_next = False
+            self.tree._syncing = True
             self.tree.setCurrentItem(it)
+            self.tree._syncing = False
             self.tree.scrollToItem(it)
         self.tree.set_trace_path(path if it is not None else "")
 

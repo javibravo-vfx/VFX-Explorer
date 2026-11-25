@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.27.0
+- Images open with the system's default app again (instant, no prompts). Settings › "Images open in" keeps the Photos-with-previous/next and classic Photo Viewer options.
+- Numbered photos grouped as a sequence (IMG_0001.jpg…) open like single photos (the first one) instead of failing.
+- Folder trees (File Explorer and VFX Library): moving with the arrow keys opens the folder after a short pause.
+- VFX Library tree: auto collapse happens on double click; a single click only opens the folder.
+- Details per mode: the VFX Library and File Explorer no longer show each other's item.
+- VFX Library Details: the last image / PDF stays (the one you selected, or the folder's PDF / cover image) while you pick videos or models in the grid — handy for comparing. Without a PDF, a cover image of the folder is shown (names like cover / portada / preview first).
+- VFX Library: a video from another folder pauses when you move to a different folder.
+
 ## 0.26.0
 - Windows Photos now opens with previous / next: images are launched through Photos' own viewer link (ms-photos:viewer?fileName=…), the only way it accepts the folder from another program. Instant, no background work. Settings › "Images open in": default app, Photos always, or the classic Photo Viewer. (The winrt packages are no longer needed.)
 - VFX Library tree: buttons below it for auto collapse (closes the folders outside the current path) and sort by name (default; off = the order they were added).

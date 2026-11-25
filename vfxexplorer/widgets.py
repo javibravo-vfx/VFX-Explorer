@@ -1494,11 +1494,14 @@ class SettingsDialog(QDialog):
         lay.addRow("Player:", w)
         lay.addRow("", _hint("Opens sequences and videos on double click. Empty = default app."))
         self.img_open = QComboBox()
-        self.img_open.addItem("Default app (Windows Photos opens with previous / next)", "default")
-        self.img_open.addItem("Windows Photos, always (with previous / next)", "photos")
-        self.img_open.addItem("Windows Photo Viewer (classic, browses the folder)", "photoviewer")
-        self.img_open.setCurrentIndex(max(0, self.img_open.findData(cfg["image_opener"] or "default")))
+        self.img_open.addItem("The default app of the system", "system")
+        self.img_open.addItem("Windows Photos with previous / next (slower; may ask on network drives)", "photos")
+        self.img_open.addItem("Windows Photo Viewer (classic, instant, browses the folder)", "photoviewer")
+        self.img_open.setCurrentIndex(max(0, self.img_open.findData(cfg["image_opener"] or "system")))
         lay.addRow("Images open in:", self.img_open)
+        lay.addRow("", _hint("Windows Photos only lists the other images of the folder by itself when it is "
+                             "opened from Windows Explorer; from any other program it opens just one image, "
+                             "unless you pick the Photos option above."))
         w, self.ffmpeg = self._path_row(cfg["ffmpeg"], "ffmpeg.exe", exe_f)
         lay.addRow("ffmpeg:", w)
         found = find_tool(cfg["ffmpeg"], "ffmpeg")

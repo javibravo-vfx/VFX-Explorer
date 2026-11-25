@@ -50,13 +50,14 @@ def open_photo_viewer(path):
     return True
 
 
-def open_image(path, mode="default"):
-    """mode: default (Fotos con anterior/siguiente si es la app predeterminada) · photoviewer · system."""
+def open_image(path, mode="system"):
+    """mode: system (la app predeterminada, como un doble clic normal) · photos (Fotos con anterior/siguiente)
+    · photoviewer (visualizador clásico)."""
     ext = os.path.splitext(path)[1].lower()
     try:
         if mode == "photoviewer" and open_photo_viewer(path):
             return "photoviewer"
-        if mode in ("default", "photos") and (mode == "photos" or default_is_photos(ext)):
+        if mode == "photos" and default_is_photos(ext):
             open_in_photos(path)
             return "photos"
     except OSError:
