@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.46.1
+- Changing the automatic color mode (Manual / By project / By name / Both) now also repaints the folder tree, not only the file panel. Tree and Bonsai always show the same colors.
+- Double-click a folder in the tree: it expands; double-click again: it collapses.
+- Resetting a workspace also resets its colors (Default goes back to the factory colors).
+- Bonsai on / off is steadier: it re-places the open folder a few times while the tree finishes opening branches, never leaves it off screen, and a fast double toggle obeys the last click.
+
 ## 0.46.0
 - Each workspace remembers its colors: automatic color mode (by project / by name / both / manual only), the colored tree lines and the Color filters for names. Switching workspaces applies them right away.
 - Color by project works again: projects on a drive root (e.g. «T:\VFX-ERSO») never matched the pipeline root, so nothing got colored.

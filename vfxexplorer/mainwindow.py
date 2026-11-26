@@ -1428,7 +1428,10 @@ class MainWindow(QMainWindow):
         dst = self.minitree if on else self.tree
         y = None
         cur_it = src.currentItem() if hasattr(src, "currentItem") else None
-        if cur_it is not None and src.isVisible():
+        here0 = self.explorer_active.current_dir() if hasattr(self, "explorer_active") else ""
+        same = cur_it is not None and (cur_it.data(0, Qt.UserRole) == "::thispc" or
+                                       norm_key(cur_it.data(0, Qt.UserRole) or "") == norm_key(here0 or ""))
+        if same and src.isVisible():
             r = src.visualItemRect(cur_it)
             if r.isValid() and 0 <= r.top() < src.viewport().height():
                 y = r.top()
@@ -1467,14 +1470,28 @@ class MainWindow(QMainWindow):
             if dst.verticalScrollMode() == QAbstractItemView.ScrollPerItem:
                 delta = round(delta / max(1, r.height()))      # el árbol se desplaza de a filas, no de a píxeles
             sb.setValue(sb.value() + delta)
+            r = dst.visualItemRect(it)
+            if not (0 <= r.top() and r.bottom() <= dst.viewport().height()):
+                dst.scrollToItem(it, QAbstractItemView.PositionAtCenter)   # nunca fuera de la vista
+
+        def is_here(it):
+            if it is None:
+                return False
+            p = it.data(0, Qt.UserRole) or ""
+            return p == here if here == "::thispc" else norm_key(p) == norm_key(here)
+
+        tok = self._mt_tok = getattr(self, "_mt_tok", 0) + 1
 
         def align():
-            if here != "::thispc" and not on and not reachable(here):
-                return
-            dst.sync(here)                        # con el árbol ya visible (si no, no se puede desplazar)
+            if tok != self._mt_tok or self.b_minitree.isChecked() != on:
+                return                            # se volvió a tocar el botón: manda el último click
+            if not is_here(dst.currentItem()):
+                dst.sync(here)                    # con el árbol ya visible (si no, no se puede desplazar)
             place()
-            QTimer.singleShot(60, place)          # por si el árbol terminó de abrir ramas después
-        QTimer.singleShot(0, align)
+        # el árbol puede seguir abriendo ramas (o leyendo carpetas) un rato después: se reacomoda unas veces
+        if here == "::thispc" or on or reachable(here):
+            for ms in (0, 60, 200, 500):
+                QTimer.singleShot(ms, align)
 
     def _clear_minitree(self):
         self.minitree.clear_all()
@@ -2219,7 +2236,7 @@ class MainWindow(QMainWindow):
             p.grid.viewport().update()
             p.list.viewport().update()
             p.refresh_tab_icons()                 # el color de la carpeta también en las pestañas
-        self.tree.viewport().update()
+        self.tree.refresh_colors()                # íconos del árbol completo también (antes solo el Bonsai)
         self.minitree.refresh_colors()
 
     def _start_freeze_watch(self):
@@ -3085,7 +3102,7 @@ class MainWindow(QMainWindow):
             it = QListWidgetItem(f"#{t}  ({n})")
             it.setData(Qt.UserRole, t)
             self.tagl.addItem(it)
-        self.tree.viewport().update()
+        self.tree.refresh_colors()
         self.minitree.refresh_colors()
         if hasattr(self, "libside"):
             self.libside.reload()

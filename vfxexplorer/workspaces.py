@@ -37,9 +37,11 @@ def capture(app):
     return st
 
 
+FACTORY_COLORS = {"mode": "project", "lines": True, "cfilters": False}
+
+
 def apply_colors(app, c):
-    if not c:
-        return
+    c = c or FACTORY_COLORS                       # sin colores guardados (o Reset a cero): los de fábrica
     app.cfg["color_mode"] = c.get("mode", app.cfg["color_mode"])
     app.cfg["tree_line_colors"] = bool(c.get("lines", app.cfg["tree_line_colors"]))
     app.colors.reload()
@@ -57,7 +59,7 @@ def apply(app, st):
     fallback = THISPC if IS_WIN else home
     if app.mode() != "explorer":
         app.set_mode("explorer")
-    apply_colors(app, st.get("colors"))
+    apply_colors(app, st.get("colors"))           # (un workspace viejo sin colores guardados: los de fábrica)
     panes = st.get("panes") or []
     remember = bool(app.cfg["ws_remember_selection"])
     for i, p in enumerate(app.panes):
@@ -108,6 +110,7 @@ def reset_layout(app):
     first = THISPC if IS_WIN else home
     if app.mode() != "explorer":
         app.set_mode("explorer")
+    apply_colors(app, None)                       # los colores también vuelven a los de fábrica
     for p in app.panes:
         p._stop_search()
         p.clear_tabs()

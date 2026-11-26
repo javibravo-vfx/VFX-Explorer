@@ -403,6 +403,16 @@ class FolderTree(_LinedMixin, QTreeWidget):
         if mini:
             self.rebuild()
 
+    def mouseDoubleClickEvent(self, ev):
+        """Doble click en una carpeta: la despliega; otro doble click la vuelve a plegar."""
+        if ev.button() == Qt.LeftButton:
+            it = self.itemAt(ev.position().toPoint())
+            if it is not None and (it.childCount() or it.childIndicatorPolicy() == QTreeWidgetItem.ShowIndicator):
+                it.setExpanded(not it.isExpanded())
+                ev.accept()
+                return
+        super().mouseDoubleClickEvent(ev)
+
     # ---------------- util
     @staticmethod
     def _key(p):
