@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.41.3
+- Large icons: when a sequence has missing frames and review notes, «REVIEW» goes right below «missing N» instead of under it.
+
 ## 0.41.2
 - Settings › General: «Update the REVIEW tags by themselves» (on by default). Off, no folder is watched: the tags update with F5 or when you come back to the window.
 

@@ -803,7 +803,9 @@ class GridDelegate(QStyledItemDelegate):
             if getattr(e, "review", False):            # notas de review del visor al lado de la imagen
                 rl = "REVIEW"
                 rw = fm.horizontalAdvance(rl) + 10
-                rr = QRect(th.right() - rw - 3, th.y() + 4, rw, fm.height() + 2)
+                # si también está «missing N» (arriba a la derecha), REVIEW va justo debajo
+                ry = th.y() + 4 + ((fm.height() + 5) if (e.kind == "seq" and e.missing) else 0)
+                rr = QRect(th.right() - rw - 4, ry, rw, fm.height() + 2)
                 p.setPen(Qt.NoPen)
                 p.setBrush(QColor(REVIEW_COLOR))
                 p.drawRoundedRect(QRectF(rr), 3, 3)
