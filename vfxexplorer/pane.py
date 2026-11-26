@@ -1697,6 +1697,19 @@ class FilePane(QFrame):
             self._apply_folder_view()
         if not live:
             self._auto_image_view(entries)
+        # misma carpeta recargada (F5, pegar con «Replace», puesta al día sola): lo que se pisó (mismo nombre,
+        # otra fecha o tamaño) pierde el thumbnail viejo en memoria; si estaba seleccionado, Details se recarga
+        if not self.model.virtual and same_path(self.model.root or "", path) and self.model.entries:
+            old = {(e.kind, e.name): e for e in self.model.entries if e.kind not in ("header", "dir")}
+            changed = [e for e in entries if (e.kind, e.name) in old
+                       and self._live_stamp(old[(e.kind, e.name)]) != self._live_stamp(e)]
+            if changed:
+                th = self.app.thumbs
+                th.invalidate([th.key_for(e) for e in changed] + [th.key_for(old[(e.kind, e.name)]) for e in changed])
+                ie = getattr(self.app, "_info_entry", None)
+                if ie is not None and any(e.name == ie.name and same_path(e.dirpath, ie.dirpath) for e in changed):
+                    self.app._info_entry = None
+                    self._live_prev = None
         self.model.group_mode = self.effective_group(virtual=False)
         self.model.set_entries(entries, path, virtual=False)
         self._apply_columns(folder_default=False)

@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.45.2
+- Overwritten files always get their new thumbnail: pasting with «Replace» from VFX Explorer, F5 after another program overwrote a file, or any reload of the folder. Before, the old thumbnail stayed in memory (only the automatic update had it right).
+
 ## 0.45.1
 - Dragging onto Quick access / Workspace Pins: the area where it will land is tinted light blue (like dropping on a folder in the tree) — Quick access or the Workspace Pins part, plus the light-blue line for the pins.
 
