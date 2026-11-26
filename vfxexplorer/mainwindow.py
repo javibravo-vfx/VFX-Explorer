@@ -2055,6 +2055,17 @@ class MainWindow(QMainWindow):
             return None
         return self.paneB if pane is self.paneA else self.paneA
 
+    def _freeze_paint(self, ms=60):
+        """Congela el pintado de la ventana hasta que el reacomodo terminó (evita el parpadeo)."""
+        if not self.isVisible() or not self.updatesEnabled():
+            return
+        self.setUpdatesEnabled(False)
+
+        def thaw():
+            self.setUpdatesEnabled(True)
+            self.update()
+        QTimer.singleShot(ms, thaw)
+
     def toggle_dual(self, force=None, orient=None):
         """F9 / botón: doble panel lado a lado · F10 / botón: uno arriba del otro."""
         if force is None and self.mode() != "explorer":
@@ -2069,6 +2080,8 @@ class MainWindow(QMainWindow):
             show = force
         if orient:
             self.cfg["dual_orient"] = orient
+        # sin pintar mientras se reacomodan pestañas y direcciones (si no, se ve un cuadro intermedio)
+        self._freeze_paint()
         self.paneB.setVisible(show)
         o = self.cfg["dual_orient"] or "h"
         self.act_dual.setChecked(show and o == "h")

@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.37.2
+- F9 / F10 (dual pane): the window doesn't paint while tabs and address bars are rearranged, so the quick flash of a tab moving is gone.
+
 ## 0.37.1
 - Dual pane: the light-blue line that marks the active pane is now drawn at the top of that pane's content, exactly as wide as the pane (before, in top/bottom mode, it ran under the whole address row).
 
