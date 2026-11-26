@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.47.3
+- Turning the Bonsai off (or on): if a branch above the open folder was collapsed, the folder stayed hidden inside it and the tree looked out of sync until you clicked around. Now the whole path is expanded and the folder is always shown and marked.
+
 ## 0.47.2
 - Turning the Bonsai off in a network folder (NAS): the full tree now marks the open folder as soon as it finishes reading it, without clicking again. Before, it lost track of the folder while reading the NAS and only got there one level per click.
 

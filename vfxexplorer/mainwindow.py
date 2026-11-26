@@ -1481,6 +1481,11 @@ class MainWindow(QMainWindow):
             it = dst.currentItem()
             if it is None:
                 return
+            p = it.parent()                       # todo el camino desplegado (si una rama quedó plegada,
+            while p is not None:                  # la carpeta quedaba escondida adentro)
+                if not p.isExpanded():
+                    p.setExpanded(True)
+                p = p.parent()
             dst.doItemsLayout()                   # que las alturas ya estén al día (si no, el scroll queda corrido)
             if y is None:
                 dst.scrollToItem(it, QAbstractItemView.PositionAtCenter)
@@ -1492,7 +1497,7 @@ class MainWindow(QMainWindow):
                 delta = round(delta / max(1, r.height()))      # el árbol se desplaza de a filas, no de a píxeles
             sb.setValue(sb.value() + delta)
             r = dst.visualItemRect(it)
-            if not (0 <= r.top() and r.bottom() <= dst.viewport().height()):
+            if not r.isValid() or not (0 <= r.top() and r.bottom() <= dst.viewport().height()):
                 dst.scrollToItem(it, QAbstractItemView.PositionAtCenter)   # nunca fuera de la vista
 
         def is_here(it):
@@ -1503,10 +1508,13 @@ class MainWindow(QMainWindow):
 
         tok = self._mt_tok = getattr(self, "_mt_tok", 0) + 1
 
+        first = [True]
+
         def align():
             if tok != self._mt_tok or self.b_minitree.isChecked() != on:
                 return                            # se volvió a tocar el botón: manda el último click
-            if not is_here(dst.currentItem()):
+            if first[0] or not is_here(dst.currentItem()):
+                first[0] = False
                 dst.sync(here)                    # con el árbol ya visible (si no, no se puede desplazar)
             place()
         self._mt_place = (tok, dst, place)        # si la carpeta llega más tarde (red), se acomoda ahí
