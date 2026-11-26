@@ -3077,12 +3077,35 @@ class MainWindow(QMainWindow):
         sin recargar la carpeta. Al volver a la ventana (p. ej. desde el visor) también, incluso en red."""
         from PySide6.QtCore import QFileSystemWatcher
         self._rev_watch = QFileSystemWatcher(self)
-        self._rev_watch.directoryChanged.connect(lambda *_: self._rev_timer.start())
+        self._rev_watch.directoryChanged.connect(self._folder_changed_on_disk)
         self._rev_timer = QTimer(self, singleShot=True, interval=350, timeout=self._review_sync)
+        # carpetas que cambiaron: se ponen al día juntas, como mucho cada ~0.7 s (un render no satura la app)
+        self._live_paths = set()
+        self._live_timer = QTimer(self, singleShot=True, interval=700, timeout=self._live_flush)
         self._rev_paths_timer = QTimer(self, interval=1500, timeout=self._review_watch_update)
         self._rev_paths_timer.start()
         QApplication.instance().applicationStateChanged.connect(
-            lambda st: st == Qt.ApplicationActive and self._rev_timer.start())
+            lambda st: st == Qt.ApplicationActive and self._back_to_window())
+
+    def _folder_changed_on_disk(self, path):
+        self._live_paths.add(os.path.normcase(os.path.normpath(path)))
+        if not self._live_timer.isActive():
+            self._live_timer.start()
+        self._rev_timer.start()
+
+    def _live_flush(self):
+        paths, self._live_paths = self._live_paths, set()
+        for p in self.all_panes:
+            d = p.current_dir() if p.isVisible() and not p.is_virtual() else None
+            if d and os.path.normcase(os.path.normpath(d)) in paths:
+                p.live_update()
+
+    def _back_to_window(self):
+        """Al volver a la ventana: la pestaña visible de cada panel se pone al día (también en red)."""
+        self._rev_timer.start()
+        for p in self.all_panes:
+            if p.isVisible() and not p.is_virtual():
+                p.live_update()
 
     def _review_watch_update(self):
         from .fileops import is_network_path

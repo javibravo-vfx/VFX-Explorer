@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.43.0
+- Open folders update by themselves: new, deleted or renamed files show up in the tab you are looking at without F5 — right away in local folders (Windows notifies the change; the folder is re-read in the background and only updated if something changed), and in network folders when you come back to the window. Selection, scroll and the Details preview stay put; many changes in a row (a render, a big copy) are applied at most about once a second.
+- Settings › General: the option is now «Update the open folders by themselves» (also covers the REVIEW tags). Off: F5 or coming back to the window.
+
 ## 0.42.1
 - File Explorer tabs: switching to a This PC (or other virtual) tab empties Details; switching tabs — or clicking a tab of the other pane — moves the keyboard focus to that tab's content.
 - Each tab keeps its selection up to date as you select, so a reload (F5) of the folder doesn't lose it either.

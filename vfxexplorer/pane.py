@@ -1478,6 +1478,54 @@ class FilePane(QFrame):
                 parent += "\\"
             self.navigate(parent, select=os.path.basename(cur.rstrip("\\/")))
 
+    # ------------------------------------------------------------------ puesta al día sola
+    @staticmethod
+    def _live_sig(entries):
+        return sorted((e.kind, e.name, len(e.files) if e.kind == "seq" else 0) for e in entries if e.kind != "header")
+
+    def live_update(self):
+        """La pestaña visible se pone al día sola (archivos nuevos / borrados / renombrados): se relee en otro
+        hilo y solo si cambió algo se actualiza, sin perder la selección ni el scroll."""
+        t = self.tab()
+        if t is None or t["virtual"] or self._recursive_active() or getattr(self, "_live_busy", False):
+            return
+        path = self.tab_path()
+        if not path:
+            return
+        gen = self.gen
+        sh = bool(self.app.cfg["show_hidden"])
+        col = bool(self.app.cfg["collapse_seqs"])
+        self._live_busy = True
+
+        def scan():
+            from .core import scan_dir
+            if not reachable(path):            # en otro hilo: un NAS dormido no traba la ventana
+                return None
+            try:
+                return scan_dir(path, sh, col)
+            except Exception:
+                return None
+
+        def got(entries):
+            self._live_busy = False
+            if entries is None or gen != self.gen or not same_path(self.tab_path() or "", path):
+                return
+            if self._live_sig(entries) == self._live_sig(self.model.entries):
+                return
+            self._live_prev = self._tab_sel_names()
+            bars = (self.grid.verticalScrollBar().value(), self.list.verticalScrollBar().value())
+            self.pending_select = list(self._live_prev) or None
+            self._live = True
+            try:
+                self.gen += 1
+                self._scan_done(self.gen, path, entries, "")
+            finally:
+                self._live = False
+            self.grid.verticalScrollBar().setValue(bars[0])
+            self.list.verticalScrollBar().setValue(bars[1])
+        from .asyncdir import run_async
+        run_async(scan, got, self)
+
     def refresh(self):
         self.app.thumbs.failed.clear()
         self.app.thumbs.index.clear()
@@ -1565,10 +1613,12 @@ class FilePane(QFrame):
     def _scan_done(self, gen, path, entries, err):
         if gen != self.gen:
             return
+        live = getattr(self, "_live", False)
         if getattr(self, "_view_pending", False):
             self._view_pending = False
             self._apply_folder_view()
-        self._auto_image_view(entries)
+        if not live:
+            self._auto_image_view(entries)
         self.model.group_mode = self.effective_group(virtual=False)
         self.model.set_entries(entries, path, virtual=False)
         self._apply_columns(folder_default=False)
@@ -1582,8 +1632,9 @@ class FilePane(QFrame):
                 and same_path(t["sel"].get("path", ""), path):
             self.pending_select = list(t["sel"].get("names") or []) or None     # una recarga no la pierde
         self._select_pending()
-        if not self.root_lock:
+        if not self.root_lock and not (live and self._tab_sel_names() == getattr(self, "_live_prev", None)):
             # Details al día con lo seleccionado (o vacío): vaciar la vista no avisa por sí solo
+            # (en una puesta al día sola, si la selección no cambió, Details no se toca: el video sigue)
             self.selection_changed.emit(self)
         self.app.request_dir_sizes(self, entries)
 

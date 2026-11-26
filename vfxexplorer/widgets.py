@@ -1666,9 +1666,10 @@ class SettingsDialog(QDialog):
         self.sysicons = QCheckBox("Show the original icon of programs and documents (not for images, video or audio)")
         self.sysicons.setChecked(bool(cfg["system_icons"]))
         lay.addRow("", self.sysicons)
-        self.revlive = QCheckBox("Update the REVIEW tags by themselves (watch the open local folders)")
-        self.revlive.setToolTip("When the image viewer creates or deletes notes, the tag changes right away in local "
-                                "folders.\nOff: they update with F5 or when you come back to the window.")
+        self.revlive = QCheckBox("Update the open folders by themselves (watch the open local folders)")
+        self.revlive.setToolTip("New, deleted or renamed files — and the REVIEW tags — show up right away in the tab "
+                                "you are looking at (local folders).\nNetwork folders update when you come back to "
+                                "the window. Off: F5, or coming back to the window.")
         self.revlive.setChecked(bool(cfg["review_live"]))
         lay.addRow("", self.revlive)
         self.wssel = QCheckBox("Workspaces: remember the selected files of each tab")
