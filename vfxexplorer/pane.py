@@ -1701,8 +1701,9 @@ class FilePane(QFrame):
         # otra fecha o tamaño) pierde el thumbnail viejo en memoria; si estaba seleccionado, Details se recarga
         if not self.model.virtual and same_path(self.model.root or "", path) and self.model.entries:
             old = {(e.kind, e.name): e for e in self.model.entries if e.kind not in ("header", "dir")}
-            changed = [e for e in entries if (e.kind, e.name) in old
-                       and self._live_stamp(old[(e.kind, e.name)]) != self._live_stamp(e)]
+            stamp = {k: (e.size, e.mtime) for k, e in old.items()}
+            changed = [e for e in entries if e.kind != "dir"
+                       and stamp.get((e.kind, e.name), (e.size, e.mtime)) != (e.size, e.mtime)]
             if changed:
                 th = self.app.thumbs
                 th.invalidate([th.key_for(e) for e in changed] + [th.key_for(old[(e.kind, e.name)]) for e in changed])
