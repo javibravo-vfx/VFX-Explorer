@@ -571,6 +571,8 @@ class FilePane(QFrame):
         self.tabbar.setIconSize(QSize(16, 16))
         self.tabbar.setAcceptDrops(True)
         self.tabbar.currentChanged.connect(self._tab_changed)
+        # clic en una pestaña (aunque ya sea la actual, p. ej. la del otro panel): el foco va a su contenido
+        self.tabbar.tabBarClicked.connect(lambda i: (not self.root_lock) and QTimer.singleShot(0, self._focus_view))
         self.tabbar.tabMoved.connect(self._tab_moved)
         self.tabbar.installEventFilter(self)
         self.tabbar.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -726,6 +728,7 @@ class FilePane(QFrame):
                 v.doubleClicked.connect(self._activate)
             v.customContextMenuRequested.connect(lambda pos, v=v: self.app.item_menu(self, v, pos))
             v.selectionModel().selectionChanged.connect(lambda *_: self.selection_changed.emit(self))
+            v.selectionModel().selectionChanged.connect(lambda *_: self._track_tab_sel())
             v.selectionModel().selectionChanged.connect(lambda *_: self._remember_sel())
             self._view_shortcuts(v)
 
@@ -1170,10 +1173,19 @@ class FilePane(QFrame):
         """Lo seleccionado ahora (nombres), para recordarlo en la pestaña."""
         return [e.name for e in self.selected_entries()[:200]]
 
+    def _track_tab_sel(self):
+        """La pestaña va guardando lo que se selecciona en su carpeta (sobrevive a recargas y cambios de pestaña)."""
+        t = self.tab()
+        if t is None or t["virtual"] or self.root_lock or self.model.virtual \
+                or not same_path(self.model.root or "", t["path"]):
+            return
+        t["sel"] = {"path": t["path"], "names": self._tab_sel_names()}
+
     def _keep_tab_sel(self):
         """File Explorer: cada pestaña recuerda qué tenía seleccionado (en su carpeta)."""
         old = self.tab()
-        if old is not None and not old["virtual"] and not self.root_lock and self.model.entries:
+        if old is not None and not old["virtual"] and not self.root_lock and self.model.entries \
+                and not self.model.virtual and same_path(self.model.root or "", old["path"]):
             old["sel"] = {"path": old["path"], "names": self._tab_sel_names()}
 
     def _tab_changed(self, i):
@@ -1190,6 +1202,17 @@ class FilePane(QFrame):
         else:
             self._show_location()
             self._load()
+        if not self.root_lock and getattr(self.app, "active", None) is self:
+            QTimer.singleShot(0, self._focus_view)      # cambio de pestaña en el panel activo (Ctrl+Tab, clic)
+
+    def _focus_view(self):
+        """El foco va al contenido de la pestaña en la que se está (y el panel queda activo)."""
+        if not self.isVisible():
+            return
+        try:
+            self.view().setFocus(Qt.TabFocusReason)
+        except RuntimeError:
+            pass
 
     def _tab_icon(self, t):
         ic = self.app.icons
@@ -1554,6 +1577,10 @@ class FilePane(QFrame):
         self.proxy.set_filter(self._query(), self.filter.currentData())
         self._sort()
         self._update_status(f"Error: {err}" if err else None)
+        t = self.tab()
+        if self.pending_select is None and not self.root_lock and t is not None and t.get("sel") \
+                and same_path(t["sel"].get("path", ""), path):
+            self.pending_select = list(t["sel"].get("names") or []) or None     # una recarga no la pierde
         self._select_pending()
         if not self.root_lock:
             # Details al día con lo seleccionado (o vacío): vaciar la vista no avisa por sí solo
@@ -1726,6 +1753,8 @@ class FilePane(QFrame):
             self.gen += 1
             self.model.group_mode = "drives"
             self.model.set_entries([], "", virtual=True)
+            if not self.root_lock:
+                self.selection_changed.emit(self)          # Details vacío (This PC no tiene selección)
             self._grid_uniform()
             self._apply_columns(folder_default=False)
             self._set_banner(None)
@@ -1739,6 +1768,8 @@ class FilePane(QFrame):
         refs = self.app.refs_for(v["kind"], v["name"])
         self.gen += 1
         self.model.set_entries([], "", virtual=True)
+        if not self.root_lock:
+            self.selection_changed.emit(self)
         self._apply_columns(folder_default=True)
         self._set_banner(None)
         self._show_location()

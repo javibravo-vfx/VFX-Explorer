@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.42.1
+- File Explorer tabs: switching to a This PC (or other virtual) tab empties Details; switching tabs — or clicking a tab of the other pane — moves the keyboard focus to that tab's content.
+- Each tab keeps its selection up to date as you select, so a reload (F5) of the folder doesn't lose it either.
+
 ## 0.42.0
 - File Explorer: each tab remembers what was selected in its folder; switching tabs and coming back selects it again (also after closing and reopening the app). The VFX Library stays as it was.
 - Workspaces: switching workspace brings back the selection of each tab. Settings › General › «Workspaces: remember the selected files of each tab» (on by default); off, each folder opens with nothing selected.
