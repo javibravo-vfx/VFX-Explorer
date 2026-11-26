@@ -1166,11 +1166,25 @@ class FilePane(QFrame):
         self.ti = self.tabbar.currentIndex()
         self.app.save_soon()
 
+    def _tab_sel_names(self):
+        """Lo seleccionado ahora (nombres), para recordarlo en la pestaña."""
+        return [e.name for e in self.selected_entries()[:200]]
+
+    def _keep_tab_sel(self):
+        """File Explorer: cada pestaña recuerda qué tenía seleccionado (en su carpeta)."""
+        old = self.tab()
+        if old is not None and not old["virtual"] and not self.root_lock and self.model.entries:
+            old["sel"] = {"path": old["path"], "names": self._tab_sel_names()}
+
     def _tab_changed(self, i):
         if i < 0 or i >= len(self.tabs) or i == self.ti:
             return
+        self._keep_tab_sel()
         self.ti = i
         t = self.tab()
+        sel = t.get("sel") if not self.root_lock else None
+        if sel and not t["virtual"] and same_path(sel.get("path", ""), t["path"]):
+            self.pending_select = list(sel.get("names") or []) or None
         if t["virtual"]:
             self._load_virtual()
         else:
@@ -1224,8 +1238,15 @@ class FilePane(QFrame):
         m.exec(self.tabbar.mapToGlobal(pos))
 
     def state(self):
-        tabs = [{"path": THISPC if (t["virtual"] and t["virtual"]["kind"] == "thispc") else t["path"]}
-                for t in self.tabs]
+        tabs = []
+        for i, t in enumerate(self.tabs):
+            d = {"path": THISPC if (t["virtual"] and t["virtual"]["kind"] == "thispc") else t["path"]}
+            if not self.root_lock and not t["virtual"]:          # File Explorer: lo seleccionado en cada pestaña
+                if i == self.ti and self.model.entries:
+                    d["sel"] = self._tab_sel_names()
+                elif t.get("sel") and same_path(t["sel"].get("path", ""), t["path"]):
+                    d["sel"] = list(t["sel"].get("names") or [])
+            tabs.append(d)
         return {"tabs": tabs, "current": self.ti, "view": self.view_mode, "group": self.group_mode}
 
     def new_tab(self):
@@ -1244,6 +1265,7 @@ class FilePane(QFrame):
         self.ti = -1
 
     def restore(self, st, fallback):
+        sels = {t.get("path"): t.get("sel") for t in (st or {}).get("tabs", []) if t.get("path") and t.get("sel")}
         tabs = [t.get("path") for t in (st or {}).get("tabs", []) if t.get("path")]
         # una pestaña en un NAS apagado no traba el arranque: se abre igual y avisa (al volver la red, Refresh)
         from .core import safe_isdir
@@ -1252,6 +1274,8 @@ class FilePane(QFrame):
             tabs = [p for p in tabs if self.allowed(p)] or ([fallback] if fallback else [])
         for p in tabs:
             self.add_tab(p, activate=False)
+            if sels.get(p) and not self.root_lock and not self.tabs[-1]["virtual"]:
+                self.tabs[-1]["sel"] = {"path": p, "names": list(sels[p])}
         self.set_view((st or {}).get("view", "grid"), emit=False)
         self.group_mode = (st or {}).get("group", "auto")
         cur = min(max(0, int((st or {}).get("current", 0))), len(self.tabs) - 1)
@@ -1260,6 +1284,9 @@ class FilePane(QFrame):
         self.tabbar.setCurrentIndex(cur)
         if self.ti < 0:
             self._tab_changed(cur)
+        t = self.tab()                        # la pestaña activa vuelve con lo que tenía seleccionado
+        if t is not None and t.get("sel") and not t["virtual"] and same_path(t["sel"].get("path", ""), t["path"]):
+            self.pending_select = list(t["sel"].get("names") or []) or None
 
     # ------------------------------------------------------------------ navegación
     def current_dir(self):
@@ -1528,6 +1555,9 @@ class FilePane(QFrame):
         self._sort()
         self._update_status(f"Error: {err}" if err else None)
         self._select_pending()
+        if not self.root_lock:
+            # Details al día con lo seleccionado (o vacío): vaciar la vista no avisa por sí solo
+            self.selection_changed.emit(self)
         self.app.request_dir_sizes(self, entries)
 
     def _sort(self):

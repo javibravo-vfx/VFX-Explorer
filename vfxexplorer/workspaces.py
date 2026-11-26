@@ -40,8 +40,11 @@ def apply(app, st):
     if app.mode() != "explorer":
         app.set_mode("explorer")
     panes = st.get("panes") or []
+    remember = bool(app.cfg["ws_remember_selection"])
     for i, p in enumerate(app.panes):
         ps = panes[i] if i < len(panes) else None
+        if ps and not remember:               # Settings: al cambiar de workspace, sin nada seleccionado
+            ps = dict(ps, tabs=[{k: v for k, v in t.items() if k != "sel"} for t in ps.get("tabs", [])])
         if ps:
             p._stop_search()
             p.clear_tabs()

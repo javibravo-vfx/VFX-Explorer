@@ -936,7 +936,8 @@ class Config:
         "review_live": True,            # marquitas REVIEW al día vigilando las carpetas locales abiertas           # ícono original de programas/documentos (no en imágenes, video, audio)
         "workspaces": [],               # Workspaces: [{name, state}] — pestañas, paneles y medidas guardados
         "workspace_current": "",
-        "workspace_keep_updated": True,  # cada workspace recuerda solo lo que se hace en él
+        "workspace_keep_updated": True,
+        "ws_remember_selection": True,  # al cambiar de workspace, cada pestaña vuelve con lo que tenía seleccionado  # cada workspace recuerda solo lo que se hace en él
         "workspace_default_state": {},   # memoria de Default
         "workspace_default_notes": {},   # notas de Default
         "dual_orient": "h",             # doble panel: h = lado a lado (F9) · v = uno arriba del otro (F10)

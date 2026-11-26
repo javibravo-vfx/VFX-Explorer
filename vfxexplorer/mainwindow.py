@@ -2262,6 +2262,7 @@ class MainWindow(QMainWindow):
         self.details_stack.setCurrentIndex(0)
         if not ents:
             self.preview.clear()
+            self._preview_pm = None          # si no, al redimensionar volvía la imagen anterior
             self.info.setText("")
             self.status_right.setText("")
             return
@@ -2269,6 +2270,7 @@ class MainWindow(QMainWindow):
             tot = sum(e.size for e in ents)
             n_files = sum(len(e.files) if e.kind == "seq" else 1 for e in ents)
             self.preview.clear()
+            self._preview_pm = None
             self.info.setText(f"<b>{len(ents)} items</b><br>{n_files} files · {human_size(tot)}")
             self.status_right.setText(f"{len(ents)} selected · {human_size(tot)}")
             return

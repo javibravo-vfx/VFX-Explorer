@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.42.0
+- File Explorer: each tab remembers what was selected in its folder; switching tabs and coming back selects it again (also after closing and reopening the app). The VFX Library stays as it was.
+- Workspaces: switching workspace brings back the selection of each tab. Settings › General › «Workspaces: remember the selected files of each tab» (on by default); off, each folder opens with nothing selected.
+- Details: with nothing selected the preview is empty (it no longer keeps the previous image after switching tab or workspace).
+
 ## 0.41.3
 - Large icons: when a sequence has missing frames and review notes, «REVIEW» goes right below «missing N» instead of under it.
 
