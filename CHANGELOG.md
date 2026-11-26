@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.38.3
+- F9 / F10 when closing the dual pane: the tabs of the remaining pane take the full width right away (no flash of the tab travelling back).
+
 ## 0.38.2
 - F9 (side by side): each pane's tabs are aligned with its half right away, so the tab no longer travels across the top for an instant.
 

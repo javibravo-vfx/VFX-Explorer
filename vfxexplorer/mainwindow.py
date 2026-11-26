@@ -2086,10 +2086,9 @@ class MainWindow(QMainWindow):
         if show and sum(self.pane_split.sizes()) and min(self.pane_split.sizes()) < 50:
             w = sum(self.pane_split.sizes())
             self.pane_split.setSizes([w // 2, w // 2])
-        if show:
-            # lado a lado: las pestañas de cada panel se alinean YA con su mitad (si no, en el primer cuadro
-            # la pestaña de A ocupa todo el ancho y después «viaja» a su lugar)
-            self._sync_cmd_left()
+        # las pestañas de cada panel se alinean YA, al abrir y al cerrar el doble panel (si no, en el primer
+        # cuadro quedan con el ancho anterior y después «viajan» a su lugar)
+        self._sync_cmd_left()
         self.save_soon()
 
     def close_pane(self, pane):
