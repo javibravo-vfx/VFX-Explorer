@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.41.1
+- The «REVIEW» tag updates by itself when the viewer creates or deletes notes: right away in local folders (folder watcher) and, in any folder (NAS included), when you come back to the VFX Explorer window. The folder is not reloaded: selection and scroll stay put.
+
 ## 0.41.0
 - Review notes of the image viewer (image.ext.review.json next to the image) are no longer listed (they show with «hidden items» on); the image gets an orange «REVIEW» tag on its thumbnail and in the list. Numbered photos collapsed into a sequence get it if any frame has notes.
 - Image viewer: with nothing set in Settings, a PhotoLiteFast*.exe next to VFX Explorer (or one folder inside) is used automatically — the newest version if there are several (e.g. PhotoLiteFast12.exe). Settings shows which one was found.

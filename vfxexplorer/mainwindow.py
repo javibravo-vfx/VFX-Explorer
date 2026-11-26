@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (QLineEdit, QPlainTextEdit, QTreeWidgetItem, QAppl
 
 from . import APP_NAME, VERSION
 from .core import (safe_isdir, reachable, net_root, net_offline_roots, AUDIO_EXTS, Config, IS_WIN, data_dir, norm_key, fwd, human_size, fmt_time, compress_ranges, find_tool,
-                   same_path, Entry, FILTERS)
+                   same_path, Entry, FILTERS, THISPC)
 from .library import Library, dir_target
 from .pipeline import Pipeline
 from .imaging import ThumbManager, InfoTask, Signals, init_formats
@@ -184,6 +184,7 @@ class MainWindow(QMainWindow):
                                 (("left", self.left_split), ("lib", self.libpage.split))}
         self._restore(start_path)
         self._qa_refresh()
+        self._start_review_watch()
         self._right_tab(self.cfg["details_tab"] or "details")
         self._notes_refresh()
         self._ready = True
@@ -3067,6 +3068,69 @@ class MainWindow(QMainWindow):
         self._quick_rename_actions(m, w, it, p)
         m.addAction("Unpin from Quick access", remove)
         m.exec(w.viewport().mapToGlobal(pos))
+
+    # ---------------- marquita REVIEW al día (el visor crea / borra imagen.ext.review.json)
+    def _start_review_watch(self):
+        """Carpetas locales visibles: un watcher avisa cuando cambia algo y se actualizan las marquitas REVIEW
+        sin recargar la carpeta. Al volver a la ventana (p. ej. desde el visor) también, incluso en red."""
+        from PySide6.QtCore import QFileSystemWatcher
+        self._rev_watch = QFileSystemWatcher(self)
+        self._rev_watch.directoryChanged.connect(lambda *_: self._rev_timer.start())
+        self._rev_timer = QTimer(self, singleShot=True, interval=350, timeout=self._review_sync)
+        self._rev_paths_timer = QTimer(self, interval=1500, timeout=self._review_watch_update)
+        self._rev_paths_timer.start()
+        QApplication.instance().applicationStateChanged.connect(
+            lambda st: st == Qt.ApplicationActive and self._rev_timer.start())
+
+    def _review_watch_update(self):
+        from .fileops import is_network_path
+        want = set()
+        for p in self.all_panes:
+            if p.isVisible() and not p.is_virtual():
+                d = p.current_dir()
+                if d and d != THISPC and not is_network_path(d) and os.path.isdir(d):
+                    want.add(os.path.normpath(d))
+        have = set(self._rev_watch.directories())
+        if have - want:
+            self._rev_watch.removePaths(list(have - want))
+        if want - have:
+            self._rev_watch.addPaths(list(want - have))
+
+    def _review_sync(self):
+        from .core import REVIEW_SUFFIX
+        from .asyncdir import run_async
+        n = len(REVIEW_SUFFIX)
+        for p in self.all_panes:
+            if not p.isVisible() or p.is_virtual() or not p.model.entries:
+                continue
+            d = p.current_dir()
+            if not d or d == THISPC or not reachable(d):
+                continue
+
+            def scan(d=d):
+                try:
+                    return {x[:-n].lower() for x in os.listdir(d) if x.lower().endswith(REVIEW_SUFFIX)}
+                except OSError:
+                    return None
+
+            def got(rev, p=p, d=d):
+                if rev is None or not same_path(p.current_dir() or "", d):
+                    return
+                changed = False
+                for e in p.model.entries:
+                    if e.kind == "file":
+                        v = e.name.lower() in rev
+                    elif e.kind == "seq":
+                        v = any(x.lower() in rev for x in e.files)
+                    else:
+                        continue
+                    if v != bool(getattr(e, "review", False)):
+                        e.review = v
+                        changed = True
+                if changed:
+                    p.grid.viewport().update()
+                    p.list.viewport().update()
+            run_async(scan, got, self)
 
     # ---------------- Notas del workspace (panel derecho › NOTES)
     def _notes_data(self):
