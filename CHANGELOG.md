@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.45.1
+- Dragging onto Quick access / Workspace Pins: the area where it will land is tinted light blue (like dropping on a folder in the tree) — Quick access or the Workspace Pins part, plus the light-blue line for the pins.
+
 ## 0.45.0
 - Quick access inside a workspace: dropping folders or files on the Workspace Pins part (the line and what follows, which lights up in light blue) pins them to the workspace; dropping on the rest pins folders to Quick access as before.
 - Tabs can be dragged out of the tab bar (up or down) onto Quick access, the «WORKSPACE PINS» title, the Workspace Pins list or the Workspace Pins part of Quick access. A dragged tab only carries its folder: dropping it anywhere else doesn't copy or move anything.

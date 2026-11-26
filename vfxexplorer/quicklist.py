@@ -83,6 +83,7 @@ class QuickList(QListWidget):
         self.accept_files = accept_files            # Workspace Pins: también archivos
         self.all_wspins = all_wspins                # la lista entera son Workspace Pins (otro pin)
         self._pins_hot = False
+        self._zone = None                           # mientras se arrastra encima: "quick" o "pins"
         self.setObjectName("quickList")
         self.setItemDelegate(QuickDelegate(self, pin_icon, wspin_icon))
         self.setIconSize(QSize(18, 18))
@@ -110,10 +111,40 @@ class QuickList(QListWidget):
         zone = self._in_pins_zone(ev.position().toPoint())
         return dropped_paths(ev.mimeData(), self.accept_files or zone), zone
 
-    def _hot(self, on):
-        if on != self._pins_hot:
-            self._pins_hot = on
+    def _hot(self, zone):
+        """zone: None, "quick" o "pins" (True/False por compatibilidad)."""
+        if zone is True:
+            zone = "pins"
+        elif zone is False:
+            zone = None
+        if zone != self._zone:
+            self._zone = zone
+            self._pins_hot = zone == "pins"
             self.viewport().update()
+
+    def _zone_rect(self):
+        vr = self.viewport().rect()
+        first = next((i for i in range(self.count()) if self.item(i).data(ROLE_WSPIN)), None)
+        if first is None:
+            return vr
+        top = self.visualItemRect(self.item(first)).top()
+        if self._zone == "pins":
+            return QRect(vr.left(), top, vr.width(), vr.bottom() - top + 1)
+        return QRect(vr.left(), vr.top(), vr.width(), max(0, top - vr.top()))
+
+    def paintEvent(self, ev):
+        super().paintEvent(ev)
+        if not self._zone:
+            return
+        # la zona donde va a caer lo que se arrastra, pintada de celeste muy suave (como en el árbol)
+        p = QPainter(self.viewport())
+        p.setRenderHint(QPainter.Antialiasing)
+        r = self._zone_rect().adjusted(3, 1, -3, -1)
+        if r.height() > 4:
+            p.setPen(QPen(QColor(76, 194, 255, 120), 1))
+            p.setBrush(QColor(76, 194, 255, 26))
+            p.drawRoundedRect(r, 6, 6)
+        p.end()
 
     def dragEnterEvent(self, ev):
         if ev.source() is self:
@@ -123,7 +154,7 @@ class QuickList(QListWidget):
         if paths:
             ev.setDropAction(Qt.LinkAction)
             ev.accept()
-            self._hot(zone)
+            self._hot("pins" if zone else "quick")
         else:
             ev.ignore()
 
@@ -135,9 +166,9 @@ class QuickList(QListWidget):
         if paths:
             ev.setDropAction(Qt.LinkAction)
             ev.accept()
-            self._hot(zone)
+            self._hot("pins" if zone else "quick")
         else:
-            self._hot(False)
+            self._hot(None)
             ev.ignore()
 
     def dragLeaveEvent(self, ev):
