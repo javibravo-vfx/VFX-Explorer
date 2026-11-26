@@ -3078,6 +3078,8 @@ class MainWindow(QMainWindow):
         from PySide6.QtCore import QFileSystemWatcher
         self._rev_watch = QFileSystemWatcher(self)
         self._rev_watch.directoryChanged.connect(self._folder_changed_on_disk)
+        # lo seleccionado se vigila aparte: si lo pisan (mismo nombre), la carpeta no siempre avisa
+        self._rev_watch.fileChanged.connect(lambda f: self._folder_changed_on_disk(os.path.dirname(f)))
         self._rev_timer = QTimer(self, singleShot=True, interval=350, timeout=self._review_sync)
         # carpetas que cambiaron: se ponen al día juntas, como mucho cada ~0.7 s (un render no satura la app)
         self._live_paths = set()
@@ -3120,6 +3122,20 @@ class MainWindow(QMainWindow):
             self._rev_watch.removePaths(list(have - want))
         if want - have:
             self._rev_watch.addPaths(list(want - have))
+        files = set()
+        if self.cfg["review_live"]:
+            for p in self.all_panes:
+                if p.isVisible() and not p.is_virtual() and os.path.normpath(p.current_dir() or "") in want:
+                    for e in p.selected_entries()[:20]:
+                        if e.kind == "file":
+                            files.add(os.path.normpath(e.path))
+                        elif e.kind == "seq" and e.files:
+                            files.add(os.path.normpath(os.path.join(e.dirpath, e.files[len(e.files) // 2])))
+        hf = set(self._rev_watch.files())
+        if hf - files:
+            self._rev_watch.removePaths(list(hf - files))
+        if files - hf:
+            self._rev_watch.addPaths([f for f in files - hf if os.path.isfile(f)])
 
     def _review_sync(self):
         from .core import REVIEW_SUFFIX

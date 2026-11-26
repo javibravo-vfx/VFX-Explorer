@@ -592,6 +592,18 @@ class ThumbManager(QObject):
     def key_for(e):
         return e.thumb_source()
 
+    def invalidate(self, keys):
+        """Archivos que cambiaron en disco (pisados): el thumbnail en memoria se descarta y se vuelve a hacer
+        (el de disco ya tiene la fecha y el tamaño en su clave)."""
+        keys = set(keys)
+        if not keys:
+            return
+        for k in keys:
+            self.cache.pop(k, None)
+            self.failed.discard(k)
+        for sk in [sk for sk in self.scaled if sk[0] in keys]:
+            self.scaled.pop(sk, None)
+
     def get(self, e, w=None, h=None):
         if not self.can_thumb(e):
             return None

@@ -1480,8 +1480,14 @@ class FilePane(QFrame):
 
     # ------------------------------------------------------------------ puesta al día sola
     @staticmethod
-    def _live_sig(entries):
-        return sorted((e.kind, e.name, len(e.files) if e.kind == "seq" else 0) for e in entries if e.kind != "header")
+    def _live_stamp(e):
+        return (e.size, round(e.mtime or 0, 2))
+
+    @classmethod
+    def _live_sig(cls, entries):
+        # nombre + tamaño + fecha: también detecta un archivo pisado por otro con el mismo nombre
+        return sorted((e.kind, e.name, len(e.files) if e.kind == "seq" else 0, cls._live_stamp(e))
+                      for e in entries if e.kind != "header")
 
     def live_update(self):
         """La pestaña visible se pone al día sola (archivos nuevos / borrados / renombrados): se relee en otro
@@ -1512,9 +1518,21 @@ class FilePane(QFrame):
                 return
             if self._live_sig(entries) == self._live_sig(self.model.entries):
                 return
+            # los que se pisaron (mismo nombre, otra fecha/tamaño): thumbnail nuevo y, si están seleccionados,
+            # Details se vuelve a cargar
+            old = {(e.kind, e.name): e for e in self.model.entries if e.kind != "header"}
+            changed = [e for e in entries if (e.kind, e.name) in old and e.kind != "dir"
+                       and self._live_stamp(old[(e.kind, e.name)]) != self._live_stamp(e)]
+            th = self.app.thumbs
+            th.invalidate([th.key_for(e) for e in changed] + [th.key_for(old[(e.kind, e.name)]) for e in changed])
             self._live_prev = self._tab_sel_names()
+            touched_sel = bool({e.name for e in changed} & set(self._live_prev))
+            if touched_sel:
+                self._live_prev = None             # fuerza que Details se actualice
             bars = (self.grid.verticalScrollBar().value(), self.list.verticalScrollBar().value())
-            self.pending_select = list(self._live_prev) or None
+            self.pending_select = self._tab_sel_names() or None
+            if touched_sel and hasattr(self.app, "_info_entry"):
+                self.app._info_entry = None
             self._live = True
             try:
                 self.gen += 1

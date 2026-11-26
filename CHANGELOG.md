@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.43.1
+- A file overwritten by another with the same name (new date or size) gets a new thumbnail, and if it is selected Details reloads its preview. The selected files are watched too (a folder doesn't always notify when a file's content changes); the rest update when you come back to the window.
+
 ## 0.43.0
 - Open folders update by themselves: new, deleted or renamed files show up in the tab you are looking at without F5 — right away in local folders (Windows notifies the change; the folder is re-read in the background and only updated if something changed), and in network folders when you come back to the window. Selection, scroll and the Details preview stay put; many changes in a row (a render, a big copy) are applied at most about once a second.
 - Settings › General: the option is now «Update the open folders by themselves» (also covers the REVIEW tags). Off: F5 or coming back to the window.
