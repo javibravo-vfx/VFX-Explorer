@@ -1509,10 +1509,17 @@ class MainWindow(QMainWindow):
             if not is_here(dst.currentItem()):
                 dst.sync(here)                    # con el árbol ya visible (si no, no se puede desplazar)
             place()
+        self._mt_place = (tok, dst, place)        # si la carpeta llega más tarde (red), se acomoda ahí
         # el árbol puede seguir abriendo ramas (o leyendo carpetas) un rato después: se reacomoda unas veces
         if here == "::thispc" or on or reachable(here):
             for ms in (0, 60, 200, 500):
                 QTimer.singleShot(ms, align)
+
+    def tree_synced(self, tree):
+        """El árbol terminó de leer (en red) la carpeta abierta: si fue al prender/apagar el Bonsai, alinearla."""
+        mp = getattr(self, "_mt_place", None)
+        if mp and mp[0] == getattr(self, "_mt_tok", 0) and mp[1] is tree:
+            mp[2]()
 
     def _clear_minitree(self):
         self.minitree.clear_all()

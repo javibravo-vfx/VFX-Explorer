@@ -594,8 +594,14 @@ class FolderTree(_LinedMixin, QTreeWidget):
         if it is None:
             return
         self._apply_names(it, path, names)
-        if self._trace_path and self._key(self._trace_path).startswith(self._key(path)):
-            self.sync(self._trace_path)
+        # la carpeta a la que había que llegar (en red se lee de a un nivel, en otro hilo): seguir bajando
+        target = self._trace_path or getattr(self, "_pending_sync", "")
+        if target and self._key(target).startswith(self._key(path)):
+            self.sync(target)
+            if self._key(self._trace_path or "") == self._key(target):
+                cb = getattr(self.app, "tree_synced", None)
+                if cb:
+                    cb(self)
 
     def _apply_names(self, it, path, names):
         if names is None:                          # servidor caído: se reintenta al volver a abrir
@@ -670,7 +676,10 @@ class FolderTree(_LinedMixin, QTreeWidget):
             self._syncing = False
             self.scrollToItem(it)
             self.set_trace_path(path)
+            self._pending_sync = ""
         else:
+            # todavía no está (una carpeta de red que se está leyendo): se recuerda y se marca al llegar
+            self._pending_sync = path or ""
             self._syncing = True
             self.clearSelection()
             self.setCurrentItem(None)

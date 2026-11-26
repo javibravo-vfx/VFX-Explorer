@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.47.2
+- Turning the Bonsai off in a network folder (NAS): the full tree now marks the open folder as soon as it finishes reading it, without clicking again. Before, it lost track of the folder while reading the NAS and only got there one level per click.
+
 ## 0.47.1
 - Each workspace keeps its own Bonsai: what you prune stays pruned, and folders opened in another workspace don't show up when you come back. Resetting Default prunes it.
 
