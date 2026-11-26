@@ -565,6 +565,7 @@ class MainWindow(QMainWindow):
 
         self.libpage = LibraryPage(self)
         self.libpane = self.libpage.pane
+        self.libpane.active_bar.hide()            # la librería es un solo panel: sin la línea de activo
         from .slots import SlotController
         self.lib_slots = SlotController(self, self.libpage)      # Ctrl / Shift + 1…4 en el player
         lp = self.libpane
@@ -831,7 +832,8 @@ class MainWindow(QMainWindow):
 
         self.setStyleSheet(f"""
             #pane {{ border:none; }}
-            #paneNav[active="true"] {{ border-bottom:2px solid {ACCENT}; }}
+            #paneActiveBar {{ background:transparent; }}
+            #paneActiveBar[active="true"] {{ background:{ACCENT}; }}
             #paneHeader {{ background:#191919; }}
             #navHost {{ background:#2b2b2b; border-bottom:1px solid #232323; }}
             #paneTabs {{ background:#191919; }}

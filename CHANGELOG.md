@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.37.1
+- Dual pane: the light-blue line that marks the active pane is now drawn at the top of that pane's content, exactly as wide as the pane (before, in top/bottom mode, it ran under the whole address row).
+
 ## 0.37.0
 - Workspace notes: the right panel has «DETAILS | NOTES». Notes is a to-do list (tick with the box or Space, edit with double-click / F2, Del removes, drag to reorder, right-click › Clear done items) and a free text block. Each workspace has its own notes (Default too); they are saved with the app's settings.
 - A small light-blue dot next to NOTES — and on the Details button when the panel is closed — tells that the workspace has something written.

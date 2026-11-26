@@ -574,6 +574,11 @@ class FilePane(QFrame):
             b.setCheckable(True)
             b.hide()
         lay.addWidget(self.header)
+        # doble panel: línea celeste arriba del contenido del panel activo (justo de su ancho)
+        self.active_bar = QFrame()
+        self.active_bar.setObjectName("paneActiveBar")
+        self.active_bar.setFixedHeight(2)
+        lay.addWidget(self.active_bar)
 
         self.banner = QLabel()
         self.banner.setObjectName("paneBanner")
@@ -748,7 +753,7 @@ class FilePane(QFrame):
 
     def set_active(self, active):
         self.setProperty("active", bool(active))
-        for w in (self, self.navrow):
+        for w in (self, self.active_bar):
             w.setProperty("active", bool(active))
             w.style().unpolish(w)
             w.style().polish(w)
