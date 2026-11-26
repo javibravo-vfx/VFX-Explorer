@@ -2613,6 +2613,9 @@ class MainWindow(QMainWindow):
             except Exception as ex:
                 self.status.setText(f"Could not open the player: {ex}")
         viewer = self.cfg["image_viewer"]
+        if not viewer:                                 # sin configurar: Photo Lite Fast si está al lado del exe
+            from .core import find_image_viewer
+            viewer = find_image_viewer()
         if with_player and viewer and os.path.isfile(viewer) and e.kind == "file" and e.cat == "image":
             try:
                 subprocess.Popen([viewer, e.path])     # visor de imágenes elegido en Settings

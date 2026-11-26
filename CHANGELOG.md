@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.41.0
+- Review notes of the image viewer (image.ext.review.json next to the image) are no longer listed (they show with «hidden items» on); the image gets an orange «REVIEW» tag on its thumbnail and in the list. Numbered photos collapsed into a sequence get it if any frame has notes.
+- Image viewer: with nothing set in Settings, a PhotoLiteFast*.exe next to VFX Explorer (or one folder inside) is used automatically — the newest version if there are several (e.g. PhotoLiteFast12.exe). Settings shows which one was found.
+
 ## 0.40.1
 - App icon: back to the classic colors (solid yellow folders with the light band on top and the blue viewfinder), with the new bigger shape — the back folder peeks out less, separated by a thin cut.
 

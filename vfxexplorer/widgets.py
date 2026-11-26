@@ -800,6 +800,15 @@ class GridDelegate(QStyledItemDelegate):
                 p.drawRoundedRect(QRectF(br), 3, 3)
                 p.setPen(QColor("#111"))
                 p.drawText(br, Qt.AlignCenter, label)
+            if getattr(e, "review", False):            # notas de review del visor al lado de la imagen
+                rl = "REVIEW"
+                rw = fm.horizontalAdvance(rl) + 10
+                rr = QRect(th.right() - rw - 3, th.y() + 4, rw, fm.height() + 2)
+                p.setPen(Qt.NoPen)
+                p.setBrush(QColor(REVIEW_COLOR))
+                p.drawRoundedRect(QRectF(rr), 3, 3)
+                p.setPen(QColor("#111"))
+                p.drawText(rr, Qt.AlignCenter, rl)
             if scrub_label is not None:
                 frac = min(1.0, max(0.0, scrub[1]))
                 p.setPen(Qt.NoPen)
@@ -934,8 +943,36 @@ def set_name_editor_data(editor, e):
     QTimer.singleShot(0, lambda: editor.setSelection(0, n))
 
 
+REVIEW_COLOR = "#ff9b6b"          # marquita «REVIEW»: la imagen tiene notas del visor
+
+
 class ListNameDelegate(QStyledItemDelegate):
-    """Delegate de la lista: solo personaliza la edición del nombre."""
+    """Delegate de la lista: la edición del nombre y la marquita REVIEW."""
+
+    def paint(self, p, option, index):
+        super().paint(p, option, index)
+        if index.column() != 0:
+            return
+        e = index.data(ROLE_ENTRY)
+        if e is None or not getattr(e, "review", False):
+            return
+        p.save()
+        f = QFont(option.font)
+        f.setPointSizeF(max(6.5, f.pointSizeF() * .72))
+        f.setBold(True)
+        p.setFont(f)
+        fm = QFontMetrics(f)
+        rl = "REVIEW"
+        rw = fm.horizontalAdvance(rl) + 8
+        r = option.rect
+        rr = QRect(r.right() - rw - 4, r.y() + (r.height() - fm.height() - 2) // 2, rw, fm.height() + 2)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(REVIEW_COLOR))
+        p.drawRoundedRect(QRectF(rr), 3, 3)
+        p.setPen(QColor("#111"))
+        p.drawText(rr, Qt.AlignCenter, rl)
+        p.restore()
 
     def createEditor(self, parent, option, index):
         return make_name_editor(parent)
@@ -1587,8 +1624,14 @@ class SettingsDialog(QDialog):
         lay.addRow("Player:", w)
         lay.addRow("", _hint("Opens sequences and videos on double click. Empty = default app."))
         w, self.img_viewer = self._path_row(cfg["image_viewer"], "Image viewer", exe_f)
+        from .core import find_image_viewer
+        auto = find_image_viewer()
+        if auto:
+            self.img_viewer.setPlaceholderText(f"Auto: {os.path.basename(auto)} (next to VFX Explorer)")
         lay.addRow("Image viewer:", w)
-        lay.addRow("", _hint("Opens images on double click. Empty = default app."))
+        lay.addRow("", _hint("Opens images on double click. Empty = PhotoLiteFast*.exe if it is next to "
+                             "VFX Explorer" + (f" (found: {os.path.basename(auto)})" if auto else "")
+                             + ", otherwise the default app."))
         w, self.ffmpeg = self._path_row(cfg["ffmpeg"], "ffmpeg.exe", exe_f)
         lay.addRow("ffmpeg:", w)
         found = find_tool(cfg["ffmpeg"], "ffmpeg")

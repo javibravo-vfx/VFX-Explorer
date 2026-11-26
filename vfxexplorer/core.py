@@ -308,6 +308,7 @@ class Entry:
     frames: list = field(default_factory=list)
     files: list = field(default_factory=list)
     _missing: list = None
+    review: bool = False     # hay notas de review al lado (imagen.ext.review.json, del visor de imágenes)
 
     @property
     def cat(self):
@@ -480,7 +481,43 @@ def scan_dir(path, show_hidden=False, collapse=True):
                     files.append((name, st.st_size, st.st_mtime))
             except OSError:
                 continue
-    return dirs + group_files(path, files, collapse)
+    # notas de review del visor (imagen.jpg.review.json): no se listan; la imagen lleva la marquita
+    reviews = {f[0][:-len(REVIEW_SUFFIX)].lower() for f in files if f[0].lower().endswith(REVIEW_SUFFIX)}
+    if reviews and not show_hidden:
+        files = [f for f in files if not f[0].lower().endswith(REVIEW_SUFFIX)]
+    out = group_files(path, files, collapse)
+    if reviews:
+        for e in out:
+            if e.kind == "file":
+                e.review = e.name.lower() in reviews
+            elif e.kind == "seq":
+                e.review = any(n.lower() in reviews for n in e.files)
+    return dirs + out
+
+
+REVIEW_SUFFIX = ".review.json"
+
+
+def find_image_viewer():
+    """Visor de imágenes portable al lado de VFX Explorer: PhotoLiteFast*.exe (la versión más nueva si hay
+    varias, p. ej. PhotoLiteFast12.exe). Busca en la carpeta del exe y una carpeta adentro."""
+    base = app_dir()
+    found = []
+    try:
+        cands = [os.path.join(base, n) for n in os.listdir(base)]
+        for d in [c for c in cands if os.path.isdir(c)]:
+            try:
+                cands += [os.path.join(d, n) for n in os.listdir(d)]
+            except OSError:
+                pass
+    except OSError:
+        return ""
+    for c in cands:
+        n = os.path.basename(c).lower()
+        if n.startswith("photolitefast") and n.endswith(".exe") and os.path.isfile(c):
+            m = re.search(r"(\d+)", n[len("photolitefast"):])
+            found.append((int(m.group(1)) if m else 0, c))
+    return max(found)[1] if found else ""
 
 
 # ----------------------------------------------------------------------------
