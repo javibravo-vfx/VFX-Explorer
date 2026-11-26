@@ -886,13 +886,15 @@ class MainWindow(QMainWindow):
         self.apply_pipeline_location()
 
     # ------------------------------------------------------------------ cabeceras / sidebar
-    def _place_headers(self):
+    def _place_headers(self, dual_override=None):
         """Arriba, a todo el ancho: las pestañas y la dirección de File Explorer, con ← → ↑ ⟳ y el buscador
         compartidos (trabajan sobre el panel activo). Doble panel lado a lado: cada panel tiene sus pestañas y su
         dirección arriba, alineadas con él. Doble panel arriba/abajo (F10): el de abajo lleva las suyas adentro.
         La VFX Library tiene sus propias pestañas en el centro, entre el viewer y los elementos."""
         orient = self.cfg["dual_orient"] or "h"
         dual = bool(self.cfg["dual"]) if self.mode() == "library" else self.paneB.isVisible()
+        if dual_override is not None and self.mode() != "library":
+            dual = bool(dual_override)
         side = dual and orient == "h"
         stacked = dual and orient == "v"
         th, nh = self.tabs_host.layout(), self.nav_host.layout()
@@ -2055,17 +2057,6 @@ class MainWindow(QMainWindow):
             return None
         return self.paneB if pane is self.paneA else self.paneA
 
-    def _freeze_paint(self, ms=60):
-        """Congela el pintado de la ventana hasta que el reacomodo terminó (evita el parpadeo)."""
-        if not self.isVisible() or not self.updatesEnabled():
-            return
-        self.setUpdatesEnabled(False)
-
-        def thaw():
-            self.setUpdatesEnabled(True)
-            self.update()
-        QTimer.singleShot(ms, thaw)
-
     def toggle_dual(self, force=None, orient=None):
         """F9 / botón: doble panel lado a lado · F10 / botón: uno arriba del otro."""
         if force is None and self.mode() != "explorer":
@@ -2080,8 +2071,9 @@ class MainWindow(QMainWindow):
             show = force
         if orient:
             self.cfg["dual_orient"] = orient
-        # sin pintar mientras se reacomodan pestañas y direcciones (si no, se ve un cuadro intermedio)
-        self._freeze_paint()
+        if show:
+            # las pestañas y direcciones se reacomodan ANTES de mostrar el panel B (sin cuadro intermedio)
+            self._place_headers(dual_override=True)
         self.paneB.setVisible(show)
         o = self.cfg["dual_orient"] or "h"
         self.act_dual.setChecked(show and o == "h")
