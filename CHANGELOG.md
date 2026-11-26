@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.40.0
+- New app icon (exe, window and taskbar): same two folders and viewfinder, now in the style of the app's icons — back folder solid yellow, front folder a yellow outline with its inside cut out, light-blue viewfinder — and bigger, using almost the whole square.
+
 ## 0.39.1
 - Dragging from the center pane: instead of the big thumbnail (which covered the target), a small thumbnail below-right of the cursor — stacked when there are several, with a light-blue circle showing how many. The cursor tip stays free to aim.
 

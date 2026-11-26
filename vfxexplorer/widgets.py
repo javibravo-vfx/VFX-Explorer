@@ -554,37 +554,39 @@ class Icons:
 # Delegate de la grilla
 # ----------------------------------------------------------------------------
 
-APP_ICON_FOLDERS = ("#e6a820", "#ffcf48")     # atrás, adelante (el amarillo de las carpetas de Windows)
-APP_ICON_FRONT_TOP = "#fbd976"
-APP_ICON_MARKER = "#0a7bca"                    # el azul del ícono del Explorador
+APP_ICON_LINE = "#ffcf48"                      # contorno de la carpeta de adelante
+APP_ICON_BACK = "#c99a1e"                      # carpeta de atrás (sólida)
+APP_ICON_MARKER = "#4cc2ff"                    # visor celeste (el de la VFX Library)
 
 
 def app_icon_pixmap(S):
-    """Carpeta grande (amarillo Windows) con el tracking marker azul y otra pegadita atrás."""
+    """Dos carpetas: la de atrás sólida en amarillo y la de adelante de contorno, calada (se ve el fondo), con el
+    visor celeste adentro. El conjunto ocupa casi todo el cuadro para que en la barra de tareas se vea grande."""
     pm = QPixmap(S, S)
     pm.fill(Qt.transparent)
     p = QPainter(pm)
     p.setRenderHint(QPainter.Antialiasing)
-    p.setPen(Qt.NoPen)
-    # el conjunto (carpeta de adelante 49×40 + la de atrás corrida 7, 7) ocupa casi todo el cuadro,
-    # centrado, para que en la barra de tareas se vea del mismo tamaño que los demás íconos
-    k = S / 64.0 * (62.0 / 56.0)
-    ox, oy = (S - 56 * k) / 2, (S - 47 * k) / 2
-    fx, fy, fw, fh = ox + 7 * k, oy, 49 * k, 40 * k          # carpeta de adelante
+    gw, gh, off = 53, 47, 6                    # carpeta de adelante 47×41, la de atrás corrida 6, 6
+    k = S / 64.0 * (63.0 / gw)
+    ox, oy = (S - gw * k) / 2, (S - gh * k) / 2
+    fx, fy, fw, fh = ox + off * k, oy, 47 * k, 41 * k
     r = 6 * k
-    p.setBrush(QColor(APP_ICON_FOLDERS[0]))                    # la de atrás asoma apenas
-    p.drawRoundedRect(QRectF(fx - 7 * k, fy + 7 * k, fw, fh), r, r)
-    p.setBrush(QColor(APP_ICON_FOLDERS[1]))
-    p.drawRoundedRect(QRectF(fx, fy, fw, fh), r, r)
-    p.save()
-    p.setClipRect(QRectF(fx, fy, fw, fh * .23))
-    p.setBrush(QColor(APP_ICON_FRONT_TOP))
-    p.drawRoundedRect(QRectF(fx, fy, fw, fh), r, r)
-    p.restore()
-    # tracking marker: cuatro esquinas tipo visor + cruz al centro
-    col = QColor(APP_ICON_MARKER)
-    p.setPen(QPen(col, max(1.0, fw * .072), Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+    lw = max(1.0, fw * .07)
+    ins = lw / 2
+    front = QRectF(fx + ins, fy + ins, fw - 2 * ins, fh - 2 * ins)
+    back = QRectF(fx - off * k + ins, fy + off * k + ins, fw - 2 * ins, fh - 2 * ins)
+    fp = QPainterPath()
+    fp.addRoundedRect(front, r, r)
+    bp = QPainterPath()
+    bp.addRoundedRect(back, r, r)
+    gap = QPainterPath()                       # la de adelante «calada»: la de atrás no se ve a través
+    gap.addRoundedRect(front.adjusted(-lw * 1.1, -lw * 1.1, lw * 1.1, lw * 1.1), r + lw, r + lw)
+    p.fillPath(bp.subtracted(gap), QColor(APP_ICON_BACK))
+    p.setPen(QPen(QColor(APP_ICON_LINE), lw, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
     p.setBrush(Qt.NoBrush)
+    p.drawPath(fp)
+    col = QColor(APP_ICON_MARKER)              # visor: cuatro esquinas + cruz al centro
+    p.setPen(QPen(col, max(1.0, fw * .072), Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
     x0, x1 = fx + fw * .172, fx + fw * .828
     y0, y1 = fy + fh * .2, fy + fh * .81
     ax, ay = fw * .19, fh * .19
