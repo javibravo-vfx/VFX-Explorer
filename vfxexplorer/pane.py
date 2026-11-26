@@ -4,7 +4,7 @@
 import os
 
 from PySide6.QtCore import (Qt, Signal, QSize, QTimer, QEvent, QItemSelectionModel, QRect, QPersistentModelIndex,
-                            QModelIndex, QRectF, QPointF)
+                            QModelIndex, QRectF, QPointF, QPoint)
 from PySide6.QtGui import QKeySequence, QShortcut, QCursor, QPainter, QPainterPath, QColor, QPen, QFont
 from PySide6.QtWidgets import (QSizePolicy, QFrame, QVBoxLayout, QHBoxLayout, QTabBar, QToolButton, QLineEdit, QComboBox,
                                QCheckBox, QListView, QTreeView, QStackedWidget, QAbstractItemView, QHeaderView,
@@ -65,8 +65,91 @@ class _ViewMixin:
             QTimer.singleShot(0, lambda: self.pane.app.handle_drop(self.pane, paths, target, mods, pos))
 
     def startDrag(self, actions):
-        super().startDrag(Qt.CopyAction)
+        """Arrastrar: en vez del thumbnail grande (que tapa el destino), una miniatura chica abajo a la derecha
+        del cursor, apilada si son varias, con un circulito celeste que dice cuántas son."""
+        from PySide6.QtGui import QDrag
+        rows = sorted({ix.row() for ix in self.selectionModel().selectedIndexes()})
+        idx = [self.model().index(r, 0) for r in rows]
+        md = self.model().mimeData(idx) if idx else None
+        if md is None or not md.hasUrls():
+            super().startDrag(Qt.CopyAction)
+            self.pane.app.drag_finished()
+            return
+        drag = QDrag(self)
+        drag.setMimeData(md)
+        try:
+            pm = self._drag_pixmap([ix.data(ROLE_ENTRY) for ix in idx[:3]], len(idx))
+            drag.setPixmap(pm)
+            drag.setHotSpot(QPoint(0, 0))
+        except Exception:
+            pass
+        drag.exec(Qt.CopyAction)
         self.pane.app.drag_finished()
+
+    def _drag_pixmap(self, ents, count):
+        from PySide6.QtGui import QPixmap
+        from .widgets import icon_dpr
+        app = self.pane.app
+        TW, TH = 44, 33                     # miniatura
+        OX, OY = 18, 16                     # separación del cursor (la punta queda libre)
+        n = max(1, min(3, len(ents)))
+        W, H = OX + TW + 3 * (n - 1) + 14, OY + TH + 3 * (n - 1) + 4
+        d = icon_dpr()
+        pm = QPixmap(int(W * d), int(H * d))
+        pm.setDevicePixelRatio(d)
+        pm.fill(Qt.transparent)
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setRenderHint(QPainter.SmoothPixmapTransform)
+        for k in reversed(range(n)):
+            e = ents[k] if k < len(ents) else None
+            r = QRect(OX + k * 3, OY + 3 * (n - 1) - k * 3, TW, TH)
+            path = QPainterPath()
+            path.addRoundedRect(r, 4, 4)
+            p.fillPath(path, QColor(40, 40, 40, 235))
+            img = None
+            if e is not None and e.kind != "dir":
+                try:
+                    img = app.thumbs.get(e)
+                except Exception:
+                    img = None
+            p.save()
+            p.setClipPath(path)
+            if img is not None and not img.isNull():
+                s = img.scaled(int(TW * d), int(TH * d), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+                s.setDevicePixelRatio(d)
+                sw, sh = s.width() / d, s.height() / d
+                p.drawPixmap(int(r.x() + (TW - sw) / 2), int(r.y() + (TH - sh) / 2), s)
+            elif e is not None:
+                ic = app.icons.folder_icon(app.entry_color(e), 24) if e.kind == "dir" else self._entry_icon(e)
+                if ic is not None:
+                    ic.paint(p, QRect(r.x() + (TW - 24) // 2, r.y() + (TH - 24) // 2, 24, 24))
+            p.restore()
+            p.setPen(QPen(QColor(20, 20, 20), 1))
+            p.setBrush(Qt.NoBrush)
+            p.drawRoundedRect(r, 4, 4)
+        if count > 1:
+            c = QPoint(OX + TW + 3 * (n - 1) + 4, OY - 2)
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor("#4cc2ff"))
+            rad = 9 if count < 100 else 11
+            p.drawEllipse(c, rad, rad)
+            f = QFont(self.font())
+            f.setPointSizeF(7.5)
+            f.setBold(True)
+            p.setFont(f)
+            p.setPen(QColor("#08202e"))
+            p.drawText(QRect(c.x() - rad, c.y() - rad, 2 * rad, 2 * rad), Qt.AlignCenter, str(count))
+        p.end()
+        return pm
+
+    def _entry_icon(self, e):
+        try:
+            sp = self.pane.app.sys_icon(e, 24)
+            from PySide6.QtGui import QIcon
+            return QIcon(sp) if sp is not None else self.pane.app.icons.badge(e)
+        except Exception:
+            return None
 
     def mouseReleaseEvent(self, ev):
         if ev.button() == Qt.MiddleButton:

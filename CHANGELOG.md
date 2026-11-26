@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.39.1
+- Dragging from the center pane: instead of the big thumbnail (which covered the target), a small thumbnail below-right of the cursor — stacked when there are several, with a light-blue circle showing how many. The cursor tip stays free to aim.
+
 ## 0.39.0
 - Workspace Pins: drop folders **or files** on the «WORKSPACE PINS» title, even while looking at Quick access. A pinned file takes you to its folder with the file selected (right-click › Open opens it).
 - Quick access inside a workspace: after the last Quick access item, a line and then this workspace's pins. «WORKSPACE PINS» still shows only the pins.
