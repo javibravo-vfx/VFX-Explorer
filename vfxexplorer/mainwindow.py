@@ -1071,18 +1071,38 @@ class MainWindow(QMainWindow):
             self._details_auto_off = False
             self.toggle_details(True, remember=False)
 
-    def _palette_icon(self):
-        from PySide6.QtGui import QPixmap, QPainter, QColor, QIcon
-        pm = QPixmap(16, 16)
+    PALETTE_ICON = {   # los 4 cuadraditos según el modo de color (None = cuadradito vacío)
+        "manual": ("#f4c443", None, None, None),
+        "project": ("#e5484d", "#e76958", "#e98a67", "#eca877"),      # un proyecto virando por niveles
+        "name": ("#f4c443", "#4ea1ff", "#ff6b6b", "#3ecf8e"),
+        "both": ("#e5484d", "#e98a67", "#4ea1ff", "#3ecf8e"),
+    }
+
+    def _palette_icon(self, mode=None):
+        from PySide6.QtGui import QPixmap, QPainter, QColor, QIcon, QPen
+        from PySide6.QtCore import QRectF
+        cols = self.PALETTE_ICON.get(mode or self.cfg["color_mode"] or "project", self.PALETTE_ICON["name"])
+        dpr = 2
+        pm = QPixmap(16 * dpr, 16 * dpr)
+        pm.setDevicePixelRatio(dpr)
         pm.fill(Qt.transparent)
         p = QPainter(pm)
         p.setRenderHint(QPainter.Antialiasing)
-        p.setPen(Qt.NoPen)
-        for (x, y), c in zip(((1, 1), (9, 1), (1, 9), (9, 9)), ("#f4c443", "#4ea1ff", "#ff6b6b", "#3ecf8e")):
-            p.setBrush(QColor(c))
-            p.drawRoundedRect(x, y, 6, 6, 2, 2)
+        for (x, y), c in zip(((1, 1), (9, 1), (1, 9), (9, 9)), cols):
+            if c:
+                p.setPen(Qt.NoPen)
+                p.setBrush(QColor(c))
+                p.drawRoundedRect(QRectF(x, y, 6, 6), 1.6, 1.6)
+            else:
+                p.setPen(QPen(QColor("#6e6e6e"), 1))
+                p.setBrush(Qt.NoBrush)
+                p.drawRoundedRect(QRectF(x + .5, y + .5, 5, 5), 1.4, 1.4)
         p.end()
         return QIcon(pm)
+
+    def update_palette_icon(self):
+        if hasattr(self, "b_colors"):
+            self.b_colors.setIcon(self._palette_icon())
 
     def _fill_colors_menu(self):
         m = self.m_colors
@@ -1100,6 +1120,7 @@ class MainWindow(QMainWindow):
     def set_color_mode(self, key):
         self.cfg["color_mode"] = key
         self.colors.reload()
+        self.update_palette_icon()
         self.save_soon()
         self.refresh_views()
         self._reload_sidebar()
@@ -4001,6 +4022,7 @@ class MainWindow(QMainWindow):
                 for pb in self.pipebars:
                     pb.reload()
             self.colors.reload()
+            self.update_palette_icon()
             self._cf_rules = None
             self.icons.set_default_folder(self.cfg["folder_color"] or "yellow")
             self._reload_sidebar()

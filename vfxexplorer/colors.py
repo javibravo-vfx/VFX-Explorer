@@ -38,8 +38,10 @@ ref* = #00a2c7
 PROJECT_PALETTE = ["#e5484d", "#f76b15", "#f5d90a", "#30a46c", "#0ac5f5", "#3e63dd", "#8e4ec6",
                    "#e93d82", "#12a594", "#ffb224", "#5b5bd6", "#d6409f"]
 
-# cuánto se aclara cada nivel: proyecto, secuencia, shot, adentro del shot
-LEVEL_MIX = (0.0, 0.30, 0.52, 0.64)
+# cada nivel (proyecto, secuencia, shot, adentro del shot) vira un poco el hue y se aclara apenas
+LEVEL_HUE = 9          # grados por nivel
+LEVEL_LIGHT = 0.035    # luz (HSL) por nivel
+LEVEL_MAX = 3
 
 
 def parse_rules(text):
@@ -53,6 +55,18 @@ def parse_rules(text):
         if pat and QColor(col).isValid():
             rules.append((pat, QColor(col).name()))
     return rules
+
+
+def level_shift(hexc, level):
+    """Color del proyecto corrido «level» niveles: +9° de hue y +3,5% de luz por nivel (hasta 3 niveles)."""
+    import colorsys
+    level = max(0, min(level, LEVEL_MAX))
+    c = QColor(hexc)
+    h, l, s = colorsys.rgb_to_hls(c.redF(), c.greenF(), c.blueF())
+    h = (h + LEVEL_HUE * level / 360.0) % 1.0
+    l = min(0.85, l + LEVEL_LIGHT * level)
+    r, g, b = colorsys.hls_to_rgb(h, l, s)
+    return QColor(round(r * 255), round(g * 255), round(b * 255)).name()
 
 
 def mix_white(hexc, t):
@@ -108,7 +122,7 @@ class ColorEngine:
         if not base:
             h = int(hashlib.md5(parts[idx].lower().encode()).hexdigest(), 16)
             base = PROJECT_PALETTE[h % len(PROJECT_PALETTE)]
-        return mix_white(base, LEVEL_MIX[min(level, len(LEVEL_MIX) - 1)])
+        return level_shift(base, level)
 
     def dir_color(self, path):
         """Color de una carpeta: el manual gana; si no, el automático según el modo."""

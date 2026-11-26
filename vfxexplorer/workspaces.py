@@ -45,6 +45,7 @@ def apply_colors(app, c):
     app.cfg["color_mode"] = c.get("mode", app.cfg["color_mode"])
     app.cfg["tree_line_colors"] = bool(c.get("lines", app.cfg["tree_line_colors"]))
     app.colors.reload()
+    app.update_palette_icon()
     on = bool(c.get("cfilters", app.cfg["color_filters_on"]))
     if app.act_cfilter.isChecked() != on:
         app.act_cfilter.setChecked(on)            # (lo aplica _toggle_color_filters)
