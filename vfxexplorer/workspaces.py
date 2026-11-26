@@ -34,7 +34,16 @@ def capture(app):
     # colores: cada workspace con los suyos (automáticos, líneas del árbol, Color filters de los nombres)
     st["colors"] = {"mode": app.cfg["color_mode"] or "project", "lines": bool(app.cfg["tree_line_colors"]),
                     "cfilters": bool(app.cfg["color_filters_on"])}
+    st["bonsai"] = list(app.cfg["mini_tree"] or [])     # cada workspace con su Bonsai (lo que podaste queda podado)
     return st
+
+
+def apply_bonsai(app, lst):
+    """Antes de abrir las carpetas del workspace: su Bonsai (None = workspace viejo sin Bonsai guardado: no se toca)."""
+    if lst is None:
+        return
+    app.cfg["mini_tree"] = list(lst)
+    app.minitree.rebuild()
 
 
 FACTORY_COLORS = {"mode": "project", "lines": True, "cfilters": False}
@@ -61,6 +70,7 @@ def apply(app, st):
     if app.mode() != "explorer":
         app.set_mode("explorer")
     apply_colors(app, st.get("colors"))           # (un workspace viejo sin colores guardados: los de fábrica)
+    apply_bonsai(app, st.get("bonsai"))
     panes = st.get("panes") or []
     remember = bool(app.cfg["ws_remember_selection"])
     for i, p in enumerate(app.panes):
@@ -112,6 +122,7 @@ def reset_layout(app):
     if app.mode() != "explorer":
         app.set_mode("explorer")
     apply_colors(app, None)                       # los colores también vuelven a los de fábrica
+    apply_bonsai(app, [])                         # y el Bonsai arranca podado (queda solo la carpeta que se abre)
     for p in app.panes:
         p._stop_search()
         p.clear_tabs()

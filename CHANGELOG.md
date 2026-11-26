@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.47.1
+- Each workspace keeps its own Bonsai: what you prune stays pruned, and folders opened in another workspace don't show up when you come back. Resetting Default prunes it.
+
 ## 0.47.0
 - Color by project: each level (sequence, shot, inside the shot) now shifts the hue a little (+9°) and gets only slightly lighter (+3.5%), instead of fading toward white.
 - The colors button (4 squares) shows the current mode: Manual only (one yellow square), By project (one project's shades), By name (4 different colors), Project + name (2 and 2).
