@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.39.0
+- Workspace Pins: drop folders **or files** on the «WORKSPACE PINS» title, even while looking at Quick access. A pinned file takes you to its folder with the file selected (right-click › Open opens it).
+- Quick access inside a workspace: after the last Quick access item, a line and then this workspace's pins. «WORKSPACE PINS» still shows only the pins.
+- Right-click on files in the center pane › «Pin to Workspace Pins».
+- Details panel: «NOTES» is now «WORKSPACE NOTES».
+
 ## 0.38.3
 - F9 / F10 when closing the dual pane: the tabs of the remaining pane take the full width right away (no flash of the tab travelling back).
 

@@ -26,7 +26,7 @@ from .tree import FolderTree, MiniTree
 from .dirsize import DirSizeManager
 from .library_ui import LibraryPage, LibrarySidebar
 from .pipebar import PipelineBar
-from .quicklist import QuickList
+from .quicklist import QuickList, DropTabButton
 from .tagbar import QuickTagBar
 from . import fileops
 
@@ -342,7 +342,7 @@ class MainWindow(QMainWindow):
         self.favs = QuickList(pin)
         self.lib_favs = QuickList(pin)
         for w, menu_fn, click_fn, lib in (
-                (self.favs, self._favs_menu, lambda it: it.data(Qt.UserRole) and self.open_in_explorer(it.data(Qt.UserRole)), False),
+                (self.favs, self._favs_menu, lambda it: it.data(Qt.UserRole) and self._open_quick_item(it), False),
                 (self.lib_favs, self._lib_favs_menu, lambda it: it.data(Qt.UserRole) and self.open_library(it.data(Qt.UserRole)), True)):
             w.setContextMenuPolicy(Qt.CustomContextMenu)
             w.customContextMenuRequested.connect(lambda pos, w=w, f=menu_fn: f(w, pos))
@@ -355,10 +355,10 @@ class MainWindow(QMainWindow):
             w.model().rowsMoved.connect(self._favs_reordered)
             w.dropped.connect(lambda dirs, lib=lib: self._quick_dropped(dirs, lib))
         # Workspace Pins: accesos exclusivos del workspace activo (solo File Explorer; Default no tiene)
-        self.wpins = QuickList(pin)
+        self.wpins = QuickList(pin, accept_files=True)
         self.wpins.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.wpins.customContextMenuRequested.connect(lambda pos: self._wpins_menu(pos))
-        wclick = lambda it: it.data(Qt.UserRole) and self.open_in_explorer(it.data(Qt.UserRole))
+        self.wpins.customContextMenuRequested.connect(lambda pos: self._wpins_menu(pos, self.wpins))
+        wclick = lambda it: it.data(Qt.UserRole) and self._open_pin(it.data(Qt.UserRole), it.data(Qt.UserRole + 6))
         self.wpins.itemClicked.connect(wclick)
         self.hook_list_keys(self.wpins, wclick)
         self.wpins.itemChanged.connect(self._quick_item_changed)
@@ -413,10 +413,11 @@ class MainWindow(QMainWindow):
         qt.setContentsMargins(0, 0, 0, 0)
         qt.setSpacing(0)
         self.qa_b_quick = QToolButton()
-        self.qa_b_pins = QToolButton()
+        self.qa_b_pins = DropTabButton()           # se le sueltan carpetas o archivos (aunque se vea Quick access)
+        self.qa_b_pins.dropped.connect(lambda paths: self.add_wpins(paths, switch=False))
         for b, t, tip in ((self.qa_b_quick, "QUICK ACCESS", "Quick access: the same in every workspace"),
                           (self.qa_b_pins, "WORKSPACE PINS", "Pins of this workspace only (other workspaces "
-                                                             "don't see them) · drag folders here")):
+                                                             "don't see them) · drop folders or files here")):
             b.setText(t)
             b.setToolTip(t.title() + " — " + tip)
             b.setCheckable(True)
@@ -432,7 +433,8 @@ class MainWindow(QMainWindow):
             "QToolButton#qaTab{color:#7d8590; font-size:7.5pt; font-weight:bold; letter-spacing:1px; border:none;"
             " background:transparent; padding:4px 6px 2px 6px; border-bottom:2px solid transparent;}"
             " QToolButton#qaTab:hover{color:#c9ccd1;}"
-            " QToolButton#qaTab:checked{color:#e6e6e6; border-bottom:2px solid #4cc2ff;}")
+            " QToolButton#qaTab:checked{color:#e6e6e6; border-bottom:2px solid #4cc2ff;}"
+            " QToolButton#qaTab[hot=\"true\"]{color:#ffffff; background:#163447; border-radius:4px;}")
         self.qa_b_quick.clicked.connect(lambda: self._qa_set_pins(False))
         self.qa_b_pins.clicked.connect(lambda: self._qa_set_pins(True))
         self.qa_tabs.setVisible(False)
@@ -666,7 +668,7 @@ class MainWindow(QMainWindow):
         self.rt_details = QToolButton()
         self.rt_notes = QToolButton()
         for b, t, tip in ((self.rt_details, "DETAILS", "Details of the selected file"),
-                          (self.rt_notes, "NOTES", "Notes of this workspace: a to-do list and free text")):
+                          (self.rt_notes, "WORKSPACE NOTES", "Notes of this workspace: a to-do list and free text")):
             b.setText(t)
             b.setToolTip(tip)
             b.setCheckable(True)
@@ -2988,6 +2990,7 @@ class MainWindow(QMainWindow):
                               + "\nPinned · drag to reorder · F2 to rename here")
                 it.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsDragEnabled | Qt.ItemIsEditable)
                 w.addItem(it)
+        self._fill_favs_pins()                    # Workspace Pins al final de Quick access (en un workspace)
         if not self.cfg["lib_favorites"]:
             it = QListWidgetItem("Drag a folder here to pin it")
             it.setForeground(Qt.gray)
@@ -3034,7 +3037,8 @@ class MainWindow(QMainWindow):
     def _favs_reordered(self, *_):
         for w, key in ((self.favs, "favorites"), (self.lib_favs, "lib_favorites")):
             vals = [w.item(i).data(Qt.UserRole) for i in range(w.count())
-                    if not w.item(i).data(Qt.UserRole + 1) and not w.item(i).data(Qt.UserRole + 2)]
+                    if not w.item(i).data(Qt.UserRole + 1) and not w.item(i).data(Qt.UserRole + 2)
+                    and not w.item(i).data(Qt.UserRole + 5)]
             vals = [v for v in vals if v]
             if vals or key == "favorites":
                 self.cfg[key] = vals
@@ -3129,6 +3133,7 @@ class MainWindow(QMainWindow):
                                     else "Pin the current folder to Quick access")
         if pins:
             self._fill_wpins()
+        self._fill_favs_pins()
 
     def _qa_set_pins(self, on):
         w = self._ws_entry()
@@ -3139,71 +3144,150 @@ class MainWindow(QMainWindow):
             self.cfg.save()
         self._qa_refresh()
 
+    # un pin es la ruta (carpeta) o {"path": ruta, "file": True} (archivo: al abrirlo lleva a su carpeta)
+    @staticmethod
+    def _pin_path(x):
+        return x.get("path", "") if isinstance(x, dict) else x
+
+    @staticmethod
+    def _pin_isfile(x):
+        return isinstance(x, dict) and bool(x.get("file"))
+
+    def _pin_item(self, x, names):
+        p = self._pin_path(x)
+        isf = self._pin_isfile(x)
+        real = os.path.basename(p.rstrip("\\/")) or p
+        alias = names.get(norm_key(p))
+        if isf:
+            ext = os.path.splitext(p)[1].lower()
+            icon = self.icons.glyph("image" if ext in self.PHOTO_EXTS else "doc", 18, "#c9ccd1")
+        else:
+            icon = self.icons.folder_icon(self.dir_color(p), 18)
+        it = QListWidgetItem(icon, alias or real)
+        it.setData(Qt.UserRole, p)
+        it.setData(Qt.UserRole + 4, real)
+        it.setData(Qt.UserRole + 6, isf)
+        it.setToolTip(p + (f"\nShown as «{alias}» (keeps its real name)" if alias else "")
+                      + ("\nFile: click goes to it in its folder" if isf else "")
+                      + "\nWorkspace pin (only this workspace) · F2 to rename here")
+        return it
+
     def _fill_wpins(self):
         w = self._ws_entry()
         names = self.cfg["quick_names"] or {}
         self.wpins.blockSignals(True)
         self.wpins.clear()
-        for p in (w or {}).get("pins", []):
-            real = os.path.basename(p.rstrip("\\/")) or p
-            alias = names.get(norm_key(p))
-            it = QListWidgetItem(self.icons.folder_icon(self.dir_color(p), 18), alias or real)
-            it.setData(Qt.UserRole, p)
-            it.setData(Qt.UserRole + 4, real)
-            it.setToolTip(p + (f"\nShown as «{alias}» (the folder keeps its name)" if alias else "")
-                          + "\nOnly in this workspace · drag to reorder · F2 to rename here")
+        for x in (w or {}).get("pins", []):
+            it = self._pin_item(x, names)
             it.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsDragEnabled | Qt.ItemIsEditable)
             self.wpins.addItem(it)
         if not (w or {}).get("pins"):
-            it = QListWidgetItem("Drag folders here: only this workspace sees them")
+            it = QListWidgetItem("Drop folders or files here: only this workspace sees them")
             it.setForeground(Qt.gray)
             it.setFlags(Qt.NoItemFlags)
             self.wpins.addItem(it)
         self.wpins.blockSignals(False)
 
-    def add_wpins(self, paths):
+    def _fill_favs_pins(self):
+        """En Quick access (dentro de un workspace): una línea y, después del último acceso, los Workspace Pins."""
+        F = self.favs
+        F.blockSignals(True)
+        for i in reversed(range(F.count())):
+            if F.item(i).data(Qt.UserRole + 5):
+                F.takeItem(i)
+        w = self._ws_entry()
+        pins = (w or {}).get("pins", [])
+        if pins:
+            if F.count():
+                sep = QListWidgetItem("")
+                sep.setData(Qt.UserRole + 2, True)
+                sep.setData(Qt.UserRole + 5, True)
+                sep.setFlags(Qt.NoItemFlags)
+                F.addItem(sep)
+            names = self.cfg["quick_names"] or {}
+            for x in pins:
+                it = self._pin_item(x, names)
+                it.setData(Qt.UserRole + 5, True)
+                it.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsEditable)
+                F.addItem(it)
+        F.blockSignals(False)
+
+    def _open_pin(self, p, isfile=False):
+        if isfile:
+            if self.mode() != "explorer":
+                self.set_mode("explorer")
+            self.explorer_active.navigate(os.path.dirname(p), select=os.path.basename(p))
+        else:
+            self.open_in_explorer(p)
+
+    def _open_quick_item(self, it):
+        if it.data(Qt.UserRole + 5):
+            self._open_pin(it.data(Qt.UserRole), it.data(Qt.UserRole + 6))
+        else:
+            self.open_in_explorer(it.data(Qt.UserRole))
+
+    def add_wpins(self, paths, switch=False):
         w = self._ws_entry()
         if w is None:
             return
         pins = list(w.get("pins", []))
+        have = {norm_key(self._pin_path(x)) for x in pins}
+        n = 0
         for p in paths:
-            if p and os.path.isdir(p) and norm_key(p) not in {norm_key(x) for x in pins}:
-                pins.append(os.path.normpath(p))
+            if not p or norm_key(p) in have:
+                continue
+            p = os.path.normpath(p)
+            if os.path.isdir(p):
+                pins.append(p)
+            elif os.path.isfile(p):
+                pins.append({"path": p, "file": True})
+            else:
+                continue
+            have.add(norm_key(p))
+            n += 1
         w["pins"] = pins
-        if w.get("qa_tab") != "pins":
+        if switch and w.get("qa_tab") != "pins":
             w["qa_tab"] = "pins"
         self.cfg.save()
         self._qa_refresh()
-        self.status.setText("Pinned to this workspace")
+        if n:
+            self.status.setText(f"Pinned to this workspace ({n})")
 
     def _wpins_reordered(self, *_):
         w = self._ws_entry()
         if w is None:
             return
-        w["pins"] = [self.wpins.item(i).data(Qt.UserRole) for i in range(self.wpins.count())
-                     if self.wpins.item(i).data(Qt.UserRole)]
+        by = {norm_key(self._pin_path(x)): x for x in w.get("pins", [])}
+        order = [self.wpins.item(i).data(Qt.UserRole) for i in range(self.wpins.count())
+                 if self.wpins.item(i).data(Qt.UserRole)]
+        w["pins"] = [by[norm_key(p)] for p in order if norm_key(p) in by]
         self.cfg.save()
 
-    def _wpins_menu(self, pos):
-        it = self.wpins.itemAt(pos)
+    def _wpins_menu(self, pos, lw):
+        it = lw.itemAt(pos)
         if not it or not it.data(Qt.UserRole):
             return
         p = it.data(Qt.UserRole)
+        isf = bool(it.data(Qt.UserRole + 6))
         m = QMenu(self)
-        m.addAction("Open", lambda: self.open_in_explorer(p))
-        m.addAction("Open in new tab", lambda: self.open_in_explorer(p, new_tab=True))
-        self._color_menu(m, [dir_target(p)])
+        if isf:
+            m.addAction("Show in its folder", lambda: self._open_pin(p, True))
+            m.addAction("Open", lambda: self.open_default(p))
+        else:
+            m.addAction("Open", lambda: self.open_in_explorer(p))
+            m.addAction("Open in new tab", lambda: self.open_in_explorer(p, new_tab=True))
+            self._color_menu(m, [dir_target(p)])
         m.addSeparator()
 
         def remove():
             w = self._ws_entry()
             if w is not None:
-                w["pins"] = [x for x in w.get("pins", []) if norm_key(x) != norm_key(p)]
+                w["pins"] = [x for x in w.get("pins", []) if norm_key(self._pin_path(x)) != norm_key(p)]
                 self.cfg.save()
             self._qa_refresh()
-        self._quick_rename_actions(m, self.wpins, it, p)
+        self._quick_rename_actions(m, lw, it, p)
         m.addAction("Unpin from this workspace", remove)
-        m.exec(self.wpins.viewport().mapToGlobal(pos))
+        m.exec(lw.viewport().mapToGlobal(pos))
 
     def _pin_ws_action(self, m, paths):
         """«Pin to Workspace Pins» en los menús, si hay un workspace (no Default) activo."""
@@ -3257,6 +3341,9 @@ class MainWindow(QMainWindow):
     def _favs_menu(self, w, pos):
         it = w.itemAt(pos)
         if not it or not it.data(Qt.UserRole):
+            return
+        if it.data(Qt.UserRole + 5):                  # un Workspace Pin mostrado en Quick access
+            self._wpins_menu(pos, w)
             return
         p = it.data(Qt.UserRole)
         sysk = it.data(Qt.UserRole + 1)
@@ -3692,7 +3779,9 @@ class MainWindow(QMainWindow):
                     m.addAction("Add to the VFX Library", lambda: self.open_library(dirs[0].path))
             if dirs:
                 m.addAction("Pin to Quick access", lambda: self.add_favorites([d.path for d in dirs]))
-                self._pin_ws_action(m, [d.path for d in dirs])
+            files = [x.path for x in ents if x.kind == "file"]
+            if dirs or files:
+                self._pin_ws_action(m, [d.path for d in dirs] + files)
             m.addSeparator()
         if cur:
             if clip_paths:
