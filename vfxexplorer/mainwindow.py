@@ -3085,7 +3085,7 @@ class MainWindow(QMainWindow):
     def _review_watch_update(self):
         from .fileops import is_network_path
         want = set()
-        for p in self.all_panes:
+        for p in (self.all_panes if self.cfg["review_live"] else []):   # apagado en Settings: no vigila nada
             if p.isVisible() and not p.is_virtual():
                 d = p.current_dir()
                 if d and d != THISPC and not is_network_path(d) and os.path.isdir(d):

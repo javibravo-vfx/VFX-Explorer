@@ -932,7 +932,8 @@ class Config:
         "lib_show_images": True,        # VFX Library: mostrar imágenes sueltas (jpg de capturas, etc.)
         "hidden_drives": [],
         "list_cols": {},
-        "system_icons": True,           # ícono original de programas/documentos (no en imágenes, video, audio)
+        "system_icons": True,
+        "review_live": True,            # marquitas REVIEW al día vigilando las carpetas locales abiertas           # ícono original de programas/documentos (no en imágenes, video, audio)
         "workspaces": [],               # Workspaces: [{name, state}] — pestañas, paneles y medidas guardados
         "workspace_current": "",
         "workspace_keep_updated": True,  # cada workspace recuerda solo lo que se hace en él

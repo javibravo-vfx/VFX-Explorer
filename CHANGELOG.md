@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.41.2
+- Settings › General: «Update the REVIEW tags by themselves» (on by default). Off, no folder is watched: the tags update with F5 or when you come back to the window.
+
 ## 0.41.1
 - The «REVIEW» tag updates by itself when the viewer creates or deletes notes: right away in local folders (folder watcher) and, in any folder (NAS included), when you come back to the VFX Explorer window. The folder is not reloaded: selection and scroll stay put.
 
