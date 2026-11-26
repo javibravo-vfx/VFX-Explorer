@@ -554,14 +554,14 @@ class Icons:
 # Delegate de la grilla
 # ----------------------------------------------------------------------------
 
-APP_ICON_LINE = "#ffcf48"                      # contorno de la carpeta de adelante
-APP_ICON_BACK = "#c99a1e"                      # carpeta de atrás (sólida)
-APP_ICON_MARKER = "#4cc2ff"                    # visor celeste (el de la VFX Library)
+APP_ICON_FOLDERS = ("#e6a820", "#ffcf48")     # atrás, adelante (el amarillo de las carpetas)
+APP_ICON_FRONT_TOP = "#fbd976"                 # franja clara arriba de la carpeta de adelante
+APP_ICON_MARKER = "#0a7bca"                    # visor azul
 
 
 def app_icon_pixmap(S):
-    """Dos carpetas: la de atrás sólida en amarillo y la de adelante de contorno, calada (se ve el fondo), con el
-    visor celeste adentro. El conjunto ocupa casi todo el cuadro para que en la barra de tareas se vea grande."""
+    """Dos carpetas amarillas sólidas con el visor azul. La de atrás asoma apenas y tiene un corte fino alrededor
+    de la de adelante; el conjunto ocupa casi todo el cuadro para que en la barra de tareas se vea grande."""
     pm = QPixmap(S, S)
     pm.fill(Qt.transparent)
     p = QPainter(pm)
@@ -572,21 +572,23 @@ def app_icon_pixmap(S):
     fx, fy, fw, fh = ox + off * k, oy, 47 * k, 41 * k
     r = 6 * k
     lw = max(1.0, fw * .07)
-    ins = lw / 2
-    front = QRectF(fx + ins, fy + ins, fw - 2 * ins, fh - 2 * ins)
-    back = QRectF(fx - off * k + ins, fy + off * k + ins, fw - 2 * ins, fh - 2 * ins)
+    front = QRectF(fx, fy, fw, fh)
     fp = QPainterPath()
-    fp.addRoundedRect(front, r, r)
+    fp.addRoundedRect(front, r + lw / 2, r + lw / 2)
     bp = QPainterPath()
-    bp.addRoundedRect(back, r, r)
-    gap = QPainterPath()                       # la de adelante «calada»: la de atrás no se ve a través
-    gap.addRoundedRect(front.adjusted(-lw * 1.1, -lw * 1.1, lw * 1.1, lw * 1.1), r + lw, r + lw)
-    p.fillPath(bp.subtracted(gap), QColor(APP_ICON_BACK))
-    p.setPen(QPen(QColor(APP_ICON_LINE), lw, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-    p.setBrush(Qt.NoBrush)
-    p.drawPath(fp)
+    bp.addRoundedRect(QRectF(fx - off * k, fy + off * k, fw, fh), r + lw / 2, r + lw / 2)
+    gap = QPainterPath()                       # separación fina entre las dos carpetas
+    ins = lw / 2
+    gap.addRoundedRect(front.adjusted(ins - lw * 1.1, ins - lw * 1.1, lw * 1.1 - ins, lw * 1.1 - ins), r + lw, r + lw)
+    p.fillPath(bp.subtracted(gap), QColor(APP_ICON_FOLDERS[0]))
+    p.fillPath(fp, QColor(APP_ICON_FOLDERS[1]))
+    p.save()
+    p.setClipRect(QRectF(fx, fy, fw, fh * .23))
+    p.fillPath(fp, QColor(APP_ICON_FRONT_TOP))
+    p.restore()
     col = QColor(APP_ICON_MARKER)              # visor: cuatro esquinas + cruz al centro
     p.setPen(QPen(col, max(1.0, fw * .072), Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+    p.setBrush(Qt.NoBrush)
     x0, x1 = fx + fw * .172, fx + fw * .828
     y0, y1 = fy + fh * .2, fy + fh * .81
     ax, ay = fw * .19, fh * .19

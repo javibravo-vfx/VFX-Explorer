@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.40.1
+- App icon: back to the classic colors (solid yellow folders with the light band on top and the blue viewfinder), with the new bigger shape — the back folder peeks out less, separated by a thin cut.
+
 ## 0.40.0
 - New app icon (exe, window and taskbar): same two folders and viewfinder, now in the style of the app's icons — back folder solid yellow, front folder a yellow outline with its inside cut out, light-blue viewfinder — and bigger, using almost the whole square.
 
