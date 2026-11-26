@@ -493,9 +493,67 @@ class WinTabBar(QTabBar):
         self.setMouseTracking(True)
         super().enterEvent(ev)
 
+    # --- arrastrar una pestaña hacia afuera (a Quick access / Workspace Pins): lleva su carpeta
+    path_for = None                     # lo pone el panel: índice → carpeta (o None si es This PC)
+
+    def mousePressEvent(self, ev):
+        self._press = (ev.position().toPoint(), self.tabAt(ev.position().toPoint())) \
+            if ev.button() == Qt.LeftButton else None
+        super().mousePressEvent(ev)
+
     def mouseMoveEvent(self, ev):
+        pr = getattr(self, "_press", None)
+        if pr and pr[1] >= 0 and (ev.buttons() & Qt.LeftButton) and self.path_for is not None:
+            pos = ev.position().toPoint()
+            if abs(pos.y() - pr[0].y()) > self.height() * 0.8:     # salió de la barra hacia arriba o abajo
+                path = self.path_for(pr[1])
+                if path:
+                    self._press = None
+                    from PySide6.QtGui import QMouseEvent, QDrag
+                    from PySide6.QtCore import QEvent, QPointF as _P
+                    # termina el arrastre interno (la pestaña vuelve a su lugar)
+                    super().mouseReleaseEvent(QMouseEvent(QEvent.MouseButtonRelease, _P(pr[0]), _P(pr[0]),
+                                                          Qt.LeftButton, Qt.NoButton, Qt.NoModifier))
+                    from .quicklist import tab_mime
+                    drag = QDrag(self)
+                    drag.setMimeData(tab_mime(path))
+                    pm = self._tab_drag_pixmap(pr[1])
+                    if pm is not None:
+                        drag.setPixmap(pm)
+                        drag.setHotSpot(QPoint(0, 0))
+                    drag.exec(Qt.LinkAction)
+                    self.update()
+                    return
         super().mouseMoveEvent(ev)
         self.update()
+
+    def _tab_drag_pixmap(self, i):
+        """Etiqueta chica abajo a la derecha del cursor: ícono + nombre de la pestaña."""
+        from PySide6.QtGui import QPixmap
+        from .widgets import icon_dpr
+        txt = self.tabText(i)
+        fm = self.fontMetrics()
+        w = min(220, fm.horizontalAdvance(txt) + 44)
+        W, H = 18 + w, 16 + 28
+        d = icon_dpr()
+        pm = QPixmap(int(W * d), int(H * d))
+        pm.setDevicePixelRatio(d)
+        pm.fill(Qt.transparent)
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.Antialiasing)
+        r = QRectF(18, 16, w, 26)
+        p.setPen(QPen(QColor("#3a3a3a"), 1))
+        p.setBrush(QColor(40, 40, 40, 235))
+        p.drawRoundedRect(r, 6, 6)
+        ic = self.tabIcon(i)
+        if not ic.isNull():
+            ic.paint(p, QRect(26, 21, 16, 16))
+        p.setPen(QColor("#e6e6e6"))
+        p.setFont(self.font())
+        p.drawText(QRectF(48, 16, w - 34, 26), Qt.AlignVCenter | Qt.AlignLeft,
+                   fm.elidedText(txt, Qt.ElideRight, int(w - 38)))
+        p.end()
+        return pm
 
     def leaveEvent(self, ev):
         super().leaveEvent(ev)
@@ -563,6 +621,8 @@ class FilePane(QFrame):
         self.tabbar = WinTabBar()
         self.tabbar.setTabsClosable(False)
         self.tabbar.setMovable(True)
+        self.tabbar.path_for = lambda i: (None if (i < 0 or i >= len(self.tabs) or self.tabs[i]["virtual"])
+                                          else self.tabs[i]["path"])
         self.tabbar.setExpanding(False)
         self.tabbar.setDocumentMode(True)
         self.tabbar.setDrawBase(False)

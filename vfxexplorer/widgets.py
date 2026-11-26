@@ -391,6 +391,13 @@ class Icons:
             path.moveTo(s * .26, s * .55); path.lineTo(s * .56, s * .55)
             p.drawEllipse(QPointF(s * .7, s * .55), s * .1, s * .1)
             p.drawEllipse(QPointF(s * .7, s * .8), s * .1, s * .1)
+        elif kind == "wspin":               # Workspace Pin: palito con pelotita (distinto del pin de Quick access)
+            p.drawLine(QPointF(s * .5, s * .42), QPointF(s * .5, s * .94))
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(color))
+            p.drawEllipse(QPointF(s * .5, s * .27), s * .2, s * .2)
+            p.setBrush(Qt.NoBrush)
+            p.setPen(QPen(QColor(color), size * .1, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
         elif kind == "bonsai":              # Bonsai (árbol de lo visitado): maceta, tronco en S y copas planas
             u = s / 18.0
             P = lambda a_, b_: QPointF(a_ * u, b_ * u)

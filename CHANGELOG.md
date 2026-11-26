@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.45.0
+- Quick access inside a workspace: dropping folders or files on the Workspace Pins part (the line and what follows, which lights up in light blue) pins them to the workspace; dropping on the rest pins folders to Quick access as before.
+- Tabs can be dragged out of the tab bar (up or down) onto Quick access, the «WORKSPACE PINS» title, the Workspace Pins list or the Workspace Pins part of Quick access. A dragged tab only carries its folder: dropping it anywhere else doesn't copy or move anything.
+- Workspace Pins have their own pin — a light-blue stick with a ball — different from the grey Quick access pin.
+
 ## 0.44.0
 - Copy and paste in the same folder duplicates, like Windows: «name - Copy.ext», then «name - Copy (2).ext»…; folders «name - Copy». Sequences are duplicated whole and stay a sequence (shot.1001.exr → shot - Copy.1001.exr). The new copies end up selected.
 

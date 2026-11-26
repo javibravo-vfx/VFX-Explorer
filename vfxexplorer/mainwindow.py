@@ -340,7 +340,8 @@ class MainWindow(QMainWindow):
 
         # --- sidebar: ACCESO RÁPIDO (de cada modo) arriba, y abajo los tabs CARPETAS / VFX LIBRARY
         pin = ic.glyph("pin", 14, "#c9ccd1")
-        self.favs = QuickList(pin)
+        wspin = ic.glyph("wspin", 14, "#4cc2ff")     # Workspace Pin: palito con pelotita celeste
+        self.favs = QuickList(pin, wspin_icon=wspin)
         self.lib_favs = QuickList(pin)
         for w, menu_fn, click_fn, lib in (
                 (self.favs, self._favs_menu, lambda it: it.data(Qt.UserRole) and self._open_quick_item(it), False),
@@ -356,7 +357,7 @@ class MainWindow(QMainWindow):
             w.model().rowsMoved.connect(self._favs_reordered)
             w.dropped.connect(lambda dirs, lib=lib: self._quick_dropped(dirs, lib))
         # Workspace Pins: accesos exclusivos del workspace activo (solo File Explorer; Default no tiene)
-        self.wpins = QuickList(pin, accept_files=True)
+        self.wpins = QuickList(pin, accept_files=True, wspin_icon=wspin, all_wspins=True)
         self.wpins.setContextMenuPolicy(Qt.CustomContextMenu)
         self.wpins.customContextMenuRequested.connect(lambda pos: self._wpins_menu(pos, self.wpins))
         wclick = lambda it: it.data(Qt.UserRole) and self._open_pin(it.data(Qt.UserRole), it.data(Qt.UserRole + 6))
@@ -368,6 +369,7 @@ class MainWindow(QMainWindow):
         self.wpins.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.wpins.model().rowsMoved.connect(self._wpins_reordered)
         self.wpins.dropped.connect(self.add_wpins)
+        self.favs.dropped_pins.connect(self.add_wpins)        # soltar en la parte de Workspace Pins de Quick access
         self.colls = self._mk_list(self._colls_menu, lambda it: self.open_collection(it.data(Qt.UserRole)))
         self.tagl = self._mk_list(self._tags_menu, lambda it: self.open_tag(it.data(Qt.UserRole)))
 
