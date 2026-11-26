@@ -170,7 +170,7 @@ class BlowUpController(QObject):
         self._cache = (None, None)         # (ruta, QImage) de la última imagen completa
         label.installEventFilter(self)
         label.setCursor(Qt.PointingHandCursor)
-        label.setToolTip("Hold the mouse button on the image to see it at 100% (move to pan)")
+        label.setToolTip("Loupe: hold the mouse button on the image to see it at 100% (move to pan)")
 
     def _pix_rect(self):
         pm = self.label.pixmap()

@@ -66,8 +66,8 @@ SHORTCUTS = [
         ("F7", "Previous folder, with its video playing where it was"),
     ]),
     ("Mouse", [
-        ("Hold on the Details image", "See it at 100 % (move to pan, release to close)"),
-        ("Mouse over an image or PDF", "Hover box preview (View › Hover box)"),
+        ("Hold on the Details image", "Loupe: see it at 100 % (move to pan, release to close)"),
+        ("Mouse over an image or PDF", "Peek: preview under the mouse (View › Peek)"),
         ("Mouse over a video / sequence thumbnail", "Scrub its frames"),
         ("Drag the empty part of the tab bar", "Move the window (double click: maximize)"),
     ]),

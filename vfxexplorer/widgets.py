@@ -391,6 +391,31 @@ class Icons:
             path.moveTo(s * .26, s * .55); path.lineTo(s * .56, s * .55)
             p.drawEllipse(QPointF(s * .7, s * .55), s * .1, s * .1)
             p.drawEllipse(QPointF(s * .7, s * .8), s * .1, s * .1)
+        elif kind == "bonsai":              # Bonsai (árbol de lo visitado): maceta, tronco en S y copas planas
+            u = s / 18.0
+            P = lambda a_, b_: QPointF(a_ * u, b_ * u)
+            p.setPen(QPen(QColor(color), max(1.1, 1.3 * u), Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            pot = QPainterPath()
+            pot.moveTo(P(4, 13.2)); pot.lineTo(P(14, 13.2)); pot.lineTo(P(12.8, 16.2)); pot.lineTo(P(5.2, 16.2))
+            pot.closeSubpath()
+            p.drawPath(pot)
+            t = QPainterPath()
+            t.moveTo(P(8.2, 13.2)); t.cubicTo(P(10.8, 11.5), P(5.5, 9.8), P(8.2, 7.6))
+            t.cubicTo(P(9.6, 6.5), P(10.6, 5.8), P(9.6, 3.6))
+            p.drawPath(t)
+            p.drawLine(P(8.0, 8.0), P(4.2, 7.4))
+            p.drawLine(P(9.4, 6.1), P(13.4, 5.6))
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(color))
+            for cx, cy, w, h in ((4.2, 8.0, 6.4, 2.2), (13.6, 6.2, 6.8, 2.3), (9.4, 3.9, 6.2, 2.4)):
+                x0 = cx - w / 2
+                pad = QPainterPath()
+                pad.moveTo(P(x0, cy)); pad.cubicTo(P(x0, cy - h), P(cx - w * .15, cy - h * 1.15), P(cx, cy - h * .9))
+                pad.cubicTo(P(cx + w * .2, cy - h * 1.2), P(x0 + w, cy - h * .9), P(x0 + w, cy))
+                pad.closeSubpath()
+                p.drawPath(pad)
+            p.setBrush(Qt.NoBrush)
+            p.setPen(QPen(QColor(color), size * .1, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
         elif kind == "scissors":
             p.drawEllipse(QPointF(s * .3, s * .74), s * .13, s * .13)
             p.drawEllipse(QPointF(s * .7, s * .74), s * .13, s * .13)

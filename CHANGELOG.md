@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.38.0
+- The tree of visited folders is now **Bonsai** (new bonsai icon) and emptying it is **Prune** (the scissors): «Prune Bonsai», «Remove from Bonsai».
+- The preview under the mouse is now **Peek** (View › Peek) and holding the mouse on the Details image to see it at 100 % is **Loupe**.
+
 ## 0.37.2
 - F9 / F10 (dual pane): the window doesn't paint while tabs and address bars are rearranged, so the quick flash of a tab moving is gone.
 

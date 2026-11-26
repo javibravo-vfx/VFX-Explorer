@@ -519,7 +519,7 @@ class MainWindow(QMainWindow):
         self.b_mini_clear = QToolButton()          # en Mini tree, el lugar del ojito: tijera para vaciarlo
         self.b_mini_clear.setAutoRaise(True)
         self.b_mini_clear.setIcon(ic.glyph("scissors", 15, "#c9ccd1"))
-        self.b_mini_clear.setToolTip("Clear the Mini tree (start again from the current folder)")
+        self.b_mini_clear.setToolTip("Prune: empty the Bonsai (it grows again from the current folder)")
         self.b_mini_clear.clicked.connect(self._clear_minitree)
         self._popfix(self.b_mini_clear)
         crl.addWidget(self.b_eye_tree)
@@ -1412,15 +1412,15 @@ class MainWindow(QMainWindow):
         self.cfg.save()
         if not self.cfg["hover_box"]:
             self.hoverbox.hide_box()
-        self.status.setText("Hover box on" if self.cfg["hover_box"] else "Hover box off")
+        self.status.setText("Peek on" if self.cfg["hover_box"] else "Peek off")
 
     def _toggle_minitree(self, on=None):
         on = self.b_minitree.isChecked() if on is None else on
         self.cfg["mini_tree_on"] = bool(on)
         self.tree_stack.setCurrentIndex(1 if on else 0)
-        self.b_minitree.setIcon(self.icons.glyph("minitree", 15, "#4cc2ff" if on else "#9d9d9d"))
-        self.b_minitree.setToolTip("Mini tree: only the folders you visited  (click: full folder tree)" if on
-                                   else "Full folder tree  (click: Mini tree, only the folders you visited)")
+        self.b_minitree.setIcon(self.icons.glyph("bonsai", 16, "#4cc2ff" if on else "#9d9d9d"))
+        self.b_minitree.setToolTip("Bonsai: only the folders you visited  (click: full folder tree)" if on
+                                   else "Full folder tree  (click: Bonsai, only the folders you visited)")
         self._side_tooltip(self.sidetabs.currentIndex() if hasattr(self, "sidetabs") else 0)
         if not on:
             cur = self.explorer_active.current_dir() if hasattr(self, "explorer_active") else None
@@ -1437,7 +1437,7 @@ class MainWindow(QMainWindow):
         if cur:
             self.minitree.add(cur)
         self.minitree.sync(here or "")
-        self.status.setText("Mini tree cleared")
+        self.status.setText("Bonsai pruned")
 
     def _minitree_menu(self, pos):
         it = self.minitree.itemAt(pos)
@@ -1445,9 +1445,9 @@ class MainWindow(QMainWindow):
         m = QMenu(self)
         if p:
             m.addAction("Open in new tab", lambda: self.open_in_explorer(p, new_tab=True))
-            m.addAction("Remove from Mini tree", lambda: self.minitree.remove(p))
+            m.addAction("Remove from Bonsai", lambda: self.minitree.remove(p))
             m.addSeparator()
-        m.addAction("Clear Mini tree", self._clear_minitree)
+        m.addAction("Prune Bonsai", self._clear_minitree)
         m.addAction("Show the full folder tree", lambda: self.b_minitree.setChecked(False))
         m.exec(self.minitree.viewport().mapToGlobal(pos))
 
@@ -1800,7 +1800,7 @@ class MainWindow(QMainWindow):
         if not full:
             return
         m.addSeparator()
-        a = m.addAction("Hover box (preview under the mouse)", self._toggle_hover_box)
+        a = m.addAction("Peek (preview under the mouse)", self._toggle_hover_box)
         a.setCheckable(True)
         a.setChecked(bool(self.cfg["hover_box"]))
         a = m.addAction("Details pane\tAlt+Shift+P", self.toggle_details)
@@ -3345,13 +3345,13 @@ class MainWindow(QMainWindow):
             m.addAction("Refresh drives", self.reload_tree_drives)
             if tree.mini:
                 m.addSeparator()
-                m.addAction("Clear Mini tree", self._clear_minitree)
+                m.addAction("Prune Bonsai", self._clear_minitree)
             m.exec(tree.viewport().mapToGlobal(pos))
             return
         m = QMenu(self)
         m.addAction("Open", lambda: self.open_in_explorer(p))
         if tree.mini:
-            m.addAction("Remove from Mini tree", lambda: self.minitree.remove(p))
+            m.addAction("Remove from Bonsai", lambda: self.minitree.remove(p))
         if it.parent() is tree.root and not tree.mini:   # disco: se puede ocultar del árbol
             hid = norm_key(p) in {norm_key(x) for x in (self.cfg["hidden_drives"] or [])}
             m.addAction(self.icons.eye(16, on=hid), "Show drive" if hid else "Hide drive",
