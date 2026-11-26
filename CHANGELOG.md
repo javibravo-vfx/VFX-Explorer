@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.38.2
+- F9 (side by side): each pane's tabs are aligned with its half right away, so the tab no longer travels across the top for an instant.
+
 ## 0.38.1
 - Back out the 0.37.2 paint freeze (the window stopped painting while dual pane / workspaces were rearranged and could feel slow or stuck). The F9 / F10 flash is avoided instead by placing tabs and address bars before the second pane is shown.
 
