@@ -2750,11 +2750,17 @@ class MainWindow(QMainWindow):
         if self.op_worker is not None:
             QMessageBox.information(self, APP_NAME, "Another operation is already running.")
             return
-        err = fileops.validate_transfer(paths, dest, op)
+        rename_map = None
+        if op == "copy" and paths and all(same_path(os.path.dirname(p.rstrip("\\/")), dest) for p in paths):
+            # copiar y pegar en la misma carpeta = duplicar (« - Copy», como Windows)
+            rename_map = fileops.duplicate_map(paths, entries)
+            err = None
+        else:
+            err = fileops.validate_transfer(paths, dest, op)
         if err:
             QMessageBox.warning(self, APP_NAME, err)
             return
-        conflicts = fileops.plan_conflicts(paths, dest)
+        conflicts = [] if rename_map else fileops.plan_conflicts(paths, dest)
         overwrite = False
         if conflicts:
             names = "\n".join(os.path.basename(c) for c in conflicts[:8]) + ("\n…" if len(conflicts) > 8 else "")
@@ -2771,7 +2777,7 @@ class MainWindow(QMainWindow):
         dlg.setMinimumDuration(400)
         dlg.setAutoClose(False)
         dlg.setAutoReset(False)
-        w = fileops.FileOpWorker(op, paths, dest, overwrite)
+        w = fileops.FileOpWorker(op, paths, dest, overwrite, rename_map)
         self.op_worker = w
 
         def prog(done, total, name):
@@ -2788,8 +2794,13 @@ class MainWindow(QMainWindow):
                     self.lib.path_moved(e.key(), nd.key(), nd.ref())
                 self.save_soon()
             srcs = {os.path.dirname(p) for p in paths}
+            if rename_map:                       # quedan seleccionadas las copias nuevas
+                for p in self.all_panes:
+                    if p.isVisible() and same_path(p.current_dir() or "", dest):
+                        p.pending_select = [os.path.basename(d) for d in rename_map.values()]
             self.refresh_dirs(srcs | {dest})
-            msg = f"{'Copied' if op == 'copy' else 'Moved'} {ok} file(s)"
+            msg = (f"Duplicated {ok} file(s)" if rename_map else
+                   f"{'Copied' if op == 'copy' else 'Moved'} {ok} file(s)")
             if cancelled:
                 msg += " — cancelled"
             self.status.setText(msg)

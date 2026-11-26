@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.44.0
+- Copy and paste in the same folder duplicates, like Windows: «name - Copy.ext», then «name - Copy (2).ext»…; folders «name - Copy». Sequences are duplicated whole and stay a sequence (shot.1001.exr → shot - Copy.1001.exr). The new copies end up selected.
+
 ## 0.43.1
 - A file overwritten by another with the same name (new date or size) gets a new thumbnail, and if it is selected Details reloads its preview. The selected files are watched too (a folder doesn't always notify when a file's content changes); the rest update when you come back to the window.
 

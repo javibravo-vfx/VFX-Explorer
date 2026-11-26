@@ -298,6 +298,58 @@ def plan_conflicts(sources, dest_dir):
     return out
 
 
+def _free(path_fn):
+    """Primer nombre libre: « - Copy», « - Copy (2)», « - Copy (3)»… (como Windows)."""
+    n = 1
+    while True:
+        cand = path_fn(" - Copy" if n == 1 else f" - Copy ({n})")
+        if cand is not None:
+            return cand
+        n += 1
+
+
+def duplicate_map(paths, entries=None):
+    """Copiar y pegar en la misma carpeta = duplicar: {origen: destino} con « - Copy».
+    Las secuencias se duplican enteras con el mismo nombre nuevo (siguen siendo una secuencia):
+    shot.1001.exr → shot - Copy.1001.exr. Archivos: name - Copy.ext. Carpetas: name - Copy."""
+    out = {}
+    done = set()
+    for e in entries or []:
+        if e.kind != "seq" or not e.files:
+            continue
+        head = e.head
+        sep = head[-1] if head and head[-1] in "._- " else ""
+        stem = head[:-1] if sep else head
+
+        def try_head(suffix, e=e, stem=stem, sep=sep):
+            nh = stem + suffix + sep
+            if any(os.path.exists(os.path.join(e.dirpath, nh + f[len(e.head):])) for f in e.files):
+                return None
+            return nh
+        nh = _free(try_head)
+        for f in e.files:
+            src = os.path.join(e.dirpath, f)
+            out[src] = os.path.join(e.dirpath, nh + f[len(e.head):])
+            done.add(norm_key(src))
+    taken = set()
+    for src in paths:
+        if norm_key(src) in done:
+            continue
+        d, name = os.path.split(src.rstrip("\\/"))
+        if os.path.isdir(src):
+            stem, ext = name, ""
+        else:
+            stem, ext = os.path.splitext(name)
+
+        def try_name(suffix, d=d, stem=stem, ext=ext):
+            c = os.path.join(d, stem + suffix + ext)
+            return None if (os.path.exists(c) or norm_key(c) in taken) else c
+        dst = _free(try_name)
+        taken.add(norm_key(dst))
+        out[src] = dst
+    return out
+
+
 def validate_transfer(sources, dest_dir, op):
     """Devuelve mensaje de error o None."""
     if not os.path.isdir(dest_dir):
@@ -315,9 +367,10 @@ class FileOpWorker(QThread):
     progress = Signal(object, object, str)   # bytes hechos, bytes totales, archivo actual
     done = Signal(int, list, bool)           # ok, errores, cancelado
 
-    def __init__(self, op, sources, dest_dir, overwrite):
+    def __init__(self, op, sources, dest_dir, overwrite, rename_map=None):
         super().__init__()
         self.op, self.sources, self.dest, self.overwrite = op, list(sources), dest_dir, overwrite
+        self.rename_map = rename_map or {}          # duplicar en la misma carpeta: origen → destino
         self.cancelled = False
         self.ok = 0
         self.errors = []
@@ -333,7 +386,7 @@ class FileOpWorker(QThread):
     def _plan(self):
         tasks = []  # (tipo, src, dst, size)
         for src in self.sources:
-            dst = os.path.join(self.dest, os.path.basename(src))
+            dst = self.rename_map.get(src) or os.path.join(self.dest, os.path.basename(src))
             if same_path(src, dst) or not os.path.exists(src):
                 continue
             fast_move = self.op == "move" and self._same_dev(src)
