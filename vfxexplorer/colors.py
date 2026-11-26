@@ -99,8 +99,10 @@ class ColorEngine:
             proj_path = "/" + proj_path
         if len(parts[idx]) == 2 and parts[idx][1] == ":":
             proj_path += os.sep
-        # solo proyectos que cuelgan de la raíz del pipeline (evita colorear cualquier "VFX-algo")
-        if norm_key(os.path.dirname(proj_path)) != norm_key(pipe.base().rstrip("\\/") or pipe.base()):
+        # solo proyectos que cuelgan de la raíz del pipeline (evita colorear cualquier "VFX-algo").
+        # Se compara sin la barra final: «T:\» y «T:» son lo mismo (antes no coincidían y nunca coloreaba)
+        canon = lambda x: x.replace("/", "\\").rstrip("\\").lower()
+        if canon(os.path.dirname(proj_path)) != canon(pipe.base()):
             return None
         base = self.app.lib.color(norm_key(proj_path))
         if not base:

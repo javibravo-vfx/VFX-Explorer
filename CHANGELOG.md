@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.46.0
+- Each workspace remembers its colors: automatic color mode (by project / by name / both / manual only), the colored tree lines and the Color filters for names. Switching workspaces applies them right away.
+- Color by project works again: projects on a drive root (e.g. «T:\VFX-ERSO») never matched the pipeline root, so nothing got colored.
+- Changing a folder color also updates the tab icons, not only the tree.
+- Bonsai on / off: the open folder stays selected and at the same height in both trees (if the Bonsai is too short to scroll, the full tree goes back to where it was).
+- Double-click on EXR, DPX, HDR and other formats the image viewer can't open: they open with the system's default app. Photo Lite Fast (next to the exe) keeps opening JPG, PNG, TIFF, WebP, HEIC, RAW, etc.
+
 ## 0.45.3
 - Faster check for overwritten files on reload (about 3× faster; under 1 ms for a normal folder).
 

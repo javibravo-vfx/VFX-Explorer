@@ -31,7 +31,25 @@ def capture(app):
     }
     if app.libpane.tabs:
         st["library"] = app.libpane.state()
+    # colores: cada workspace con los suyos (automáticos, líneas del árbol, Color filters de los nombres)
+    st["colors"] = {"mode": app.cfg["color_mode"] or "project", "lines": bool(app.cfg["tree_line_colors"]),
+                    "cfilters": bool(app.cfg["color_filters_on"])}
     return st
+
+
+def apply_colors(app, c):
+    if not c:
+        return
+    app.cfg["color_mode"] = c.get("mode", app.cfg["color_mode"])
+    app.cfg["tree_line_colors"] = bool(c.get("lines", app.cfg["tree_line_colors"]))
+    app.colors.reload()
+    on = bool(c.get("cfilters", app.cfg["color_filters_on"]))
+    if app.act_cfilter.isChecked() != on:
+        app.act_cfilter.setChecked(on)            # (lo aplica _toggle_color_filters)
+    app.refresh_views()
+    app.tree.refresh_colors()
+    app.tree.viewport().update()
+    app._reload_sidebar()
 
 
 def apply(app, st):
@@ -39,6 +57,7 @@ def apply(app, st):
     fallback = THISPC if IS_WIN else home
     if app.mode() != "explorer":
         app.set_mode("explorer")
+    apply_colors(app, st.get("colors"))
     panes = st.get("panes") or []
     remember = bool(app.cfg["ws_remember_selection"])
     for i, p in enumerate(app.panes):

@@ -1423,18 +1423,58 @@ class MainWindow(QMainWindow):
 
     def _toggle_minitree(self, on=None):
         on = self.b_minitree.isChecked() if on is None else on
+        # la carpeta abierta queda marcada y a la misma altura en el árbol completo y en el Bonsai
+        src = self.minitree if not on else self.tree
+        dst = self.minitree if on else self.tree
+        y = None
+        cur_it = src.currentItem() if hasattr(src, "currentItem") else None
+        if cur_it is not None and src.isVisible():
+            r = src.visualItemRect(cur_it)
+            if r.isValid() and 0 <= r.top() < src.viewport().height():
+                y = r.top()
         self.cfg["mini_tree_on"] = bool(on)
         self.tree_stack.setCurrentIndex(1 if on else 0)
         self.b_minitree.setIcon(self.icons.glyph("bonsai", 16, "#4cc2ff" if on else "#9d9d9d"))
         self.b_minitree.setToolTip("Bonsai: only the folders you visited  (click: full folder tree)" if on
                                    else "Full folder tree  (click: Bonsai, only the folders you visited)")
         self._side_tooltip(self.sidetabs.currentIndex() if hasattr(self, "sidetabs") else 0)
-        if not on:
-            cur = self.explorer_active.current_dir() if hasattr(self, "explorer_active") else None
-            t = self.explorer_active.tab() if hasattr(self, "explorer_active") else None
-            here = "::thispc" if (t and t["virtual"] and t["virtual"]["kind"] == "thispc") else cur
-            if here and (here == "::thispc" or reachable(here)):
-                self.tree.sync(here)
+        if not hasattr(self, "explorer_active"):
+            return
+        cur = self.explorer_active.current_dir()
+        t = self.explorer_active.tab()
+        here = "::thispc" if (t and t["virtual"] and t["virtual"]["kind"] == "thispc") else cur
+        if not here:
+            return
+
+        # el Bonsai corto no se puede desplazar: al volver, el árbol completo queda donde estaba
+        memo = getattr(self, "_tree_y_memo", None)
+        if on:
+            self._tree_y_memo = (here, y)
+        elif memo and memo[0] == here and memo[1] is not None and self.minitree.verticalScrollBar().maximum() == 0:
+            y = memo[1]
+
+        def place():
+            it = dst.currentItem()
+            if it is None:
+                return
+            dst.doItemsLayout()                   # que las alturas ya estén al día (si no, el scroll queda corrido)
+            if y is None:
+                dst.scrollToItem(it, QAbstractItemView.PositionAtCenter)
+                return
+            sb = dst.verticalScrollBar()
+            r = dst.visualItemRect(it)
+            delta = r.top() - y
+            if dst.verticalScrollMode() == QAbstractItemView.ScrollPerItem:
+                delta = round(delta / max(1, r.height()))      # el árbol se desplaza de a filas, no de a píxeles
+            sb.setValue(sb.value() + delta)
+
+        def align():
+            if here != "::thispc" and not on and not reachable(here):
+                return
+            dst.sync(here)                        # con el árbol ya visible (si no, no se puede desplazar)
+            place()
+            QTimer.singleShot(60, place)          # por si el árbol terminó de abrir ramas después
+        QTimer.singleShot(0, align)
 
     def _clear_minitree(self):
         self.minitree.clear_all()
@@ -2178,6 +2218,7 @@ class MainWindow(QMainWindow):
             p.model.refresh_all()
             p.grid.viewport().update()
             p.list.viewport().update()
+            p.refresh_tab_icons()                 # el color de la carpeta también en las pestañas
         self.tree.viewport().update()
         self.minitree.refresh_colors()
 
@@ -2621,13 +2662,23 @@ class MainWindow(QMainWindow):
         if not viewer:                                 # sin configurar: Photo Lite Fast si está al lado del exe
             from .core import find_image_viewer
             viewer = find_image_viewer()
-        if with_player and viewer and os.path.isfile(viewer) and e.kind == "file" and e.cat == "image":
+        if with_player and viewer and os.path.isfile(viewer) and e.kind == "file" and self._viewer_can(e.ext):
             try:
                 subprocess.Popen([viewer, e.path])     # visor de imágenes elegido en Settings
                 return
             except Exception as ex:
                 self.status.setText(f"Could not open the image viewer: {ex}")
         self.open_default(e.path)
+
+    # lo que abre el visor de imágenes (Photo Lite Fast usa WIC): fotos, TIFF, RAW de cámara…
+    # EXR, DPX, HDR, TGA, PSD, SGI, CIN… van a la app por defecto de Windows
+    VIEWER_EXTS = {".jpg", ".jpeg", ".jfif", ".jpe", ".png", ".gif", ".bmp", ".dib", ".webp", ".heic", ".heif",
+                   ".avif", ".tif", ".tiff", ".jxr", ".wdp", ".ico"}
+
+    def _viewer_can(self, ext):
+        from .core import RAW_EXTS
+        ext = (ext or "").lower()
+        return ext in self.VIEWER_EXTS or ext in RAW_EXTS
 
     def open_default(self, path):
         if IS_WIN:

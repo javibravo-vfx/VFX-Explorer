@@ -1274,6 +1274,11 @@ class FilePane(QFrame):
         except RuntimeError:
             pass
 
+    def refresh_tab_icons(self):
+        for i, t in enumerate(self.tabs):
+            if i < self.tabbar.count():
+                self.tabbar.setTabIcon(i, self._tab_icon(t))
+
     def _tab_icon(self, t):
         ic = self.app.icons
         v = t.get("virtual")
