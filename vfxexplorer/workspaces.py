@@ -239,6 +239,13 @@ class WorkspaceButton(QToolButton):
         self.update()
         super().enterEvent(ev)
 
+    def event(self, ev):
+        from PySide6.QtCore import QEvent
+        import time
+        if ev.type() == QEvent.ToolTip and (self.m.isVisible() or time.monotonic() < getattr(self, "_quiet", 0)):
+            return True                           # recién elegido un workspace (o con el menú abierto): sin cartel
+        return super().event(ev)
+
     def leaveEvent(self, ev):
         self.update()
         super().leaveEvent(ev)
@@ -294,8 +301,11 @@ class WorkspaceButton(QToolButton):
         cur = self.current()
         self._label = cur
         self._apply_width()
-        how = "Every workspace remembers what you do in it"
-        self.setToolTip(f"Workspace: {cur}\n{how}\nShift+F1: Default · Shift+F2…F6: your workspaces · Ctrl+F1…F6: save the current layout there")
+        self.setToolTip(f"Workspace: {cur}  (Shift+F1…F6)")
+        from PySide6.QtWidgets import QToolTip
+        QToolTip.hideText()                       # al cambiar de workspace no queda un cartel flotando
+        import time
+        self._quiet = time.monotonic() + 4
         self.update()
         if hasattr(self.app, "_qa_refresh"):
             self.app._qa_refresh()             # QUICK ACCESS | WORKSPACE PINS del workspace activo

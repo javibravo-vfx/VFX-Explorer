@@ -3388,6 +3388,31 @@ class MainWindow(QMainWindow):
         self._reload_sidebar()
         self.status.setText(f"Pinned to Quick access of {'VFX Library' if lib else 'File Explorer'}")
 
+    def insert_wpins(self, paths, index):
+        """Workspace Pins soltados (o reordenados) en el modo Windows, en ese lugar."""
+        w = self._ws_entry()
+        if w is None:
+            return
+        pins = list(w.get("pins", []))
+        keys = {norm_key(p) for p in paths}
+        before = sum(1 for x in pins[:index] if norm_key(self._pin_path(x)) in keys)
+        old = {norm_key(self._pin_path(x)): x for x in pins}
+        pins = [x for x in pins if norm_key(self._pin_path(x)) not in keys]
+        index = max(0, min(len(pins), index - before))
+        new = []
+        for p in paths:
+            p = os.path.normpath(p)
+            if norm_key(p) in old:
+                new.append(old[norm_key(p)])
+            elif os.path.isdir(p):
+                new.append(p)
+            elif os.path.isfile(p):
+                new.append({"path": p, "file": True})
+        pins[index:index] = new
+        w["pins"] = pins
+        self.cfg.save()
+        self._qa_refresh()
+
     def insert_favorites(self, paths, index):
         """Modo Windows: carpetas (o pestañas) soltadas entre los accesos de Quick access, en ese lugar.
         Si ya estaban, se mueven ahí."""
@@ -3791,6 +3816,12 @@ class MainWindow(QMainWindow):
                           "hidden": bool(it.data(ROLE_HIDDEN)),
                           "pin": "wspin" if it.data(ROLE_WSPIN) else ("" if it.data(ROLE_SYS) else "pin"),
                           "sys": it.data(ROLE_SYS) or "", "real": it.data(Qt.UserRole + 4) or ""})
+        if not any(sp and sp.get("pin") == "pin" for sp in specs):
+            # sin accesos propios todavía: un lugar bien visible para soltar carpetas (debajo de las de Windows)
+            at = next((i for i, sp in enumerate(specs) if sp and sp.get("pin") == "wspin"), len(specs))
+            if at and specs[at - 1] is None:
+                at -= 1
+            specs[at:at] = [None, {"placeholder": True, "zone": "pin", "text": "Drop folders here to pin them"}]
         if self._ws_entry() is not None and not any(sp and sp.get("pin") == "wspin" for sp in specs):
             # en un workspace: el lugar de los Workspace Pins aunque no haya ninguno (para soltarlos ahí)
             specs += [None, {"placeholder": True, "text": "Drop Workspace Pins here"}]
@@ -4107,6 +4138,8 @@ class MainWindow(QMainWindow):
 
     def _tree_menu(self, tree, pos):
         it = tree.itemAt(pos)
+        if it is not None and tree in self.wintrees and not it.data(0, Qt.UserRole):
+            return                                # una línea o un «Drop … here»
         if it is not None and tree in self.wintrees and it.data(0, WinNavTree.ROLE_QUICK):
             self.sender_tree = tree
             self._wintree_quick_menu(it, pos)

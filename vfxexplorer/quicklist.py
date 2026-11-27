@@ -88,6 +88,8 @@ class QuickList(QListWidget):
         self.setItemDelegate(QuickDelegate(self, pin_icon, wspin_icon))
         self.setIconSize(QSize(18, 18))
         self.setDragDropMode(QAbstractItemView.DragDrop)
+        self.setDropIndicatorShown(False)             # la rayita la dibujamos nosotros (bien visible)
+        self._iline = None
         self.setDefaultDropAction(Qt.MoveAction)
         self.setMouseTracking(True)
         self.setSpacing(0)
@@ -139,6 +141,11 @@ class QuickList(QListWidget):
 
     def paintEvent(self, ev):
         super().paintEvent(ev)
+        if self._iline is not None:
+            p = QPainter(self.viewport())
+            p.setPen(QPen(QColor("#4cc2ff"), 2))
+            p.drawLine(8, self._iline, self.viewport().width() - 8, self._iline)
+            p.end()
         if not self._zone:
             return
         # la zona donde va a caer lo que se arrastra, pintada de celeste muy suave (como en el árbol)
@@ -163,12 +170,28 @@ class QuickList(QListWidget):
         else:
             ev.ignore()
 
+    def _set_iline(self, y):
+        if y != self._iline:
+            self._iline = y
+            self.viewport().update()
+
+    def _iline_at(self, pos):
+        """Reordenar: la rayita entre los accesos, donde va a caer."""
+        it = self.itemAt(pos)
+        if it is not None and not it.data(ROLE_SEP):
+            r = self.visualItemRect(it)
+            return r.top() if pos.y() < r.center().y() else r.bottom()
+        rows = [self.item(i) for i in range(self.count()) if self.item(i).data(ROLE_PATH)]
+        return self.visualItemRect(rows[-1]).bottom() if rows else None
+
     def dragMoveEvent(self, ev):
         if ev.source() is self:
             if self._over_sys(ev):
+                self._set_iline(None)
                 ev.ignore()
                 return
             super().dragMoveEvent(ev)
+            self._set_iline(self._iline_at(ev.position().toPoint()))
             return
         paths, zone = self._external(ev)
         if paths:
@@ -181,10 +204,12 @@ class QuickList(QListWidget):
 
     def dragLeaveEvent(self, ev):
         self._hot(False)
+        self._set_iline(None)
         super().dragLeaveEvent(ev)
 
     def dropEvent(self, ev):
         self._hot(False)
+        self._set_iline(None)
         if ev.source() is self:
             if self._over_sys(ev):
                 ev.ignore()

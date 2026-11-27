@@ -870,7 +870,7 @@ class _WinQuickMixin:
             elif sp.get("placeholder"):
                 it = QTreeWidgetItem([sp["text"]])
                 it.setData(0, self.ROLE_PH, True)
-                it.setData(0, self.ROLE_PIN, "wspin")
+                it.setData(0, self.ROLE_PIN, sp.get("zone") or "wspin")
                 it.setFlags(Qt.ItemIsEnabled)
                 it.setForeground(0, QColor("#6b7178"))
                 it.setChildIndicatorPolicy(QTreeWidgetItem.DontShowIndicator)
@@ -940,12 +940,21 @@ class _WinQuickMixin:
         y = pos.y()
         ws = [r for r in rows if r.data(0, self.ROLE_PIN) == "wspin"]
         if ws and y >= self.visualItemRect(ws[0]).top() - 2:
+            real = [r for r in ws if not r.data(0, self.ROLE_PH)]
+            idx = sum(1 for r in real if self.visualItemRect(r).center().y() < y)
+            if real:                               # la rayita: dónde va a quedar (también para reordenar)
+                ly = self.visualItemRect(real[idx - 1]).bottom() if idx else self.visualItemRect(real[0]).top()
+            else:
+                ly = self.visualItemRect(ws[0]).center().y()
             r0 = self.visualItemRect(ws[0])
-            return "wspin", None, 0, r0.top(), self.visualItemRect(ws[-1]).bottom()
+            return "wspin", ly, idx, r0.top(), self.visualItemRect(ws[-1]).bottom()
         pins = [r for r in rows if r.data(0, self.ROLE_PIN) == "pin"]
-        idx = sum(1 for r in pins if self.visualItemRect(r).center().y() < y)
-        if pins:
-            ly = self.visualItemRect(pins[idx - 1]).bottom() if idx else self.visualItemRect(pins[0]).top()
+        real = [r for r in pins if not r.data(0, self.ROLE_PH)]
+        idx = sum(1 for r in real if self.visualItemRect(r).center().y() < y)
+        if real:
+            ly = self.visualItemRect(real[idx - 1]).bottom() if idx else self.visualItemRect(real[0]).top()
+        elif pins:                                 # «Drop folders here to pin them»
+            ly = self.visualItemRect(pins[0]).center().y()
         else:
             q = [r for r in rows if r.data(0, self.ROLE_QUICK)]
             ly = self.visualItemRect(q[-1]).bottom() if q else 2
@@ -1006,7 +1015,7 @@ class _WinQuickMixin:
             ev.accept()
             if paths:
                 if zone == "wspin":
-                    QTimer.singleShot(0, lambda: self.app.add_wpins(paths))
+                    QTimer.singleShot(0, lambda: self.app.insert_wpins(paths, idx))
                 else:
                     QTimer.singleShot(0, lambda: self.app.insert_favorites(paths, idx))
             return

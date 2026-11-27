@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.54.1
+- Switching workspaces no longer leaves a long tooltip floating over the Workspace button (the tip is now short and stays quiet for a moment after switching).
+- Windows mode: Workspace Pins can be reordered by dragging, with a line showing where each one will land (like Quick access).
+- VFX PINS and the other pin lists show a clear line while you reorder them.
+- Windows mode: with no pinned folders yet, a «Drop folders here to pin them» row appears under the Windows folders, so there is a real place to drop.
+
 ## 0.54.0
 - File Explorer: every tab remembers where you left the scroll of the left panel (also between workspaces and after reopening the app).
 - File Explorer with Bonsai: every tab has its own Bonsai — the folders visited in one tab don't show in another, and Prune only empties the current tab's. Saved with the workspace. (Tabs from before start with the Bonsai you had.)
