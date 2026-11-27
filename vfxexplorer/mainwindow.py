@@ -353,7 +353,7 @@ class MainWindow(QMainWindow):
                 (self.favs, self._favs_menu, lambda it: it.data(Qt.UserRole) and self._open_quick_item(it), False),
                 (self.lib_favs, self._lib_favs_menu, lambda it: it.data(Qt.UserRole) and self.open_library(it.data(Qt.UserRole)), True)):
             w.setContextMenuPolicy(Qt.CustomContextMenu)
-            w.customContextMenuRequested.connect(lambda pos, w=w, f=menu_fn: f(w, pos))
+            w.customContextMenuRequested.connect(lambda pos, w=w, f=menu_fn: w.menu_ok() and f(w, pos))
             w.itemClicked.connect(click_fn)
             self.hook_list_keys(w, click_fn)
             w.itemChanged.connect(self._quick_item_changed)
@@ -365,7 +365,8 @@ class MainWindow(QMainWindow):
         # Workspace Pins: accesos exclusivos del workspace activo (solo File Explorer; Default no tiene)
         self.wpins = QuickList(pin, accept_files=True, wspin_icon=wspin, all_wspins=True)
         self.wpins.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.wpins.customContextMenuRequested.connect(lambda pos: self._wpins_menu(pos, self.wpins))
+        self.wpins.customContextMenuRequested.connect(lambda pos: self.wpins.menu_ok() and
+                                                      self._wpins_menu(pos, self.wpins))
         wclick = lambda it: it.data(Qt.UserRole) and self._open_pin(it.data(Qt.UserRole), it.data(Qt.UserRole + 6))
         self.wpins.itemClicked.connect(wclick)
         self.hook_list_keys(self.wpins, wclick)
@@ -379,7 +380,8 @@ class MainWindow(QMainWindow):
         # VFX PINS: los pins del workspace en la librería (carpetas o archivos de la librería; Default no tiene)
         self.lib_wpins = QuickList(pin, accept_files=True, wspin_icon=wspin, all_wspins=True)
         self.lib_wpins.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.lib_wpins.customContextMenuRequested.connect(lambda pos: self._libpins_menu(pos))
+        self.lib_wpins.customContextMenuRequested.connect(lambda pos: self.lib_wpins.menu_ok() and
+                                                          self._libpins_menu(pos))
         lclick = lambda it: it.data(Qt.UserRole) and self._open_libpin(it.data(Qt.UserRole), it.data(Qt.UserRole + 6))
         self.lib_wpins.itemClicked.connect(lclick)
         self.hook_list_keys(self.lib_wpins, lclick)
@@ -402,7 +404,8 @@ class MainWindow(QMainWindow):
             t.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
             t.itemClicked.connect(lambda it, c: it.data(0, Qt.UserRole) and self._tree_open_item(it))
             t.setContextMenuPolicy(Qt.CustomContextMenu)
-            t.customContextMenuRequested.connect(lambda pos, t=t: self._tree_menu(t, pos))
+            t.customContextMenuRequested.connect(lambda pos, t=t: (not hasattr(t, "menu_ok") or t.menu_ok())
+                                                 and self._tree_menu(t, pos))
         for t in (self.tree, self.minitree, self.wintree, self.winbonsai):
             self.hook_tree_keys(t, self.open_in_explorer)
         self._drives_gen = 0

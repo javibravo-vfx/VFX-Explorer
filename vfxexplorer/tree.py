@@ -801,7 +801,10 @@ def MiniTree(app):
     return FolderTree(app, mini=True)
 
 
-class _WinQuickMixin:
+from .quicklist import RightDragMixin, is_right_drag
+
+
+class _WinQuickMixin(RightDragMixin):
     """Modo Windows del panel izquierdo: arriba Quick access (y los Workspace Pins), una línea y después el árbol,
     todo en un solo árbol que scrollea entero. Lo usan el árbol tipo Windows y el Bonsai."""
 
@@ -821,6 +824,18 @@ class _WinQuickMixin:
         super().__init__(app, **kw)
         self.currentItemChanged.connect(self._quick_current)
         self.itemClicked.connect(lambda it, c: self._quick_current(it, None))
+
+    def _rd_path(self, it):
+        return it.data(0, Qt.UserRole) if it is not None and it.data(0, self.ROLE_QUICK) else None
+
+    def mousePressEvent(self, ev):
+        self._rd_press(ev)
+        super().mousePressEvent(ev)
+
+    def mouseMoveEvent(self, ev):
+        if self._rd_move(ev):
+            return
+        super().mouseMoveEvent(ev)
 
     def _quick_current(self, it, _prev):
         if getattr(self, "_syncing", False) or it is None:
@@ -1036,7 +1051,8 @@ class _WinQuickMixin:
             paths = self._drop_paths(ev, zone == "wspin")
             ev.setDropAction(Qt.LinkAction)
             ev.accept()
-            moving = ev.source() is self           # arrastrado desde arriba mismo: se mueve, no se duplica
+            # arrastrado desde arriba mismo: con el botón izquierdo se mueve; con el derecho se duplica
+            moving = ev.source() is self and not is_right_drag(ev.mimeData())
             if paths:
                 if zone == "wspin":
                     QTimer.singleShot(0, lambda: self.app.insert_wpins(paths, idx, take=moving))

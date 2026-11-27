@@ -71,7 +71,56 @@ class QuickDelegate(QStyledItemDelegate):
             p.restore()
 
 
-class QuickList(QListWidget):
+RIGHT_MIME = "application/x-vfxexplorer-rightdrag"   # arrastrado con el botón derecho: se duplica (no se mueve)
+
+
+def is_right_drag(md):
+    return md is not None and md.hasFormat(RIGHT_MIME)
+
+
+class RightDragMixin:
+    """Arrastrar con el botón derecho (entre Quick access y los Workspace Pins: duplica en vez de mover).
+    Un clic derecho sin arrastrar sigue abriendo el menú."""
+
+    def _rd_path(self, it):
+        return None
+
+    def _rd_press(self, ev):
+        self._rd_start = None
+        if ev.button() == Qt.RightButton:
+            pos = ev.position().toPoint()
+            it = self.itemAt(pos)
+            if it is not None and self._rd_path(it):
+                self._rd_start, self._rd_item = pos, it
+
+    def _rd_move(self, ev):
+        st = getattr(self, "_rd_start", None)
+        if st is None or not (ev.buttons() & Qt.RightButton):
+            return False
+        from PySide6.QtWidgets import QApplication
+        if (ev.position().toPoint() - st).manhattanLength() < QApplication.startDragDistance():
+            return False
+        self._rd_start = None
+        p = self._rd_path(self._rd_item)
+        if not p:
+            return False
+        from PySide6.QtGui import QDrag
+        import time
+        md = QMimeData()
+        md.setUrls([QUrl.fromLocalFile(p)])
+        md.setData(RIGHT_MIME, b"1")
+        d = QDrag(self)
+        d.setMimeData(md)
+        d.exec(Qt.CopyAction | Qt.LinkAction)
+        self._rd_block = time.monotonic() + 0.8      # el menú que llega al soltar el botón, no
+        return True
+
+    def menu_ok(self):
+        import time
+        return time.monotonic() > getattr(self, "_rd_block", 0)
+
+
+class QuickList(RightDragMixin, QListWidget):
     """Lista de acceso rápido. Se reordena arrastrando y acepta carpetas soltadas desde los árboles o el panel.
     En Quick access, la parte de los Workspace Pins (después de su línea) recibe carpetas y archivos para el
     workspace (dropped_pins)."""
@@ -95,6 +144,18 @@ class QuickList(QListWidget):
         self.setSpacing(0)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setStyleSheet("QListWidget::item{padding-left:6px;}")
+
+    def _rd_path(self, it):
+        return it.data(ROLE_PATH) if it is not None and not it.data(ROLE_SEP) else None
+
+    def mousePressEvent(self, ev):
+        self._rd_press(ev)
+        super().mousePressEvent(ev)
+
+    def mouseMoveEvent(self, ev):
+        if self._rd_move(ev):
+            return
+        super().mouseMoveEvent(ev)
 
     def _in_pins_zone(self, pos):
         """¿El mouse está sobre la parte de Workspace Pins (la línea y lo que sigue)?"""
@@ -211,7 +272,7 @@ class QuickList(QListWidget):
         self._hot(False)
         self._set_iline(None)
         if ev.source() is self:
-            if self._over_sys(ev):
+            if self._over_sys(ev) or is_right_drag(ev.mimeData()):   # duplicar en la misma lista: nada
                 ev.ignore()
                 return
             super().dropEvent(ev)
@@ -220,7 +281,8 @@ class QuickList(QListWidget):
         if paths:
             ev.setDropAction(Qt.LinkAction)
             ev.accept()
-            self.last_src = ev.source()               # (de otra lista de accesos: se mueve, no se duplica)
+            # de otra lista de accesos: con el botón izquierdo se mueve; con el derecho, se duplica
+            self.last_src = None if is_right_drag(ev.mimeData()) else ev.source()
             (self.dropped_pins if zone else self.dropped).emit(paths)
             self.last_src = None
         else:

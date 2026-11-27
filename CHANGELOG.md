@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.58.2
+- Between Quick access and the Workspace Pins (File Explorer) and between Quick access and VFX WORKSPACE PINS (VFX Library): drag with the left button to move, drag with the right button to duplicate (it stays in both). A right-click without dragging still opens the menu.
+
 ## 0.58.1
 - Three more drive icons (right-click a drive › Drive icon): RAID · M.2 (stacked M.2 modules), RAID · HDD (stacked drive bays) and Network drive (a drive with its network cable, for drives that live somewhere else).
 
