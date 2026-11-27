@@ -25,7 +25,17 @@ def test_grouping():
     assert "shot_v001.exr" in g and "shot_v002.exr" in g, "versiones no son frames"
     assert g["a.####.dpx"].frames == [998, 999]
     assert "frame####.exr" in g and "render.1001.exr" in g and "clip_001.mov" in g
-    assert g["p.#.png"].pad == 0 and g["p.#.png"].frames == [8, 9, 10]
+    # de fábrica una secuencia necesita 4 dígitos: p.8.png… y foto_12.jpg quedan sueltos
+    assert "p.8.png" in g and "p.10.png" in g
+    from vfxexplorer import core
+    core.set_seq_digits(1)                       # Settings › Sequences: 1 dígito alcanza
+    try:
+        g1 = {e.name: e for e in group_files("/x", [(n, 1, 0) for n in ["p.8.png", "p.9.png", "p.10.png",
+                                                                          "f_001.png", "f_002.png"]])}
+        assert g1["p.#.png"].pad == 0 and g1["p.#.png"].frames == [8, 9, 10]
+        assert "f_###.png" in g1
+    finally:
+        core.set_seq_digits(4)
     assert compress_ranges([1, 2, 3, 5, 7, 8]) == "1-3, 5, 7-8"
 
 

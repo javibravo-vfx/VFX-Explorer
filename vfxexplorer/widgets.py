@@ -1685,6 +1685,13 @@ class SettingsDialog(QDialog):
         self.sidecar = QCheckBox("Model and folder previews (JPG/PNG with the same name, thumbnail.jpg…)")
         self.sidecar.setChecked(bool(cfg["sidecar_previews"]))
         lay.addRow("", self.sidecar)
+        self.seqd = QSpinBox()
+        self.seqd.setRange(1, 10)
+        self.seqd.setValue(int(cfg["seq_digits"] or 4))
+        self.seqd.setSuffix(" digits")
+        lay.addRow("Sequences:", self.seqd)
+        lay.addRow("", _hint("Numbered files are a sequence when the number has at least this many digits "
+                             "(4: render_0001.exr). With fewer they show as separate files."))
         self.threads = QSpinBox()
         self.threads.setRange(1, 16)
         self.threads.setValue(int(cfg["threads"]))
@@ -1966,7 +1973,11 @@ class SettingsDialog(QDialog):
         cfg["pipeline_location"] = self.p_loc.currentData()
         new_p = (cfg["pipeline_root"], cfg["pipeline_prefix"], cfg["pipeline_seq_exclude"],
                  json.dumps(cfg["pipeline_departments"]), cfg["pipeline_only_depts"])
-        listing_changed = hidden_changed or cfg["folder_sizes"] != self.fsizes.isChecked()
+        listing_changed = hidden_changed or cfg["folder_sizes"] != self.fsizes.isChecked() \
+            or int(cfg["seq_digits"] or 4) != self.seqd.value()
+        cfg["seq_digits"] = self.seqd.value()
+        from .core import set_seq_digits
+        set_seq_digits(self.seqd.value())
         cfg["folder_sizes"] = self.fsizes.isChecked()
         cfg["library_features"] = self.feats.isChecked()
         cfg["color_mode"] = self.cmode.currentData()

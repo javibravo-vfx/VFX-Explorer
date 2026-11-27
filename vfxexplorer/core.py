@@ -295,6 +295,18 @@ def compress_ranges(nums):
 
 SEQ_RE = re.compile(r"^(?P<head>.*?)(?P<frame>\d+)(?P<ext>\.[^.]+)$")
 
+# cuántos dígitos tiene que tener el número para que sea una secuencia (render_0001.exr: 4). Con menos, archivos
+# sueltos (foto_12.jpg, v01…). Lo ajusta Settings › General (seq_digits)
+SEQ_MIN_DIGITS = 4
+
+
+def set_seq_digits(n):
+    global SEQ_MIN_DIGITS
+    try:
+        SEQ_MIN_DIGITS = max(1, min(10, int(n)))
+    except (TypeError, ValueError):
+        SEQ_MIN_DIGITS = 4
+
 
 @dataclass
 class Entry:
@@ -416,6 +428,8 @@ def split_frame(name):
     if not m:
         return None
     if m.group("ext").lower() not in IMAGE_EXTS or not _is_frame_boundary(m.group("head")):
+        return None
+    if len(m.group("frame")) < SEQ_MIN_DIGITS:      # menos dígitos que una secuencia: archivo suelto
         return None
     return m.group("head"), m.group("frame"), m.group("ext")
 
@@ -931,6 +945,7 @@ class Config:
         "splitter_left3": "",
         "hidden_sys": ["onedrive"],
         "collapse_seqs": True,
+        "seq_digits": 4,                # dígitos del número para que sea secuencia (render_0001.exr)
         "mini_tree_on": True,
         "hover_box": True,
         "image_viewer": "",             # programa para abrir imágenes (vacío = el predeterminado de Windows)

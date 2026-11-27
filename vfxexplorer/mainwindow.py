@@ -149,6 +149,8 @@ class MainWindow(QMainWindow):
         init_formats()
         self.data_dir = data_dir()
         self.cfg = Config(os.path.join(self.data_dir, "config.json"))
+        from .core import set_seq_digits
+        set_seq_digits(self.cfg["seq_digits"])    # cuántos dígitos hacen una secuencia (Settings)
         self.lib = Library(os.path.join(self.data_dir, "library.json"))
         if self.cfg.get("colors"):
             self.lib.migrate_colors(self.cfg.data.pop("colors"))

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.55.0
+- Sequences need a frame number with at least 4 digits (render_0001.exr, plate.1001.exr). Numbered files with fewer digits (frame_001.png, photo_12.jpg) show as separate files.
+- Settings › General › Sequences: how many digits make a sequence (1–10, 4 by default), for pipelines that number differently. Changing it reloads the open folders.
+
 ## 0.54.2
 - «Continue where you left off» is off by default on a first start (the app opens in the Startup workspace).
 - Dragging a folder from Quick access to the Workspace Pins (or the other way around) moves it instead of duplicating it — in File Explorer and in the VFX Library.
