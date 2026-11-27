@@ -812,6 +812,20 @@ class _WinQuickMixin:
                 return q
         return None
 
+    def scrollTo(self, index, hint=QTreeWidget.EnsureVisible):
+        if getattr(self, "_hold_scroll", False):  # se está en un acceso de arriba: el árbol no se lleva la vista
+            return
+        super().scrollTo(index, hint)
+
+    def scrollToItem(self, it, hint=QTreeWidget.EnsureVisible):
+        if getattr(self, "_hold_scroll", False):  # (QTreeWidget.scrollToItem no pasa por scrollTo)
+            return
+        super().scrollToItem(it, hint)
+
+    def _release_scroll(self, v):
+        self.verticalScrollBar().setValue(v)
+        self._hold_scroll = False
+
     def _keep_on_quick(self, path):
         """Después de marcar la carpeta: si se llegó desde un acceso de arriba, el foco vuelve a ese acceso."""
         q = self._held_item(path)
@@ -1066,6 +1080,8 @@ class WinNavTree(_WinQuickMixin, FolderTree):
                         break
             if target is None:
                 target = self.root
+        held = self._held_item(path) is not None
+        self._hold_scroll = held                  # desde un acceso de arriba: la vista no baja al árbol
         self._syncing = True
         if target is None:
             self.clearSelection()
@@ -1073,6 +1089,7 @@ class WinNavTree(_WinQuickMixin, FolderTree):
         else:
             self.setCurrentItem(target)
         self._syncing = False
+        self._hold_scroll = False
         self._trace = []
         self._trace_path = ""
         self._keep_on_quick(path)
@@ -1092,5 +1109,17 @@ class WinBonsaiTree(_WinQuickMixin, FolderTree):
         super().__init__(app, mini=True)
 
     def sync(self, path):
+        held = self._held_item(path) is not None
+        if held:                                  # desde un acceso de arriba: la vista queda donde está
+            v = self.verticalScrollBar().value()
+            self._hold_scroll = True
         super().sync(path)                        # el camino queda marcado abajo, sin llevarse el foco
         self._keep_on_quick(path)
+        if held:
+            q = self._held_item(path)
+            self._hold_scroll = False
+            if q is not None:
+                self.scrollToItem(q)              # solo lo justo para que el acceso se vea
+            v2 = self.verticalScrollBar().value()
+            self._hold_scroll = True              # (lo que Qt quiera desplazar después de abrir las ramas, no)
+            QTimer.singleShot(120, lambda v2=v2: self._release_scroll(v2))

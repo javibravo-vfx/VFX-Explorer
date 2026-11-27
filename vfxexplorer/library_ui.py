@@ -161,19 +161,24 @@ class LibrarySidebar(QWidget):
             chain.add(id(p))
             p = p.parent()
 
+        def close_all(it):                        # cerrada con todo lo de adentro (al reabrirla no aparece abierta)
+            for i in range(it.childCount()):
+                close_all(it.child(i))
+            if it.isExpanded():
+                it.setExpanded(False)
+
         def walk(it):
             for i in range(it.childCount()):
                 c = it.child(i)
-                if c.isExpanded():
-                    if id(c) not in chain:
-                        c.setExpanded(False)
-                    else:
-                        walk(c)
+                if id(c) not in chain:
+                    close_all(c)
+                elif c is not keep:
+                    walk(c)
         for i in range(self.tree.topLevelItemCount()):
             t = self.tree.topLevelItem(i)
             if id(t) not in chain:
-                t.setExpanded(False)
-            else:
+                close_all(t)
+            elif t is not keep:
                 walk(t)
 
     def sync(self, path):
@@ -184,8 +189,8 @@ class LibrarySidebar(QWidget):
             while p is not None:
                 p.setExpanded(True)
                 p = p.parent()
-            if self.app.cfg["lib_tree_autocollapse"] and self._collapse_next:
-                self._auto_collapse(it)                # solo al entrar con doble clic
+            if self.app.cfg["lib_tree_autocollapse"]:
+                self._auto_collapse(it)                # en cada carpeta a la que se entra (árbol o panel)
             self._collapse_next = False
             self.tree._syncing = True
             self.tree.setCurrentItem(it)

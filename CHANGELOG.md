@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.53.1
+- Fix: when opening the app, a tiny window flashed for an instant (two buttons were shown before being placed in the panel).
+- Windows mode with Bonsai: moving through Quick access / Workspace Pins (click or arrow keys) no longer scrolls the panel down to the tree; the tree still opens below, and you scroll to it when you want.
+- VFX Library, Auto collapse: it now closes everything outside the current path at every level (and closes what was open inside), whether you enter a folder from the tree or from the files.
+
 ## 0.53.0
 - File Explorer always navigates in Windows mode (the old Quick access + tree layout is gone). Under the tree: Bonsai, Prune and the eye.
 - Windows mode (with or without Bonsai): clicking a Quick access item or a Workspace Pin keeps the focus there — the folder is marked in the tree below without taking the focus — and the arrow keys move between the items at the top.

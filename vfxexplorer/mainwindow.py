@@ -534,8 +534,8 @@ class MainWindow(QMainWindow):
                                          lambda: (self.b_eye.setChecked(bool(self.cfg["show_hidden_quick"])),
                                                   self._reload_sidebar()))
         fbar.addWidget(self.b_wineye)
-        self._winnav_icon()
         fpl.addLayout(fbar)
+        self._winnav_icon()                       # (ya adentro del panel: si no, un botón suelto se ve como ventanita)
         self.side_boxes["tree"] = folders_page
 
         # tab VFX LIBRARY: árbol de la librería (+ colecciones y tags si están activados)
