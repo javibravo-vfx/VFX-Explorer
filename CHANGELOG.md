@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.53.0
+- File Explorer always navigates in Windows mode (the old Quick access + tree layout is gone). Under the tree: Bonsai, Prune and the eye.
+- Windows mode (with or without Bonsai): clicking a Quick access item or a Workspace Pin keeps the focus there — the folder is marked in the tree below without taking the focus — and the arrow keys move between the items at the top.
+- VFX Library, link button: on, the left panel divider keeps the same height when you switch workspaces; off, each workspace remembers its own (also the Quick access / VFX PINS divider).
+
 ## 0.52.0
 - Windows mode: Bonsai button next to the Windows mode button — the same single scrolling panel (Quick access on top), but below it only the folders you visited, with lines and the path marked. The Prune scissors appear next to it. Each workspace remembers it; Reset to zero turns it off.
 - Windows mode: an eye under the tree to show hidden Quick access items (they show dimmed). Hide now works there: before, with the eye on, hidden items still showed and there was no eye to turn it off.

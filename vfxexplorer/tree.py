@@ -791,7 +791,38 @@ class _WinQuickMixin:
     def __init__(self, app, **kw):
         self._quick_specs = []
         self._win_path = ""
+        self._quick_hold = ""                     # se eligió un acceso de arriba: la marca queda ahí (no baja al árbol)
         super().__init__(app, **kw)
+        self.currentItemChanged.connect(self._quick_current)
+        self.itemClicked.connect(lambda it, c: self._quick_current(it, None))
+
+    def _quick_current(self, it, _prev):
+        if getattr(self, "_syncing", False) or it is None:
+            return
+        self._quick_hold = it.data(0, Qt.UserRole) if (it.data(0, self.ROLE_QUICK) and
+                                                       not it.data(0, self.ROLE_ISFILE)) else ""
+
+    def _held_item(self, path):
+        """El acceso de arriba elegido, si la carpeta abierta es la suya."""
+        if not self._quick_hold or not path or self._key(path) != self._key(self._quick_hold):
+            return None
+        for i in range(self.topLevelItemCount()):
+            q = self.topLevelItem(i)
+            if q.data(0, self.ROLE_QUICK) and self._key(q.data(0, Qt.UserRole) or "") == self._key(path):
+                return q
+        return None
+
+    def _keep_on_quick(self, path):
+        """Después de marcar la carpeta: si se llegó desde un acceso de arriba, el foco vuelve a ese acceso."""
+        q = self._held_item(path)
+        if q is None:
+            if path and self._quick_hold and self._key(path) != self._key(self._quick_hold):
+                self._quick_hold = ""
+            return
+        self._syncing = True
+        self.setCurrentItem(q)
+        self._syncing = False
+        self.scrollToItem(q)
 
     def _make_root(self):
         super()._make_root()
@@ -1044,6 +1075,7 @@ class WinNavTree(_WinQuickMixin, FolderTree):
         self._syncing = False
         self._trace = []
         self._trace_path = ""
+        self._keep_on_quick(path)
         self.viewport().update()
 
     def _apply_names(self, it, path, names):
@@ -1058,3 +1090,7 @@ class WinBonsaiTree(_WinQuickMixin, FolderTree):
 
     def __init__(self, app):
         super().__init__(app, mini=True)
+
+    def sync(self, path):
+        super().sync(path)                        # el camino queda marcado abajo, sin llevarse el foco
+        self._keep_on_quick(path)

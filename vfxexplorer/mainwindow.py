@@ -504,10 +504,12 @@ class MainWindow(QMainWindow):
         fbar = QHBoxLayout()
         fbar.setContentsMargins(6, 2, 6, 4)
         fbar.setSpacing(2)
+        self.cfg["win_nav"] = True                # File Explorer navega siempre en modo Windows (sin el modo viejo)
         self.b_winnav = QToolButton()
         self.b_winnav.setCheckable(True)
         self.b_winnav.setAutoRaise(True)
-        self.b_winnav.setChecked(bool(self.cfg["win_nav"]))
+        self.b_winnav.setChecked(True)
+        self.b_winnav.setVisible(False)
         self.b_winnav.toggled.connect(self._toggle_winnav)
         self._popfix(self.b_winnav)
         fbar.addWidget(self.b_winnav)
@@ -1644,22 +1646,19 @@ class MainWindow(QMainWindow):
     def _split_sync_icon(self):
         on = self.b_splitsync.isChecked()
         self.b_splitsync.setIcon(self.icons.glyph("link", 16, "#4cc2ff" if on else "#8a8f96"))
-        self.b_splitsync.setToolTip("Divider synced with File Explorer (on): the Quick access / tree divider is "
-                                    "at the same height in both" if on else
-                                    "Divider on its own (off): File Explorer and the VFX Library each remember "
-                                    "the height of the Quick access / tree divider")
+        self.b_splitsync.setToolTip("Same height in every workspace (on): the Quick access / tree divider stays "
+                                    "where it is when you switch workspaces" if on else
+                                    "Each workspace remembers its own height (off) for the Quick access / tree "
+                                    "divider")
 
     def _split_sync_toggled(self, on):
         self.cfg["left_split_sync"] = bool(on)
-        if not on:                                # desde ahora cada uno arranca donde está
-            sz = self.left_split.sizes()
-            self.cfg["left_sizes_0"] = sz
-            self.cfg["left_sizes_1"] = sz
         self._split_sync_icon()
         self.save_soon()
 
     def _left_split_for_tab(self, i):
-        """Al cambiar de tab del panel izquierdo: si el divisor no está sincronizado, cada tab con su altura."""
+        """(Ya no: el divisor de arriba solo se ve en la librería; lo que manda es el botón de los eslabones.)"""
+        return
         prev = getattr(self, "_left_tab_cur", None)
         self._left_tab_cur = i
         if self.cfg["left_split_sync"] or prev is None or prev == i:
@@ -1919,8 +1918,7 @@ class MainWindow(QMainWindow):
         self.cfg["geometry"] = bytes(self.saveGeometry().toBase64()).decode()
         self.cfg["splitter"] = bytes(self.main_split.saveState().toBase64()).decode()
         self.cfg["splitter_left3"] = bytes(self.left_split.saveState().toBase64()).decode()
-        if not self.cfg["left_split_sync"] and hasattr(self, "sidetabs"):
-            self.cfg[f"left_sizes_{self.sidetabs.currentIndex()}"] = self.left_split.sizes()
+        pass
         self.cfg["splitter_panes"] = bytes(self.pane_split.saveState().toBase64()).decode()
         self.cfg["splitter_library"] = bytes(self.libpage.split.saveState().toBase64()).decode()
         self._save_now()
@@ -3818,7 +3816,8 @@ class MainWindow(QMainWindow):
             self.open_in_explorer(p)
 
     def _winnav_icon(self):
-        on = self.b_winnav.isChecked()
+        on = True
+        self.b_winnav.setVisible(False)
         bon = self.b_winbonsai.isChecked()
         self.b_winbonsai.setVisible(on)
         self.b_winprune.setVisible(on and bon)

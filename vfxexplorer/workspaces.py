@@ -27,6 +27,7 @@ def capture(app):
         "details_lib": bool(app.cfg["details_library"]),
         "splits": {k: _split_state(getattr(app, attr)) for k, attr in SPLITS},
         "lib_split": _split_state(app.libpage.split),
+        "lib_quick": _split_state(app.lib_quick) if hasattr(app, "lib_quick") else "",
         "side": app.sidetabs.currentIndex(),
         "active": 1 if app.explorer_active is app.paneB else 0,
     }
@@ -43,6 +44,7 @@ def capture(app):
 
 
 def apply_win_nav(app, on):
+    on = True                                     # File Explorer navega siempre en modo Windows
     app.cfg["win_nav"] = bool(on)
     if hasattr(app, "b_winnav") and app.b_winnav.isChecked() != bool(on):
         app.b_winnav.setChecked(bool(on))         # (lo aplica _toggle_winnav)
@@ -116,10 +118,15 @@ def apply(app, st):
     app.toggle_details(bool(app.cfg[app._details_key()]), remember=False)
 
     def sizes():
+        sync = bool(app.cfg["left_split_sync"])   # tildado: el panel izquierdo queda a la misma altura en todos
         for k, attr in SPLITS:
+            if k == "left" and sync:
+                continue
             v = (st.get("splits") or {}).get(k)
             if v:
                 getattr(app, attr).restoreState(QByteArray.fromBase64(v.encode()))
+        if not sync and st.get("lib_quick") and hasattr(app, "lib_quick"):
+            app.lib_quick.restoreState(QByteArray.fromBase64(st["lib_quick"].encode()))
         if st.get("lib_split"):
             app.libpage.split.restoreState(QByteArray.fromBase64(st["lib_split"].encode()))
         app._sync_cmd_left()
@@ -169,7 +176,7 @@ def reset_layout(app, keep_win=False):
     def sizes():
         tot = max(1200, sum(app.main_split.sizes()) or app.width())
         app.main_split.setSizes([340, tot - 340 - 360, 360])
-        if defaults.get("left"):
+        if defaults.get("left") and not app.cfg["left_split_sync"]:
             app.left_split.restoreState(QByteArray.fromBase64(defaults["left"].encode()))
         if defaults.get("lib"):
             app.libpage.split.restoreState(QByteArray.fromBase64(defaults["lib"].encode()))
