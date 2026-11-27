@@ -193,6 +193,9 @@ class _LinedMixin:
         cy = rect.center().y()
         top, bot = rect.top(), rect.bottom() + 1
         style = self._cfg("tree_lines_style", "chevron")
+        plain = getattr(self, "win", False)        # modo Windows: solo › / ⌄, sin líneas ni camino
+        if plain:
+            style = "chevron"
         dotted = style == "dotted"
         chev = style == "chevron"          # chevrons › y solo la línea del camino
         p.save()
@@ -226,7 +229,7 @@ class _LinedMixin:
 
         # 2) tree path tracing (por encima de las líneas)
         tr = self._trace
-        tracing = bool(self._cfg("tree_trace", True)) and len(tr) > 1
+        tracing = bool(self._cfg("tree_trace", True)) and len(tr) > 1 and not plain
         if tracing:
             tw = 1 if chev else max(1, int(self._cfg("tree_trace_width", 2)))
             p.setPen(QPen(self._trace_color(), tw, Qt.SolidLine, Qt.FlatCap))
@@ -770,3 +773,131 @@ class FolderTree(_LinedMixin, QTreeWidget):
 
 def MiniTree(app):
     return FolderTree(app, mini=True)
+
+
+class WinNavTree(FolderTree):
+    """Modo Windows del panel izquierdo: un solo árbol que scrollea entero — Quick access (y los Workspace Pins),
+    una línea y This PC. Como en Windows: no se abre solo al entrar en carpetas; queda marcada la carpeta
+    actual si se ve, o el último nivel abierto de su camino. Sin líneas: solo › / ⌄."""
+
+    ROLE_SEP = Qt.UserRole + 9
+    ROLE_QUICK = Qt.UserRole + 10
+    ROLE_ISFILE = Qt.UserRole + 6
+    ROLE_PIN = Qt.UserRole + 11          # "pin" / "wspin": el clavito a la derecha
+
+    def __init__(self, app):
+        self.win = True
+        self._quick_specs = []
+        self._win_path = ""
+        super().__init__(app)
+        self.itemExpanded.connect(lambda it: QTimer.singleShot(0, self._resync))
+        self.itemCollapsed.connect(lambda it: QTimer.singleShot(0, self._resync))
+
+    def _make_root(self):
+        super()._make_root()
+        self.root.setExpanded(False)              # This PC cerrado, como en Windows
+        self._fill_quick_items()
+
+    # ---------------- Quick access arriba
+    def set_quick(self, specs):
+        """specs: lista de dicts {text, icon, path, isfile, pin} o None = línea divisoria."""
+        self._quick_specs = list(specs)
+        self._fill_quick_items()
+        self._resync()
+
+    def _fill_quick_items(self):
+        if self.root is None:
+            return
+        while self.topLevelItemCount() and self.topLevelItem(0) is not self.root:
+            self.takeTopLevelItem(0)
+        items = []
+        for sp in self._quick_specs + [None]:          # al final, la línea antes de This PC
+            if sp is None:
+                if not items or items[-1].data(0, self.ROLE_SEP):
+                    continue
+                it = QTreeWidgetItem([""])
+                it.setData(0, self.ROLE_SEP, True)
+                it.setFlags(Qt.NoItemFlags)
+                it.setSizeHint(0, QSize(10, 11))
+            else:
+                it = QTreeWidgetItem([sp["text"]])
+                it.setIcon(0, sp["icon"])
+                it.setData(0, Qt.UserRole, sp["path"])
+                it.setData(0, self.ROLE_QUICK, True)
+                it.setData(0, self.ROLE_ISFILE, bool(sp.get("isfile")))
+                it.setData(0, self.ROLE_PIN, sp.get("pin") or "")
+                it.setToolTip(0, sp["path"])
+                it.setChildIndicatorPolicy(QTreeWidgetItem.DontShowIndicator)
+            items.append(it)
+        for i, it in enumerate(items):
+            self.insertTopLevelItem(i, it)
+
+    def drawRow(self, p, opt, index):
+        if index.data(self.ROLE_SEP):
+            y = opt.rect.center().y()
+            p.save()
+            p.setPen(QPen(QColor("#3a3a3a"), 1))
+            p.drawLine(opt.rect.left() + 12, y, opt.rect.right() - 12, y)
+            p.restore()
+            return
+        super().drawRow(p, opt, index)
+        pin = index.data(self.ROLE_PIN)
+        if pin:
+            g = self.app.icons.glyph("wspin" if pin == "wspin" else "pin", 14,
+                                     "#4cc2ff" if pin == "wspin" else "#9d9d9d")
+            r = opt.rect
+            p.drawPixmap(self.viewport().width() - 24, r.center().y() - 7, g.pixmap(14, 14))
+
+    # ---------------- dónde estamos (sin abrir nada)
+    def _shown(self, it):
+        p = it.parent()
+        while p is not None:
+            if not p.isExpanded() or p.isHidden():
+                return False
+            p = p.parent()
+        return not it.isHidden()
+
+    def _resync(self):
+        self.sync(self._win_path)
+
+    def sync(self, path):
+        self._win_path = path or ""
+        target = None
+        if path == THISPC_KEY:
+            target = self.root
+        elif path:
+            p = os.path.normpath(path)
+            while True:
+                it = self._items.get(self._key(p))
+                if it is not None and self._shown(it):
+                    target = it
+                    break
+                up = os.path.dirname(p)
+                if up == p or not up:
+                    break
+                p = up
+            exact = target is not None and self._key(target.data(0, Qt.UserRole)) == self._key(path)
+            if not exact:                          # la carpeta es un acceso de Quick access: ese
+                k = self._key(path)
+                for i in range(self.topLevelItemCount()):
+                    q = self.topLevelItem(i)
+                    if q.data(0, self.ROLE_QUICK) and not q.data(0, self.ROLE_ISFILE) and \
+                            self._key(q.data(0, Qt.UserRole) or "") == k:
+                        target = q
+                        break
+            if target is None:
+                target = self.root
+        self._syncing = True
+        if target is None:
+            self.clearSelection()
+            self.setCurrentItem(None)
+        else:
+            self.setCurrentItem(target)
+        self._syncing = False
+        self._trace = []
+        self._trace_path = ""
+        self.viewport().update()
+
+    def _apply_names(self, it, path, names):
+        super()._apply_names(it, path, names)
+        QTimer.singleShot(0, self._resync)        # (en red llega después: la marca baja si corresponde)

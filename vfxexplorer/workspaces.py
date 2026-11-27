@@ -23,7 +23,8 @@ def capture(app):
         "panes": [p.state() for p in app.panes],
         "dual": bool(app.paneB.isVisible()) if app.mode() == "explorer" else bool(app.cfg["dual"]),
         "orient": app.cfg["dual_orient"] or "h",
-        "details": bool(app.info_area.isVisible()),
+        "details": bool(app.cfg["details_explorer"]),   # Details de File Explorer
+        "details_lib": bool(app.cfg["details_library"]),
         "splits": {k: _split_state(getattr(app, attr)) for k, attr in SPLITS},
         "lib_split": _split_state(app.libpage.split),
         "side": app.sidetabs.currentIndex(),
@@ -91,7 +92,9 @@ def apply(app, st):
         if lib["tabs"]:
             app.libpane.clear_tabs()
             app.libpane.restore(lib, roots[0])
-    app.toggle_details(bool(st.get("details", True)))
+    app.cfg["details_explorer"] = bool(st.get("details", False))
+    app.cfg["details_library"] = bool(st.get("details_lib", True))
+    app.toggle_details(bool(app.cfg[app._details_key()]), remember=False)
 
     def sizes():
         for k, attr in SPLITS:
@@ -135,7 +138,9 @@ def reset_layout(app):
         app.libpane.clear_tabs()
         app.libpane.restore(None, roots[0])
         app.libpane.set_view("grid", emit=False)
-    app.toggle_details(True)
+    app.cfg["details_explorer"] = False          # de fábrica: Details apagado en File Explorer, prendido en la librería
+    app.cfg["details_library"] = True
+    app.toggle_details(bool(app.cfg[app._details_key()]), remember=False)
     defaults = getattr(app, "_default_splits", {})
 
     def sizes():

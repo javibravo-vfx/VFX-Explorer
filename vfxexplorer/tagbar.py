@@ -35,9 +35,9 @@ class QuickTagBar(QWidget):
         lay = QHBoxLayout(self)
         lay.setContentsMargins(12, 0, 8, 0)          # mismo aire a la izquierda que PIPELINE
         lay.setSpacing(6)
-        lbl = QLabel("TAGS")
+        lbl = QLabel("FILTER")
         lbl.setStyleSheet("color:#4cc2ff; font-weight:bold; font-size:8pt; letter-spacing:1px;")
-        lbl.setToolTip("Quick tags: filter the whole branch of the current library folder.\n"
+        lbl.setToolTip("Filter: show only matching elements from the whole branch of the current library folder.\n"
                        "They match the file name, its folder names or its tags.\n"
                        "Several on = any of them. Right-click to edit.")
         lay.addWidget(lbl)
@@ -55,13 +55,16 @@ class QuickTagBar(QWidget):
         sa.setFixedHeight(28)
         sa.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         lay.addWidget(sa, 1)
-        # atajo: mostrar / ocultar las imágenes sueltas (capturas, jpgs de referencia…) de la librería
+        # solo el tipo que manda en cada carpeta: en una carpeta de videos no se ven los jpg sueltos, en una de
+        # HDRIs no se ve el jpg de preview, en una de fotos no se ve el mov que quedó
         self.b_images = QToolButton()
         self.b_images.setCheckable(True)
         self.b_images.setAutoRaise(True)
-        self.b_images.setChecked(bool(app.cfg["lib_show_images"]))
-        self.b_images.setToolTip("Show loose images (jpg, png…) in the VFX Library\n"
-                                 "Turn off to see only videos, sequences and the rest")
+        self.b_images.setChecked(bool(app.cfg["lib_main_type_only"]))
+        self.b_images.setToolTip("Only the main type of each folder (on)\n"
+                                 "A folder full of videos hides the stray JPGs, a folder of HDRIs hides the\n"
+                                 "preview JPG, a folder of photos hides the odd MOV. Folders, 3D files and\n"
+                                 "documents always show. Off: everything.")
         self.b_images.toggled.connect(self._images_toggled)
         self._images_icon()
         lay.addWidget(self.b_images)
@@ -74,14 +77,21 @@ class QuickTagBar(QWidget):
 
     def _images_toggled(self, on):
         self._images_icon()
-        self.app.cfg["lib_show_images"] = on
+        self.app.cfg["lib_main_type_only"] = on
         self.app.cfg.save()
         if hasattr(self.app, "libpane"):
-            self.app.libpane.set_hide_images(not on)
+            self.app.libpane.set_main_type_only(on)
 
     # ---------------- datos
     def specs(self):
         v = self.app.cfg["quick_tags"]
+        if v is not None and not self.app.cfg["quick_tags_hdri"]:
+            # una lista editada antes: se le suma HDRI una sola vez (si después la borrás, no vuelve)
+            self.app.cfg["quick_tags_hdri"] = True
+            if not any(parse_pill(x)[0].lower() == "hdri" for x in v):
+                v = list(v) + ["HDRI: hdri, hdr, skydome"]
+                self.app.cfg["quick_tags"] = v
+            self.app.cfg.save()
         return list(DEFAULT_QUICK_TAGS if v is None else v)
 
     def _save(self, specs):
@@ -117,13 +127,13 @@ class QuickTagBar(QWidget):
         add = QToolButton()
         add.setObjectName("pillAdd")
         add.setText("＋")
-        add.setToolTip("Add a quick tag")
+        add.setToolTip("Add a filter")
         add.clicked.connect(self.add)
         self.il.addWidget(add)
         self.clear_b = QToolButton()
         self.clear_b.setObjectName("pillClear")
         self.clear_b.setText("✕ Clear")
-        self.clear_b.setToolTip("Turn off all quick tags")
+        self.clear_b.setToolTip("Turn off all filters")
         self.clear_b.clicked.connect(self.clear)
         self.il.addWidget(self.clear_b)
         self.il.addStretch(1)
@@ -158,7 +168,7 @@ class QuickTagBar(QWidget):
         return t.strip() if ok and t.strip() and parse_pill(t)[0] else None
 
     def add(self):
-        t = self._ask("New quick tag")
+        t = self._ask("New filter")
         if t:
             self._save(self.specs() + [t])
 
@@ -168,7 +178,7 @@ class QuickTagBar(QWidget):
         m = QMenu(self)
 
         def edit():
-            t = self._ask("Edit quick tag", specs[i])
+            t = self._ask("Edit filter", specs[i])
             if t:
                 specs[i] = t
                 self._save(specs)

@@ -1656,10 +1656,10 @@ class FilePane(QFrame):
             q.any_root = self.tab_path()
         return q
 
-    def set_hide_images(self, hide):
-        """Mostrar / ocultar imágenes sueltas: vuelve a leer la carpeta (o la búsqueda) para que la vista
+    def set_main_type_only(self, on):
+        """Solo el tipo que manda en cada carpeta: vuelve a leer la carpeta (o la búsqueda) para que la vista
         se rearme entera, igual que con Refresh."""
-        self.proxy.hide_images = bool(hide)
+        self.proxy.main_type_only = bool(on)
         t = self.tab()
         if t and t["virtual"]:
             self._load_virtual()

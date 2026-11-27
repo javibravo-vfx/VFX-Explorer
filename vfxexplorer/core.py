@@ -803,6 +803,7 @@ DEFAULT_QUICK_TAGS = [
     "Water: water, splash, agua",
     "Debris: debris, rocks, escombros",
     "Blood: blood, sangre",
+    "HDRI: hdri, hdr, skydome",
 ]
 
 
@@ -890,7 +891,12 @@ class Config:
         "viewer_autoplay": True,
         "viewer_loop": True,
         # 0.4
-        "details_visible": True,
+        "win_nav": False,               # panel izquierdo en modo Windows (un solo árbol, sin líneas)
+        "left_split_sync": True,        # panel izquierdo: el divisor de arriba igual en File Explorer y en la librería
+        "left_sizes_0": None,           # … si no: la altura de cada uno (File Explorer / VFX Library)
+        "left_sizes_1": None,
+        "details_explorer": False,      # panel Details en File Explorer (de fábrica apagado)
+        "details_library": True,        # … y en la VFX Library (de fábrica prendido); cada uno se recuerda
         "details_tab": "details",       # panel derecho: DETAILS o NOTES
         "tree_lines_style": "chevron",  # chevron (› + línea del camino) | solid | dotted
         "tree_trace": True,             # Tree Path Tracing 
@@ -916,6 +922,7 @@ class Config:
         # 0.7
         "lib_favorites": [],            # acceso rápido de la VFX Library
         "quick_tags": None,             # None = pastillas por defecto (DEFAULT_QUICK_TAGS)
+        "quick_tags_hdri": False,       # ya se sumó la pastilla HDRI a una lista editada antes de 0.49
         "lib_tree_line_color": "#ffcf48",     # amarillo: las carpetas de la librería son celestes
         "splitter_left3": "",
         "hidden_sys": ["onedrive"],
@@ -935,7 +942,7 @@ class Config:
         "col_layouts": {},              # layouts de columnas propios {nombre: [columnas en orden]}
         "col_order": None,              # orden de columnas del último layout aplicado              # preview flotante al dejar el mouse sobre un ítem           # árbol solo con las carpetas visitadas
         "mini_tree": [],                # carpetas visitadas (más recientes primero)          # secuencias de imágenes en una sola entrada
-        "lib_show_images": True,        # VFX Library: mostrar imágenes sueltas (jpg de capturas, etc.)
+        "lib_main_type_only": True,     # VFX Library: en cada carpeta solo el tipo que manda (videos, HDR, fotos…)
         "hidden_drives": [],
         "list_cols": {},
         "system_icons": True,

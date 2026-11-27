@@ -7,7 +7,7 @@ import time
 from PySide6.QtCore import Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, QMimeData, QUrl, QThread, Signal
 from PySide6.QtGui import QColor, QFont, QIcon
 
-from .core import (IMAGE_EXTS, date_group, DATE_GROUPS, scan_dir, entry_matches, resolve_refs, natural_key, human_size, fmt_time, fwd,
+from .core import (IMAGE_EXTS, VIDEO_EXTS, date_group, DATE_GROUPS, scan_dir, entry_matches, resolve_refs, natural_key, human_size, fmt_time, fwd,
                    compress_ranges, Query, list_drives)
 
 ROLE_ENTRY = Qt.UserRole + 1
@@ -372,12 +372,61 @@ class EntryProxy(QSortFilterProxyModel):
             return getattr(e, "_g", None) in getattr(self, "_ok_groups", set())
         return self._accept(e)
 
-    hide_images = False          # VFX Library: ocultar imágenes sueltas (las secuencias quedan)
+    main_type_only = False       # VFX Library: en cada carpeta, solo el tipo que manda (sin los sueltos de otro tipo)
+    HDR_FILE_EXTS = {".exr", ".hdr", ".sxr", ".mxr", ".rgbe", ".pfm"}
+    STILL_SEQ_HDR = {".hdr", ".rgbe", ".pfm"}
+    STILL_SEQ_IMG = {".jpg", ".jpeg", ".jfif", ".png", ".gif", ".bmp", ".webp", ".heic", ".heif", ".avif",
+                     ".tif", ".tiff", ".psd", ".dng", ".cr2", ".cr3", ".nef", ".arw", ".raf", ".orf", ".rw2"}
+
+    @classmethod
+    def media_group(cls, e):
+        """Videos / secuencias / HDR / imágenes; None = no compite (carpetas, modelos, documentos…)."""
+        ext = (e.ext or "").lower()
+        if e.kind == "seq":
+            # fotos o HDRIs numerados (IMG_0001.jpg, sky_01.hdr) son fotos / HDR; EXR, DPX… son secuencias
+            if ext in cls.STILL_SEQ_HDR:
+                return "hdr"
+            if ext in cls.STILL_SEQ_IMG:
+                return "image"
+            return "seq"
+        if e.kind != "file":
+            return None
+        if ext in VIDEO_EXTS:
+            return "video"
+        if ext in cls.HDR_FILE_EXTS:
+            return "hdr"
+        if ext in IMAGE_EXTS:
+            return "image"
+        return None
+
+    def _dominant(self, e):
+        """El tipo que manda en la carpeta de e (el que más hay; empate = ninguno, se ve todo)."""
+        m = self.sourceModel()
+        sig = (id(m.entries), len(m.entries))
+        if getattr(self, "_dom_sig", None) != sig:
+            counts = {}
+            for x in m.entries:
+                g = self.media_group(x)
+                if g:
+                    c = counts.setdefault(x.dirpath, {})
+                    n = len(x.files) if (x.kind == "seq" and g != "seq" and x.files) else 1
+                    c[g] = c.get(g, 0) + n
+            dom = {}
+            for d, c in counts.items():
+                best = sorted(c.items(), key=lambda kv: -kv[1])
+                if len(best) > 1 and best[0][1] > best[1][1]:
+                    dom[d] = best[0][0]
+            self._dom, self._dom_sig = dom, sig
+        return self._dom.get(e.dirpath)
 
     def _accept(self, e):
         m = self.sourceModel()
-        if self.hide_images and e.kind == "file" and e.ext in IMAGE_EXTS:
-            return False
+        if self.main_type_only:
+            g = self.media_group(e)
+            if g:
+                d = self._dominant(e)
+                if d and g != d:
+                    return False
         if m.virtual:
             if self.query.empty and self.cat == "all":
                 return True

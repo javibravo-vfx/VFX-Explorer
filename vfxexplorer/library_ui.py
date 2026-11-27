@@ -56,6 +56,25 @@ class LibraryPage(QWidget):
         self.viewer.load(e, start=start)
         if hasattr(self.app, "lib_slots"):
             self.app.lib_slots.refresh()
+        QTimer.singleShot(250, lambda e=e: self._prefetch_around(e))
+
+    def _prefetch_around(self, e):
+        """HDRIs: el siguiente y el anterior se leen de antemano (moverse con las flechas es instantáneo)."""
+        if not self.viewer.is_hdr_still(e):
+            return
+        from .models import ROLE_ENTRY
+        v = self.pane.view()
+        m = v.model()
+        ix = v.currentIndex()
+        if not ix.isValid():
+            return
+        near = []
+        for d in (1, -1, 2):
+            j = m.index(ix.row() + d, 0)
+            x = j.data(ROLE_ENTRY) if j.isValid() else None
+            if x is not None:
+                near.append(x)
+        self.viewer.prefetch(near)
 
     def shutdown(self):
         self.viewer.shutdown()

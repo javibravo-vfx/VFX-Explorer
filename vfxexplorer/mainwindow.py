@@ -22,7 +22,7 @@ from .imaging import ThumbManager, InfoTask, Signals, init_formats
 from .widgets import Icons, TAG_COLORS, TagDialog, RenameDialog, SettingsDialog, ACCENT
 from .pane import FilePane
 from .colors import ColorEngine, COLOR_MODES, DEFAULT_NAME_RULES
-from .tree import FolderTree, MiniTree
+from .tree import FolderTree, MiniTree, WinNavTree
 from .dirsize import DirSizeManager
 from .library_ui import LibraryPage, LibrarySidebar
 from .pipebar import PipelineBar
@@ -376,19 +376,20 @@ class MainWindow(QMainWindow):
         # árbol de File Explorer con This PC como raíz: completo o Mini tree (solo lo visitado)
         self.tree = FolderTree(self)
         self.minitree = MiniTree(self)
-        for t in (self.tree, self.minitree):
+        self.wintree = WinNavTree(self)           # modo Windows: Quick access + This PC en un solo árbol
+        for t in (self.tree, self.minitree, self.wintree):
             t.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-            t.itemClicked.connect(lambda it, c: it.data(0, Qt.UserRole) and
-                                  self.open_in_explorer(it.data(0, Qt.UserRole)))
+            t.itemClicked.connect(lambda it, c: it.data(0, Qt.UserRole) and self._tree_open_item(it))
             t.setContextMenuPolicy(Qt.CustomContextMenu)
             t.customContextMenuRequested.connect(lambda pos, t=t: self._tree_menu(t, pos))
-        for t in (self.tree, self.minitree):
+        for t in (self.tree, self.minitree, self.wintree):
             self.hook_tree_keys(t, self.open_in_explorer)
         self._drives_gen = 0
         QTimer.singleShot(0, self.reload_tree_drives)
         self.tree_stack = QStackedWidget()
         self.tree_stack.addWidget(self.tree)
         self.tree_stack.addWidget(self.minitree)
+        self.tree_stack.addWidget(self.wintree)
 
         self.libside = LibrarySidebar(self)
         self.pipebar_side = PipelineBar(self, vertical=True)
@@ -473,6 +474,20 @@ class MainWindow(QMainWindow):
         self.side_boxes["pipeline"] = boxed("PIPELINE", self.pipebar_side)
         fpl.addWidget(self.side_boxes["pipeline"])
         fpl.addWidget(self.tree_stack, 1)
+        # abajo del árbol (como auto colapsar en la librería): el modo Windows
+        fbar = QHBoxLayout()
+        fbar.setContentsMargins(6, 2, 6, 4)
+        fbar.setSpacing(2)
+        self.b_winnav = QToolButton()
+        self.b_winnav.setCheckable(True)
+        self.b_winnav.setAutoRaise(True)
+        self.b_winnav.setChecked(bool(self.cfg["win_nav"]))
+        self.b_winnav.toggled.connect(self._toggle_winnav)
+        self._popfix(self.b_winnav)
+        self._winnav_icon()
+        fbar.addWidget(self.b_winnav)
+        fbar.addStretch(1)
+        fpl.addLayout(fbar)
         self.side_boxes["tree"] = folders_page
 
         # tab VFX LIBRARY: árbol de la librería (+ colecciones y tags si están activados)
@@ -530,6 +545,15 @@ class MainWindow(QMainWindow):
         crl.addWidget(self.b_eye_tree)
         crl.addWidget(self.b_mini_clear)
         crl.addWidget(self.b_minitree)
+        # VFX Library: el divisor de arriba (Quick access / árbol) igual que en File Explorer, o el suyo propio
+        self.b_splitsync = QToolButton()
+        self.b_splitsync.setCheckable(True)
+        self.b_splitsync.setAutoRaise(True)
+        self.b_splitsync.setChecked(bool(self.cfg["left_split_sync"]))
+        self.b_splitsync.toggled.connect(self._split_sync_toggled)
+        self._popfix(self.b_splitsync)
+        self._split_sync_icon()
+        crl.addWidget(self.b_splitsync)
         crl.addWidget(self.b_colors)
         crl.addWidget(self.b_side_add)
         self.sidetabs.setCornerWidget(corner, Qt.TopRightCorner)
@@ -574,7 +598,7 @@ class MainWindow(QMainWindow):
         from .slots import SlotController
         self.lib_slots = SlotController(self, self.libpage)      # Ctrl / Shift + 1…4 en el player
         lp = self.libpane
-        lp.proxy.hide_images = not self.cfg["lib_show_images"]
+        lp.proxy.main_type_only = bool(self.cfg["lib_main_type_only"])
         lp.model.lib_mode = True
         lp.grid.lib_mode = True
         lp.list.lib_mode = True
@@ -1207,6 +1231,7 @@ class MainWindow(QMainWindow):
         """Oculta en el árbol de Carpetas los discos marcados (salvo con el ojito prendido)."""
         self.tree.apply_hidden()
         self.minitree.apply_hidden()
+        self.wintree.apply_hidden()
 
     def hook_tree_keys(self, tree, opener):
         """Moverse con las flechas por un árbol abre la carpeta (con una pequeña espera, para no cargar
@@ -1281,6 +1306,7 @@ class MainWindow(QMainWindow):
             return
         self.tree.set_drives(drives)
         self.minitree.set_drives(drives)
+        self.wintree.set_drives(drives)
 
     def _toggle_drive(self, path):
         hidden = list(self.cfg["hidden_drives"] or [])
@@ -1457,7 +1483,7 @@ class MainWindow(QMainWindow):
             if r.isValid() and 0 <= r.top() < src.viewport().height():
                 y = r.top()
         self.cfg["mini_tree_on"] = bool(on)
-        self.tree_stack.setCurrentIndex(1 if on else 0)
+        self.tree_stack.setCurrentIndex(2 if self.cfg["win_nav"] else (1 if on else 0))
         self.b_minitree.setIcon(self.icons.glyph("bonsai", 16, "#4cc2ff" if on else "#9d9d9d"))
         self.b_minitree.setToolTip("Bonsai: only the folders you visited  (click: full folder tree)" if on
                                    else "Full folder tree  (click: Bonsai, only the folders you visited)")
@@ -1551,18 +1577,53 @@ class MainWindow(QMainWindow):
         m.addAction("Show the full folder tree", lambda: self.b_minitree.setChecked(False))
         m.exec(self.minitree.viewport().mapToGlobal(pos))
 
+    def _split_sync_icon(self):
+        on = self.b_splitsync.isChecked()
+        self.b_splitsync.setIcon(self.icons.glyph("link", 16, "#4cc2ff" if on else "#8a8f96"))
+        self.b_splitsync.setToolTip("Divider synced with File Explorer (on): the Quick access / tree divider is "
+                                    "at the same height in both" if on else
+                                    "Divider on its own (off): File Explorer and the VFX Library each remember "
+                                    "the height of the Quick access / tree divider")
+
+    def _split_sync_toggled(self, on):
+        self.cfg["left_split_sync"] = bool(on)
+        if not on:                                # desde ahora cada uno arranca donde está
+            sz = self.left_split.sizes()
+            self.cfg["left_sizes_0"] = sz
+            self.cfg["left_sizes_1"] = sz
+        self._split_sync_icon()
+        self.save_soon()
+
+    def _left_split_for_tab(self, i):
+        """Al cambiar de tab del panel izquierdo: si el divisor no está sincronizado, cada tab con su altura."""
+        prev = getattr(self, "_left_tab_cur", None)
+        self._left_tab_cur = i
+        if self.cfg["left_split_sync"] or prev is None or prev == i:
+            return
+        self.cfg[f"left_sizes_{prev}"] = self.left_split.sizes()
+        want = self.cfg[f"left_sizes_{i}"]
+        if want and len(want) == 2 and sum(want) > 0:
+            tot = sum(self.left_split.sizes()) or sum(want)
+            top = round(want[0] * tot / sum(want))
+            self.left_split.setSizes([top, tot - top])
+
     def _side_tooltip(self, i):
+        self.b_splitsync.setVisible(i == 1)
         self.b_side_add.setVisible(i == 1)
         self.b_eye.setVisible(i == 0)
-        self.b_minitree.setVisible(i == 0)
-        self.b_eye_tree.setVisible(i == 0 and not self.b_minitree.isChecked())
-        self.b_mini_clear.setVisible(i == 0 and self.b_minitree.isChecked())
+        win = bool(self.cfg["win_nav"])
+        self.b_minitree.setVisible(i == 0 and not win)
+        self.b_eye_tree.setVisible(i == 0 and (win or not self.b_minitree.isChecked()))
+        self.b_mini_clear.setVisible(i == 0 and not win and self.b_minitree.isChecked())
+        if "favs" in getattr(self, "side_boxes", {}):
+            self.side_boxes["favs"].setVisible(not (win and i == 0))   # modo Windows: todo en un solo panel
 
     def _sidetab_changed(self, i):
         """Los tabs del panel izquierdo solo cambian el árbol (y el acceso rápido): el modo del centro cambia
         recién al hacer click en una carpeta."""
         self._side_tooltip(i)
         if not self._peek:
+            self._left_split_for_tab(i)
             self.quick_stack.setCurrentIndex(i)
             self._qa_refresh()
 
@@ -1731,7 +1792,7 @@ class MainWindow(QMainWindow):
         self.set_active(self.paneA)
         if self.cfg["mode"] == "library" and not start_path:
             self.set_mode("library")
-        self.toggle_details(self.cfg.get("details_visible", True))
+        self.toggle_details(bool(self.cfg[self._details_key()]), remember=False)
         self.sync_commandbar(self.active)
 
     def showEvent(self, ev):
@@ -1794,6 +1855,8 @@ class MainWindow(QMainWindow):
         self.cfg["geometry"] = bytes(self.saveGeometry().toBase64()).decode()
         self.cfg["splitter"] = bytes(self.main_split.saveState().toBase64()).decode()
         self.cfg["splitter_left3"] = bytes(self.left_split.saveState().toBase64()).decode()
+        if not self.cfg["left_split_sync"] and hasattr(self, "sidetabs"):
+            self.cfg[f"left_sizes_{self.sidetabs.currentIndex()}"] = self.left_split.sizes()
         self.cfg["splitter_panes"] = bytes(self.pane_split.saveState().toBase64()).decode()
         self.cfg["splitter_library"] = bytes(self.libpage.split.saveState().toBase64()).decode()
         self._save_now()
@@ -1820,10 +1883,14 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self._sync_cmd_left)
         if hasattr(self, "notes"):
             QTimer.singleShot(0, self._notes_mark)
-        self.cfg["details_visible"] = show
+        if remember:
+            self.cfg[self._details_key()] = show       # cada sección (File Explorer / VFX Library) recuerda el suyo
         if remember and changed and getattr(self, "active", None) is not None:
             self.active._save_folder_view()            # el panel de detalles también se recuerda por carpeta
         self.save_soon()
+
+    def _details_key(self, mode=None):
+        return "details_library" if (mode or self.mode()) == "library" else "details_explorer"
 
     def sync_commandbar(self, pane=None):
         """Refleja en la barra de comandos y en la barra de estado el estado del panel activo."""
@@ -2013,6 +2080,11 @@ class MainWindow(QMainWindow):
         self.modebar.setTabIcon(0, self.icons.glyph("folder", 16, "#9d9d9d" if lib else "#ffcf48"))
         self.modebar.setTabIcon(1, self.icons.glyph("library", 16, "#4cc2ff" if lib else "#9d9d9d"))
         self.cfg["mode"] = mode
+        # Details: prendido o apagado según lo que recuerda esta sección (de fábrica: apagado en File Explorer,
+        # prendido en la VFX Library)
+        want = bool(self.cfg[self._details_key(mode)])
+        if want != self.info_area.isVisible() and not getattr(self, "_details_auto_off", False):
+            self.toggle_details(want, remember=False)
         self.save_soon()
 
     def open_library(self, path):
@@ -2244,7 +2316,8 @@ class MainWindow(QMainWindow):
         if d:
             self.minitree.add(d)
         self.minitree.sync(here)
-        if not self.b_minitree.isChecked():       # el árbol completo se sincroniza solo si está a la vista
+        self.wintree.sync(here)                   # (modo Windows: solo marca, no abre ni lee nada)
+        if not self.b_minitree.isChecked() and not self.cfg["win_nav"]:   # el árbol completo, solo si se ve
             self.tree.sync(here if (here == "::thispc" or d_tree) else "")
         if not d:
             for pb in self.pipebars:
@@ -2273,6 +2346,7 @@ class MainWindow(QMainWindow):
             p.list.viewport().update()
             p.refresh_tab_icons()                 # el color de la carpeta también en las pestañas
         self.tree.refresh_colors()                # íconos del árbol completo también (antes solo el Bonsai)
+        self.wintree.refresh_colors()
         self.minitree.refresh_colors()
 
     def _start_freeze_watch(self):
@@ -2335,6 +2409,7 @@ class MainWindow(QMainWindow):
         for d in dirs:
             if d:
                 self.tree.refresh_dir(d)
+                self.wintree.refresh_dir(d)
         for p in self.all_panes:
             if p.isVisible() or p is self.paneA or p is self.libpane:
                 cur = p.current_dir()
@@ -3160,6 +3235,7 @@ class MainWindow(QMainWindow):
                 it.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsDragEnabled | Qt.ItemIsEditable)
                 w.addItem(it)
         self._fill_favs_pins()                    # Workspace Pins al final de Quick access (en un workspace)
+        self._win_quick()
         if not self.cfg["lib_favorites"]:
             it = QListWidgetItem("Drag a folder here to pin it")
             it.setForeground(Qt.gray)
@@ -3482,6 +3558,50 @@ class MainWindow(QMainWindow):
                 it.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsEditable)
                 F.addItem(it)
         F.blockSignals(False)
+
+    def _win_quick(self):
+        """Modo Windows: lo mismo que Quick access (y los Workspace Pins), arriba de This PC."""
+        if not hasattr(self, "wintree"):
+            return
+        from .quicklist import ROLE_SYS, ROLE_SEP, ROLE_HIDDEN, ROLE_WSPIN
+        F = self.favs
+        specs = []
+        for i in range(F.count()):
+            it = F.item(i)
+            if it.data(ROLE_SEP):
+                specs.append(None)
+                continue
+            p = it.data(Qt.UserRole)
+            if not p or (it.data(ROLE_HIDDEN) and not self.cfg["show_hidden_quick"]):
+                continue
+            specs.append({"text": it.text(), "icon": it.icon(), "path": p, "isfile": bool(it.data(Qt.UserRole + 6)),
+                          "pin": "wspin" if it.data(ROLE_WSPIN) else ("" if it.data(ROLE_SYS) else "pin")})
+        self.wintree.set_quick(specs)
+
+    def _tree_open_item(self, it):
+        p = it.data(0, Qt.UserRole)
+        if it.data(0, WinNavTree.ROLE_QUICK) and it.data(0, WinNavTree.ROLE_ISFILE):
+            self._open_pin(p, True)
+        else:
+            self.open_in_explorer(p)
+
+    def _winnav_icon(self):
+        on = self.b_winnav.isChecked()
+        self.b_winnav.setIcon(self.icons.glyph("winmode", 15, "#4cc2ff" if on else "#8a8f96"))
+        self.b_winnav.setToolTip("Windows mode (on): Quick access and This PC in one panel that scrolls as one; "
+                                 "the tree doesn't open by itself" if on else
+                                 "Windows mode: Quick access and This PC in one panel, like Windows "
+                                 "(the tree doesn't open by itself, no lines)")
+
+    def _toggle_winnav(self, on):
+        self.cfg["win_nav"] = bool(on)
+        self._winnav_icon()
+        self._toggle_minitree(self.b_minitree.isChecked())
+        self._side_tooltip(self.sidetabs.currentIndex())
+        if on:
+            self._win_quick()
+            self.wintree.sync(self.wintree._win_path or (self.explorer_active.current_dir() or ""))
+        self.save_soon()
 
     def _open_pin(self, p, isfile=False):
         if isfile:

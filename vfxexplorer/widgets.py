@@ -350,6 +350,22 @@ class Icons:
             gear.closeSubpath()
             p.drawPath(gear)
             p.drawEllipse(QPointF(c, c), s * .13, s * .13)
+        elif kind == "link":                # dos eslabones: sincronizado
+            p.save()
+            p.translate(s * .5, s * .5)
+            p.rotate(-45)
+            p.drawRoundedRect(QRectF(-s * .42, -s * .13, s * .46, s * .26), s * .13, s * .13)
+            p.drawRoundedRect(QRectF(-s * .04, -s * .13, s * .46, s * .26), s * .13, s * .13)
+            p.restore()
+        elif kind == "winmode":             # cuatro cuadraditos (el panel como en Windows)
+            p.save()
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(color))
+            g, w = s * .06, s * .33
+            for x, y in ((.5 - .06 - .33, .5 - .06 - .33), (.5 + .06, .5 - .06 - .33),
+                         (.5 - .06 - .33, .5 + .06), (.5 + .06, .5 + .06)):
+                p.drawRect(QRectF(s * x, s * y, w, w))
+            p.restore()
         elif kind == "dualv":
             p.drawRoundedRect(QRectF(s * .14, s * .14, s * .72, s * .72), 2, 2)
             path.moveTo(s * .14, s * .5); path.lineTo(s * .86, s * .5)

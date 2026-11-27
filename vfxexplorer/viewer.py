@@ -15,12 +15,16 @@ from PySide6.QtCore import Qt, QThread, Signal, QTimer, QRect, QRectF, QSize
 from PySide6.QtGui import QImage, QPainter, QColor, QFont, QFontMetrics, QKeySequence, QShortcut
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QToolButton, QSlider, QLabel, QComboBox,
                                QSizePolicy)
+from collections import OrderedDict
 
 from . import imaging
 from .core import VIDEO_EXTS, find_tool, human_size, IS_WIN
 
 NO_WINDOW = 0x08000000 if IS_WIN else 0
 FPS_CHOICES = ["12", "23.976", "24", "25", "29.97", "30", "48", "50", "60"]
+HDR_STILL_EXTS = {".exr", ".hdr", ".sxr", ".mxr", ".pfm", ".rgbe"}
+HDR_RES = 2048          # el visor de HDRIs lee hasta este tamaño (lo que entra en pantalla, con aire)
+HDR_CACHE = 10          # HDRIs ya leídos que quedan en memoria (ir y volver es instantáneo)
 
 
 # ----------------------------------------------------------------------------
@@ -320,9 +324,9 @@ class Viewer(QWidget):
                 b.clicked.connect(slot)
             bl.addWidget(b)
             return b
-        btn("prev", "Previous frame (,)", lambda: self.step(-1))
+        self.b_prev = btn("prev", "Previous frame (,)", lambda: self.step(-1))
         self.b_play = btn("play", "Play / pause (Space)", self.toggle)
-        btn("next", "Next frame (.)", lambda: self.step(1))
+        self.b_next = btn("next", "Next frame (.)", lambda: self.step(1))
         self.slider = QSlider(Qt.Horizontal)
         self.slider.setRange(0, 0)
         self.slider.sliderMoved.connect(self.seek)
@@ -358,6 +362,49 @@ class Viewer(QWidget):
         self.b_auto.setChecked(bool(app.cfg["viewer_autoplay"]))
         self.b_auto.toggled.connect(lambda v: self._save("viewer_autoplay", v))
         bl.addWidget(self.b_auto)
+        # HDRIs (EXR / HDR sueltos): en vez de los controles de reproducción, exposición y gamma
+        self.hdr_bar = QWidget()
+        hl = QHBoxLayout(self.hdr_bar)
+        hl.setContentsMargins(4, 0, 0, 0)
+        hl.setSpacing(6)
+        self.exposure, self.gamma = 0.0, 1.0
+        self.exp_lbl = QLabel()
+        self.exp_sl = QSlider(Qt.Horizontal)
+        self.exp_sl.setRange(-80, 80)                    # décimas de stop: -8 … +8
+        self.gam_lbl = QLabel()
+        self.gam_sl = QSlider(Qt.Horizontal)
+        self.gam_sl.setRange(20, 300)                    # 0.20 … 3.00
+        self.gam_sl.setValue(100)
+        for lb in (self.exp_lbl, self.gam_lbl):
+            lb.setStyleSheet("color:#c9ccd1;")
+            lb.setMinimumWidth(104)
+        self.exp_sl.setToolTip("Exposure in stops (double-click: back to 0)")
+        self.gam_sl.setToolTip("Gamma (double-click: back to 1.00)")
+        self.exp_sl.valueChanged.connect(lambda v: self._set_look(exposure=v / 10.0))
+        self.gam_sl.valueChanged.connect(lambda v: self._set_look(gamma=v / 100.0))
+        self.exp_sl.installEventFilter(self)
+        self.gam_sl.installEventFilter(self)
+        hl.addWidget(self.exp_lbl)
+        hl.addWidget(self.exp_sl, 2)
+        hl.addSpacing(14)
+        hl.addWidget(self.gam_lbl)
+        hl.addWidget(self.gam_sl, 1)
+        b_reset = QToolButton()
+        b_reset.setText("Reset")
+        b_reset.setAutoRaise(True)
+        b_reset.setToolTip("Exposure 0, gamma 1.00")
+        b_reset.clicked.connect(lambda: (self.exp_sl.setValue(0), self.gam_sl.setValue(100)))
+        hl.addWidget(b_reset)
+        bl.insertWidget(0, self.hdr_bar, 1)
+        self.hdr_bar.hide()
+        self._play_widgets = [self.b_prev, self.b_play, self.b_next, self.slider, self.fps_cb, self.b_loop,
+                              self.b_auto]
+        self._hdr_mode = False
+        self._hdr_cache = OrderedDict()                  # (ruta, fecha, capa) → (rgb, alpha)
+        self._hdr_cur = None
+        self._hdr_busy = set()
+        self._look_timer = QTimer(self, singleShot=True, interval=0, timeout=self._show_hdr)
+        self._update_look_labels()
         lay.addWidget(bar)
 
         self.timer = QTimer(self)
@@ -366,6 +413,135 @@ class Viewer(QWidget):
         self._set_interval()
         self.show_message("Pick a library element below.\n"
                           "Move with the arrow keys and it plays by itself (looped).")
+
+    # ---------------- HDRIs
+    def eventFilter(self, obj, ev):
+        from PySide6.QtCore import QEvent
+        if ev.type() == QEvent.MouseButtonDblClick and obj in (self.exp_sl, self.gam_sl):
+            obj.setValue(0 if obj is self.exp_sl else 100)
+            return True
+        return super().eventFilter(obj, ev)
+
+    @staticmethod
+    def is_hdr_still(e):
+        return e is not None and e.kind == "file" and (e.ext or "").lower() in HDR_STILL_EXTS
+
+    def _set_hdr_mode(self, on):
+        if on == self._hdr_mode:
+            return
+        self._hdr_mode = on
+        for w in self._play_widgets:
+            w.setVisible(not on)
+        self.hdr_bar.setVisible(on)
+
+    def _update_look_labels(self):
+        self.exp_lbl.setText(f"Exposure: {self.exposure:+.1f}")
+        self.gam_lbl.setText(f"Gamma: {self.gamma:.2f}")
+
+    def _set_look(self, exposure=None, gamma=None):
+        if exposure is not None:
+            self.exposure = exposure
+        if gamma is not None:
+            self.gamma = gamma
+        self._update_look_labels()
+        if self._hdr_mode and self._hdr_cur is not None:
+            self._look_timer.start()                     # se junta con el próximo movimiento del slider
+
+    def _show_hdr(self):
+        if self._hdr_cur is None:
+            return
+        rgb, alpha = self._hdr_cur
+        self.canvas.image = imaging.hdr_display(rgb, self.exposure, self.gamma, alpha)
+        self.canvas.buffering = False
+        self.canvas.corner = f"{rgb.shape[1]}×{rgb.shape[0]}"
+        self.canvas.update()
+
+    def _hdr_key(self, e, settings):
+        try:
+            mt = os.path.getmtime(e.path)
+        except OSError:
+            mt = 0
+        return (e.path, mt, tuple(settings.get("channels") or ()))
+
+    def _hdr_decode(self, path, settings):
+        try:
+            return imaging.hdr_linear(path, settings, HDR_RES)
+        except Exception:
+            return None
+
+    def _hdr_store(self, key, r):
+        self._hdr_cache[key] = r
+        self._hdr_cache.move_to_end(key)
+        while len(self._hdr_cache) > HDR_CACHE:
+            self._hdr_cache.popitem(last=False)
+
+    def _start_hdr(self, e, settings):
+        """Un HDRI: primero el thumbnail que ya está (al instante), después la imagen en float."""
+        self._set_hdr_mode(True)
+        self.n, self.labels = 1, [1]
+        self.lbl.setText("HDR")
+        self.canvas.message = ""
+        self.canvas.title = e.name
+        self.canvas.corner = ""
+        key = self._hdr_key(e, settings)
+        hit = self._hdr_cache.get(key)
+        if hit is not None:
+            self._hdr_cache.move_to_end(key)
+            self._hdr_cur = hit
+            self._show_hdr()
+            return
+        self._hdr_cur = None
+        pm = self.app.thumbs.cache.get(self.app.thumbs.key_for(e))
+        self.canvas.image = pm.toImage() if pm is not None and hasattr(pm, "toImage") else \
+            (pm if pm is not None else None)
+        self.canvas.buffering = True
+        self.canvas.update()
+        tok = self._load_token
+        if key in self._hdr_busy:                       # ya se está leyendo (lo pidió el prefetch)
+            self._hdr_wait = (tok, key)
+            return
+        self._hdr_busy.add(key)
+        from .asyncdir import run_async
+
+        def done(r, key=key):
+            self._hdr_busy.discard(key)
+            if r is not None:
+                self._hdr_store(key, r)
+            self._hdr_arrived(key, r, tok)
+        run_async(lambda: self._hdr_decode(e.path, settings), done, self)
+
+    def _hdr_arrived(self, key, r, tok=None):
+        wait = getattr(self, "_hdr_wait", None)
+        mine = (tok is not None and tok == self._load_token) or (wait and wait[1] == key and
+                                                                  wait[0] == self._load_token)
+        if not mine or not self._hdr_mode:
+            return
+        self._hdr_wait = None
+        if r is None:
+            self.show_message(f"{self.entry.name if self.entry else ''}\n\nCould not read the image")
+            return
+        self._hdr_cur = r
+        self._show_hdr()
+
+    def prefetch(self, entries):
+        """Los HDRIs de al lado (siguiente / anterior) se leen de antemano: al moverse con las flechas
+        aparecen al instante."""
+        settings = dict(self.app.thumbs.settings)
+        from .asyncdir import run_async
+        for e in entries:
+            if not self.is_hdr_still(e):
+                continue
+            key = self._hdr_key(e, settings)
+            if key in self._hdr_cache or key in self._hdr_busy:
+                continue
+            self._hdr_busy.add(key)
+
+            def done(r, key=key):
+                self._hdr_busy.discard(key)
+                if r is not None:
+                    self._hdr_store(key, r)
+                self._hdr_arrived(key, r)
+            run_async(lambda e=e: self._hdr_decode(e.path, settings), done, self)
 
     # ---------------- util
     @staticmethod
@@ -394,6 +570,9 @@ class Viewer(QWidget):
     def show_message(self, text):
         if hasattr(self, "layer_cb") and self.entry is None:
             self.layer_cb.hide()
+        if hasattr(self, "_hdr_mode") and (self.entry is None or not self.is_hdr_still(self.entry)):
+            self._set_hdr_mode(False)
+            self._hdr_cur = None
         self.canvas.image = None
         self.canvas.message = text
         self.canvas.title = ""
@@ -504,6 +683,11 @@ class Viewer(QWidget):
         if self._layers and 0 <= li < len(self._layers) and self._layers[li][1]:
             settings["channels"] = self._layers[li][1]
             settings["data"] = self._layers[li][2]
+        if self.is_hdr_still(e):
+            self._start_hdr(e, settings)
+            return
+        self._set_hdr_mode(False)
+        self._hdr_cur = None
         src = None
         if e.kind == "seq":
             src = SeqSource(e, settings, maxdim)

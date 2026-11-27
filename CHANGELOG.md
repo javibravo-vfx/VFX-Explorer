@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.49.0
+- VFX Library: the images button is now «Only the main type of each folder» (on by default). A folder full of videos hides the stray JPGs, a folder of HDRIs hides the preview JPG, a folder of photos hides the odd MOV. Folders, 3D files and documents always show; a tie shows everything. HDRIs (.hdr/.exr) are no longer hidden.
+- VFX Library viewer for HDRIs (single EXR / HDR): instead of the video controls, Exposure and Gamma sliders (double-click: reset). The thumbnail shows at once while the full image loads; the next and previous HDRIs are read ahead and the last 10 stay in memory, so moving with the arrows is instant. The 1–4 circles stay.
+- VFX Library: new «HDRI» filter pill, and the pills bar is now called FILTER (it was TAGS).
+- Details: off by default in File Explorer, on in the VFX Library, and each one remembers its own state.
+- VFX Library: a link button (left of the colors button) keeps the left panel divider synced with File Explorer (on by default); off: each one remembers its own height.
+- File Explorer: Windows mode (button with 4 squares under the tree, off by default): Quick access, the Workspace Pins and This PC in one panel that scrolls as one, only › / ⌄ (no lines). Like Windows, the tree doesn't open by itself: it marks the current folder if you can see it, or the last open level of its path.
+
 ## 0.48.0
 - Settings › General: new rows «EXR / HDR» and «RAW (DNG…)», each with a program to choose and a «Use the image viewer» tick (on by default). Ticked: the image viewer opens them; not ticked: the chosen program (empty = Windows default app). A single EXR (also a lone numbered one) follows the EXR / HDR rule; EXR sequences still go to the player.
 - The image viewer is still found by itself: PhotoLiteFast*.exe next to VFX Explorer or inside a folder next to it (e.g. «PhotoLiteFast20_Extended»), highest version wins. It now starts with its own folder as working folder, so the libraries it brings are found.

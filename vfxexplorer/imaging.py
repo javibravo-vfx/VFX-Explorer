@@ -242,9 +242,19 @@ def exr_layers(path):
 
 
 def oiio_thumb(path, settings, maxdim=THUMB_RES):
+    r = _oiio_read(path, settings, maxdim)
+    if r is None:
+        return QImage()
+    arr, chroma, is_float, cs_attr, wanted = r
+    return _oiio_finish(path, settings, maxdim, arr, chroma, is_float, cs_attr, wanted)
+
+
+def _oiio_read(path, settings, maxdim):
+    """Lee los píxeles en float, salteando filas y columnas (y con el mip más chico que alcance) hasta ~2× maxdim.
+    Devuelve (arr, chroma, is_float, cs_attr, wanted) o None."""
     inp = oiio.ImageInput.open(path)
     if not inp:
-        return QImage()
+        return None
     try:
         spec = inp.spec()
         names = list(spec.channelnames)
@@ -285,20 +295,88 @@ def oiio_thumb(path, settings, maxdim=THUMB_RES):
                 start = (-(y0 - spec.y)) % step
                 rows.append(a[start::step, ::step][..., sub])
             if not rows:
-                return QImage()
+                return None
             arr = np.concatenate(rows, 0)
         else:
             a = inp.read_image(0, mip, cb, ce, "float")
             if a is None:
-                return QImage()
+                return None
             a = np.asarray(a)
             if a.ndim == 2:
                 a = a[..., None]
             arr = a[::step, ::step][..., sub]
     finally:
         inp.close()
+    return arr, chroma, is_float, cs_attr, wanted
 
+
+def _oiio_cs(path, settings, chroma, is_float, cs_attr):
     ext = os.path.splitext(path)[1].lower()
+    if ext in (".exr", ".sxr", ".mxr"):
+        return (detect_cs_from_chroma(chroma) if settings["chroma"] else None) or settings["cs"]
+    if is_float:
+        return "srgb" if "srgb" in cs_attr else "lin709"
+    return "srgb"
+
+
+def hdr_linear(path, settings, maxdim):
+    """Para el visor de HDRIs: la imagen en float lineal Rec.709 (sin recortar los altos), para aplicarle
+    exposición y gamma al vuelo. Devuelve (rgb HxWx3 float32, alpha o None) o None."""
+    r = _oiio_read(path, settings, maxdim)
+    if r is None:
+        return None
+    arr, chroma, is_float, cs_attr, wanted = r
+    arr = np.nan_to_num(arr.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+    if wanted and settings.get("data"):
+        lo, hi = float(np.percentile(arr, 1)), float(np.percentile(arr, 99))
+        if lo < -0.001 or hi > 1.001:
+            arr = (arr - lo) / max(1e-6, hi - lo)
+        cs = "data"
+    else:
+        cs = _oiio_cs(path, settings, chroma, is_float, cs_attr)
+    alpha = None
+    if arr.shape[2] >= 4:
+        alpha = arr[..., 3]
+        arr = arr[..., :3]
+    if arr.shape[2] == 1:
+        arr = np.repeat(arr, 3, axis=2)
+    elif arr.shape[2] == 2:
+        arr = np.dstack([arr[..., 0], arr[..., 1], np.zeros_like(arr[..., 0])])
+    if cs == "acescg":
+        arr = arr @ M_ACESCG_TO_709.T
+    elif cs == "aces":
+        arr = arr @ M_ACES_TO_709.T
+    elif cs in ("srgb", "data"):              # ya codificada: a lineal, así la exposición se comporta igual
+        a = np.clip(arr, 0.0, None)
+        arr = np.where(a <= 0.04045, a / 12.92, np.power((a + 0.055) / 1.055, 2.4))
+    h, w = arr.shape[:2]
+    if max(w, h) > maxdim:                     # al tamaño pedido (se leyó hasta ~2×): promedio de bloques
+        k = int(np.ceil(max(w, h) / maxdim))
+        H2, W2 = h // k * k, w // k * k
+        arr = arr[:H2, :W2].reshape(H2 // k, k, W2 // k, k, 3).mean(axis=(1, 3))
+        if alpha is not None:
+            alpha = alpha[:H2, :W2].reshape(H2 // k, k, W2 // k, k).mean(axis=(1, 3))
+    return np.ascontiguousarray(arr, dtype=np.float32), alpha
+
+
+def hdr_display(rgb, exposure=0.0, gamma=1.0, alpha=None):
+    """float lineal → QImage sRGB con exposición (stops) y gamma (como en el visor)."""
+    x = rgb * np.float32(2.0 ** exposure) if exposure else rgb
+    x = np.clip(x, 0.0, 1.0)
+    x = np.where(x <= 0.0031308, x * 12.92, 1.055 * np.power(x, 1 / 2.4, dtype=np.float32) - 0.055)
+    if abs(gamma - 1.0) > 1e-3:
+        x = np.power(x, 1.0 / max(0.05, gamma), dtype=np.float32)
+    if alpha is not None:
+        a = np.clip(alpha, 0.0, 1.0)[..., None]
+        if float(a.min()) < 0.999:
+            bg = _checker(x.shape[0], x.shape[1])
+            x = np.clip(x + bg * (1 - a), 0, 1)
+    arr = np.ascontiguousarray((x * 255.0 + 0.5).astype(np.uint8))
+    h, w = arr.shape[:2]
+    return QImage(arr.data, w, h, w * 3, QImage.Format_RGB888).copy()
+
+
+def _oiio_finish(path, settings, maxdim, arr, chroma, is_float, cs_attr, wanted):
     if wanted and settings.get("data"):
         # capa de datos (depth, normales, alpha…): sin conversión de color, normalizada si se sale de 0-1
         arr = np.nan_to_num(arr.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
@@ -310,12 +388,7 @@ def oiio_thumb(path, settings, maxdim=THUMB_RES):
         elif arr.shape[2] == 2:
             arr = np.dstack([arr[..., 0], arr[..., 1], np.zeros_like(arr[..., 0])])
         return to_qimage(arr[..., :3], None, "srgb", premult=False, maxdim=maxdim)
-    if ext in (".exr", ".sxr", ".mxr"):
-        cs = (detect_cs_from_chroma(chroma) if settings["chroma"] else None) or settings["cs"]
-    elif is_float:
-        cs = "srgb" if "srgb" in cs_attr else "lin709"
-    else:
-        cs = "srgb"
+    cs = _oiio_cs(path, settings, chroma, is_float, cs_attr)
     alpha = None
     if arr.shape[2] >= 4:
         alpha = arr[..., 3]
