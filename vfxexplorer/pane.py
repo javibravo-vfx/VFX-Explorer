@@ -1160,6 +1160,8 @@ class FilePane(QFrame):
         path = path or os.path.expanduser("~")
         t = {"path": os.path.normpath(path), "history": [THISPC if virtual else os.path.normpath(path)], "hpos": 0,
              "virtual": virtual}
+        if not self.root_lock:
+            t["bonsai"] = []                      # su propio Bonsai (arranca con la carpeta donde se abre)
         self.tabs.append(t)
         self.tabbar.blockSignals(True)
         i = self.tabbar.addTab(self._tab_icon(t), self._tab_title(t))
@@ -1334,6 +1336,11 @@ class FilePane(QFrame):
                     d["sel"] = self._tab_sel_names()
                 elif t.get("sel") and same_path(t["sel"].get("path", ""), t["path"]):
                     d["sel"] = list(t["sel"].get("names") or [])
+            if not self.root_lock:
+                if "bonsai" in t:
+                    d["bonsai"] = list(t["bonsai"] or [])
+                if t.get("lscroll"):
+                    d["lscroll"] = dict(t["lscroll"])     # dónde quedó el scroll del panel izquierdo
             tabs.append(d)
         return {"tabs": tabs, "current": self.ti, "view": self.view_mode, "group": self.group_mode}
 
@@ -1360,10 +1367,21 @@ class FilePane(QFrame):
         tabs = [p for p in tabs if p == THISPC or not reachable(p, 0.3) or safe_isdir(p, 0.3)] or [fallback]
         if self.root_lock:
             tabs = [p for p in tabs if self.allowed(p)] or ([fallback] if fallback else [])
+        extra = [t for t in (st or {}).get("tabs", []) if t.get("path")]
         for p in tabs:
             self.add_tab(p, activate=False)
             if sels.get(p) and not self.tabs[-1]["virtual"]:
                 self.tabs[-1]["sel"] = {"path": p, "names": list(sels[p])}
+            if not self.root_lock:
+                src = next((x for x in extra if x.get("path") == p), None)
+                if src is not None:
+                    extra.remove(src)
+                    if "bonsai" in src:
+                        self.tabs[-1]["bonsai"] = list(src["bonsai"] or [])
+                    else:
+                        self.tabs[-1].pop("bonsai", None)     # pestaña de antes: usa el Bonsai que había
+                    if src.get("lscroll"):
+                        self.tabs[-1]["lscroll"] = dict(src["lscroll"])
         self.set_view((st or {}).get("view", "grid"), emit=False)
         self.group_mode = (st or {}).get("group", "auto")
         cur = min(max(0, int((st or {}).get("current", 0))), len(self.tabs) - 1)
@@ -1375,6 +1393,8 @@ class FilePane(QFrame):
         t = self.tab()                        # la pestaña activa vuelve con lo que tenía seleccionado
         if t is not None and t.get("sel") and not t["virtual"] and same_path(t["sel"].get("path", ""), t["path"]):
             self.pending_select = list(t["sel"].get("names") or []) or None
+        if not self.root_lock and getattr(self.app, "_shown_tab", None) is not None:
+            self.app._shown_tab = None            # el Bonsai y el scroll de la pestaña se rearman con lo restaurado
 
     # ------------------------------------------------------------------ navegación
     def current_dir(self):

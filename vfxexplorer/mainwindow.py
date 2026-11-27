@@ -1620,7 +1620,7 @@ class MainWindow(QMainWindow):
 
     def _clear_minitree(self):
         self.minitree.clear_all()
-        self.winbonsai.rebuild()
+        self.winbonsai.clear_all()                # (el Bonsai de la pestaña activa)
         t = self.explorer_active.tab()
         cur = self.explorer_active.current_dir()
         here = "::thispc" if (t and t["virtual"] and t["virtual"]["kind"] == "thispc") else cur
@@ -1866,6 +1866,7 @@ class MainWindow(QMainWindow):
             win11_titlebar(self)
 
     def _save_now(self):
+        self._remember_left_scroll()
         self.cfg["panes"] = [p.state() for p in self.panes]
         if self.libpane.tabs:              # con la librería offline no se pisan sus pestañas guardadas
             self.cfg["library_pane"] = self.libpane.state()
@@ -2361,7 +2362,38 @@ class MainWindow(QMainWindow):
                 w.setCurrentRow(-1)
             w.blockSignals(False)
 
+    def _bonsai_visit(self, pane, d):
+        """Cada pestaña de File Explorer anota en su propio Bonsai las carpetas que visita."""
+        t = pane.tab()
+        if t is None or not d or str(d).startswith("::"):
+            return
+        lst = list(t["bonsai"] or []) if "bonsai" in t else list(self.cfg["mini_tree"] or [])
+        p = os.path.normpath(d)
+        lst = [x for x in lst if norm_key(x) != norm_key(p)]
+        lst.insert(0, p)
+        t["bonsai"] = lst[:400]
+
+    def _remember_left_scroll(self):
+        """La pestaña que se deja recuerda dónde quedó el scroll del panel izquierdo."""
+        t = getattr(self, "_shown_tab", None)
+        if t is None or not hasattr(self, "wintree"):
+            return
+        if not any(t is x for p in self.panes for x in p.tabs):
+            return
+        t["lscroll"] = {"win": self.wintree.verticalScrollBar().value(),
+                        "bonsai": self.winbonsai.verticalScrollBar().value()}
+
+    def _restore_left_scroll(self, t):
+        if t is not getattr(self, "_shown_tab", None):
+            return
+        ls = t.get("lscroll")
+        if ls:
+            self.wintree.verticalScrollBar().setValue(int(ls.get("win", 0)))
+            self.winbonsai.verticalScrollBar().setValue(int(ls.get("bonsai", 0)))
+
     def _location_changed(self, pane):
+        if pane in getattr(self, "panes", []):
+            self._bonsai_visit(pane, pane.current_dir())
         if pane is not self.active:
             return
         d = pane.current_dir()
@@ -2378,10 +2410,20 @@ class MainWindow(QMainWindow):
         if d:
             self.minitree.add(d)
         self.minitree.sync(here)
+        t_now = pane.tab()
+        switched = t_now is not getattr(self, "_shown_tab", None)
+        if switched:                              # otra pestaña: su Bonsai y, después, su scroll
+            self._remember_left_scroll()
+            self._shown_tab = t_now
+            self.winbonsai._cur_tab = t_now
+            self.winbonsai.rebuild()
         self.wintree.sync(here)                   # (modo Windows: solo marca, no abre ni lee nada)
         if d:
             self.winbonsai.add(d)
         self.winbonsai.sync(here)
+        if switched and t_now is not None and t_now.get("lscroll"):
+            for ms in (0, 80):
+                QTimer.singleShot(ms, lambda t=t_now: self._restore_left_scroll(t))
         if not self.b_minitree.isChecked() and not self.cfg["win_nav"]:   # el árbol completo, solo si se ve
             self.tree.sync(here if (here == "::thispc" or d_tree) else "")
         if not d:

@@ -705,9 +705,12 @@ class FolderTree(_LinedMixin, QTreeWidget):
         p = os.path.normpath(path)
         lst = [x for x in self.paths() if self._key(x) != self._key(p)]
         lst.insert(0, p)
-        self.app.cfg["mini_tree"] = lst[: self.MAX]
+        self._set_paths(lst[: self.MAX])
         if self._key(p) not in self._items:
             self._ensure(p)
+
+    def _set_paths(self, lst):
+        self.app.cfg["mini_tree"] = lst
 
     def _ensure(self, path):
         root = self._drive_root(path)
@@ -729,13 +732,13 @@ class FolderTree(_LinedMixin, QTreeWidget):
 
     def remove(self, path):
         k = self._key(path)
-        self.app.cfg["mini_tree"] = [x for x in self.paths()
-                                     if self._key(x) != k and not self._key(x).startswith(k.rstrip("\\/") + os.sep)]
+        self._set_paths([x for x in self.paths()
+                         if self._key(x) != k and not self._key(x).startswith(k.rstrip("\\/") + os.sep)])
         self.app.cfg.save()
         self.rebuild()
 
     def clear_all(self):
-        self.app.cfg["mini_tree"] = []
+        self._set_paths([])
         self.app.cfg.save()
         self.rebuild()
 
@@ -1107,6 +1110,28 @@ class WinBonsaiTree(_WinQuickMixin, FolderTree):
 
     def __init__(self, app):
         super().__init__(app, mini=True)
+
+    # cada pestaña de File Explorer tiene su Bonsai (una no toca a la otra)
+    _cur_tab = None                               # la pestaña que se está mostrando (la fija la ventana)
+
+    def _tab(self):
+        if self._cur_tab is not None:
+            return self._cur_tab
+        pane = getattr(self.app, "explorer_active", None)
+        return pane.tab() if pane is not None else None
+
+    def paths(self):
+        t = self._tab()
+        if t is not None and "bonsai" in t:
+            return list(t["bonsai"] or [])
+        return list(self.app.cfg["mini_tree"] or [])      # (pestañas de antes: el Bonsai que había)
+
+    def _set_paths(self, lst):
+        t = self._tab()
+        if t is not None:
+            t["bonsai"] = list(lst)
+        else:
+            self.app.cfg["mini_tree"] = list(lst)
 
     def sync(self, path):
         held = self._held_item(path) is not None

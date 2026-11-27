@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.54.0
+- File Explorer: every tab remembers where you left the scroll of the left panel (also between workspaces and after reopening the app).
+- File Explorer with Bonsai: every tab has its own Bonsai — the folders visited in one tab don't show in another, and Prune only empties the current tab's. Saved with the workspace. (Tabs from before start with the Bonsai you had.)
+
 ## 0.53.1
 - Fix: when opening the app, a tiny window flashed for an instant (two buttons were shown before being placed in the panel).
 - Windows mode with Bonsai: moving through Quick access / Workspace Pins (click or arrow keys) no longer scrolls the panel down to the tree; the tree still opens below, and you scroll to it when you want.
