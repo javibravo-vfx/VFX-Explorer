@@ -220,7 +220,9 @@ class QuickList(QListWidget):
         if paths:
             ev.setDropAction(Qt.LinkAction)
             ev.accept()
+            self.last_src = ev.source()               # (de otra lista de accesos: se mueve, no se duplica)
             (self.dropped_pins if zone else self.dropped).emit(paths)
+            self.last_src = None
         else:
             ev.ignore()
 

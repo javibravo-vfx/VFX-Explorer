@@ -1013,11 +1013,12 @@ class _WinQuickMixin:
             paths = self._drop_paths(ev, zone == "wspin")
             ev.setDropAction(Qt.LinkAction)
             ev.accept()
+            moving = ev.source() is self           # arrastrado desde arriba mismo: se mueve, no se duplica
             if paths:
                 if zone == "wspin":
-                    QTimer.singleShot(0, lambda: self.app.insert_wpins(paths, idx))
+                    QTimer.singleShot(0, lambda: self.app.insert_wpins(paths, idx, take=moving))
                 else:
-                    QTimer.singleShot(0, lambda: self.app.insert_favorites(paths, idx))
+                    QTimer.singleShot(0, lambda: self.app.insert_favorites(paths, idx, take=moving))
             return
         if not ev.mimeData().hasUrls():
             ev.ignore()

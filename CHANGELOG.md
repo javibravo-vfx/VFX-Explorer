@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.54.2
+- «Continue where you left off» is off by default on a first start (the app opens in the Startup workspace).
+- Dragging a folder from Quick access to the Workspace Pins (or the other way around) moves it instead of duplicating it — in File Explorer and in the VFX Library.
+- VFX Library: the lower part is now called «VFX WORKSPACE PINS».
+- Hint texts: File Explorer «Quick Access folders here…» and «Workspace folders or files here…»; VFX Library «Drag folders here…» and «Drag folders or files here…», both in the same grey.
+
 ## 0.54.1
 - Switching workspaces no longer leaves a long tooltip floating over the Workspace button (the tip is now short and stays quiet for a moment after switching).
 - Windows mode: Workspace Pins can be reordered by dragging, with a line showing where each one will land (like Quick access).

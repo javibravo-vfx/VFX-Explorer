@@ -429,7 +429,7 @@ class MainWindow(QMainWindow):
         self.lib_quick = QSplitter(Qt.Vertical)
         self.lib_quick.setChildrenCollapsible(False)
         self.lib_quick.addWidget(self.lib_favs)
-        self.libpins_box = boxed("VFX PINS", self.lib_wpins)
+        self.libpins_box = boxed("VFX WORKSPACE PINS", self.lib_wpins)
         self.libpins_box.setToolTip("Pins of this workspace in the VFX Library (folders or files) · drop them here")
         self.lib_quick.addWidget(self.libpins_box)
         self.lib_quick.setSizes([200, 200])
@@ -1273,6 +1273,11 @@ class MainWindow(QMainWindow):
             if not dirs:
                 self.status.setText("Only VFX Library folders can be pinned here")
                 return
+            w = self._ws_entry()
+            if w is not None and getattr(self.lib_favs, "last_src", None) is self.lib_wpins:
+                keys = {norm_key(d) for d in dirs}       # vino de VFX WORKSPACE PINS: se mueve
+                w["lib_pins"] = [x for x in w.get("lib_pins", []) if norm_key(self._pin_path(x)) not in keys]
+                self._fill_libpins()
         self.add_favorites(dirs, lib=lib)
 
     def _apply_hidden_drives(self):
@@ -3346,8 +3351,8 @@ class MainWindow(QMainWindow):
                 w.addItem(it)
         self._fill_favs_pins()                    # Workspace Pins al final de Quick access (en un workspace)
         if not self.cfg["lib_favorites"]:
-            it = QListWidgetItem("Drag a folder here to pin it")
-            it.setForeground(Qt.gray)
+            it = QListWidgetItem("Drag folders here…")
+            it.setForeground(QColor("#6b7178"))
             it.setFlags(Qt.NoItemFlags)
             self.lib_favs.addItem(it)
         self.colls.clear()
@@ -3388,7 +3393,7 @@ class MainWindow(QMainWindow):
         self._reload_sidebar()
         self.status.setText(f"Pinned to Quick access of {'VFX Library' if lib else 'File Explorer'}")
 
-    def insert_wpins(self, paths, index):
+    def insert_wpins(self, paths, index, take=False):
         """Workspace Pins soltados (o reordenados) en el modo Windows, en ese lugar."""
         w = self._ws_entry()
         if w is None:
@@ -3410,10 +3415,14 @@ class MainWindow(QMainWindow):
                 new.append({"path": p, "file": True})
         pins[index:index] = new
         w["pins"] = pins
+        if take:                                  # vino de Quick access: sale de ahí
+            self.cfg["favorites"] = [x for x in self.cfg["favorites"] or [] if norm_key(x) not in keys]
+            self.cfg.save()
+            self._reload_sidebar()
         self.cfg.save()
         self._qa_refresh()
 
-    def insert_favorites(self, paths, index):
+    def insert_favorites(self, paths, index, take=False):
         """Modo Windows: carpetas (o pestañas) soltadas entre los accesos de Quick access, en ese lugar.
         Si ya estaban, se mueven ahí."""
         favs = list(self.cfg["favorites"] or [])
@@ -3424,6 +3433,9 @@ class MainWindow(QMainWindow):
         for k, p in enumerate(paths):
             favs.insert(index + k, os.path.normpath(p))
         self.cfg["favorites"] = favs
+        w = self._ws_entry() if take else None
+        if w is not None:                         # vino de los Workspace Pins: sale de ahí
+            w["pins"] = [x for x in w.get("pins", []) if norm_key(self._pin_path(x)) not in keys]
         self.cfg.save()
         self._reload_sidebar()
         self.status.setText("Pinned to Quick access")
@@ -3647,7 +3659,7 @@ class MainWindow(QMainWindow):
             it.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsDragEnabled | Qt.ItemIsEditable)
             L.addItem(it)
         if w is not None and not L.count():
-            hint = QListWidgetItem("Drag folders or files here")
+            hint = QListWidgetItem("Drag folders or files here…")
             hint.setFlags(Qt.NoItemFlags)
             hint.setForeground(QColor("#6b7178"))
             L.addItem(hint)
@@ -3674,9 +3686,13 @@ class MainWindow(QMainWindow):
             self.status.setText("Only VFX Library folders or files can be pinned here")
             return
         w["lib_pins"] = pins
+        if getattr(self.lib_wpins, "last_src", None) is self.lib_favs:     # vino de Quick access: se mueve
+            keys = {norm_key(os.path.normpath(p)) for p in paths if p}
+            self.cfg["lib_favorites"] = [x for x in self.cfg["lib_favorites"] or [] if norm_key(x) not in keys]
+            self._reload_sidebar()
         self.cfg.save()
         self._fill_libpins()
-        self.status.setText(f"Pinned to VFX PINS ({n})")
+        self.status.setText(f"Pinned to VFX WORKSPACE PINS ({n})")
 
     def _libpins_reordered(self, *_):
         w = self._ws_entry()
@@ -3821,10 +3837,10 @@ class MainWindow(QMainWindow):
             at = next((i for i, sp in enumerate(specs) if sp and sp.get("pin") == "wspin"), len(specs))
             if at and specs[at - 1] is None:
                 at -= 1
-            specs[at:at] = [None, {"placeholder": True, "zone": "pin", "text": "Drop folders here to pin them"}]
+            specs[at:at] = [None, {"placeholder": True, "zone": "pin", "text": "Quick Access folders here…"}]
         if self._ws_entry() is not None and not any(sp and sp.get("pin") == "wspin" for sp in specs):
             # en un workspace: el lugar de los Workspace Pins aunque no haya ninguno (para soltarlos ahí)
-            specs += [None, {"placeholder": True, "text": "Drop Workspace Pins here"}]
+            specs += [None, {"placeholder": True, "text": "Workspace folders or files here…"}]
         for t in self.wintrees:
             t.set_quick(specs)
 
