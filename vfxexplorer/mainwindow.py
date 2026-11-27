@@ -2705,33 +2705,79 @@ class MainWindow(QMainWindow):
         if e.kind == "seq" and e.ext in self.PHOTO_EXTS and e.files:
             first = os.path.join(e.dirpath, e.files[0])
             e = Entry(kind="file", dirpath=e.dirpath, name=e.files[0], path=first, ext=e.ext)
+        # un EXR / HDR numerado solo (secuencia de 1 cuadro): es una imagen suelta, va con la regla de HDR
+        from .core import HDR_EXTS
+        if e.kind == "seq" and (e.ext or "").lower() in HDR_EXTS and e.files and len(e.files) == 1:
+            first = os.path.join(e.dirpath, e.files[0])
+            e = Entry(kind="file", dirpath=e.dirpath, name=e.files[0], path=first, ext=e.ext)
         if with_player and player and os.path.isfile(player) and e.cat in ("seq", "video"):
             try:
                 subprocess.Popen([player, e.path])
                 return
             except Exception as ex:
                 self.status.setText(f"Could not open the player: {ex}")
-        viewer = self.cfg["image_viewer"]
-        if not viewer:                                 # sin configurar: Photo Lite Fast si está al lado del exe
-            from .core import find_image_viewer
-            viewer = find_image_viewer()
-        if with_player and viewer and os.path.isfile(viewer) and e.kind == "file" and self._viewer_can(e.ext):
+        prog = self.program_for(e) if with_player else None
+        if prog:
             try:
-                subprocess.Popen([viewer, e.path])     # visor de imágenes elegido en Settings
+                subprocess.Popen([prog, e.path], cwd=os.path.dirname(prog) or None)   # (con sus librerías al lado)
                 return
             except Exception as ex:
-                self.status.setText(f"Could not open the image viewer: {ex}")
+                self.status.setText(f"Could not open {os.path.basename(prog)}: {ex}")
         self.open_default(e.path)
 
-    # lo que abre el visor de imágenes (Photo Lite Fast usa WIC): fotos, TIFF, RAW de cámara…
-    # EXR, DPX, HDR, TGA, PSD, SGI, CIN… van a la app por defecto de Windows
+    # lo que abre el visor de imágenes (Photo Lite Fast usa WIC): fotos, TIFF…  (DPX, TGA, PSD… a Windows)
     VIEWER_EXTS = {".jpg", ".jpeg", ".jfif", ".jpe", ".png", ".gif", ".bmp", ".dib", ".webp", ".heic", ".heif",
                    ".avif", ".tif", ".tiff", ".jxr", ".wdp", ".ico"}
 
+    def image_viewer(self):
+        """El visor de Settings; vacío = PhotoLiteFast*.exe al lado del exe (la versión más alta)."""
+        v = self.cfg["image_viewer"]
+        if not v:
+            from .core import find_image_viewer
+            v = find_image_viewer()
+        return v if v and os.path.isfile(v) else ""
+
+    def program_for(self, e):
+        """Con qué se abre un archivo suelto al hacer doble click (None = la app de Windows).
+        EXR/HDR y RAW: el visor si está tildado, si no el programa elegido; las fotos: el visor."""
+        from .core import RAW_EXTS, HDR_EXTS
+        if e.kind != "file":
+            return None
+        ext = (e.ext or "").lower()
+
+        def rule(use_key, app_key):
+            if self.cfg[use_key]:
+                v = self.image_viewer()
+                if v:
+                    return v
+            a = (self.cfg[app_key] or "").strip().strip('"')
+            return a if a and os.path.isfile(a) else None
+        if ext in HDR_EXTS:
+            return rule("hdr_use_viewer", "hdr_app")
+        if ext in RAW_EXTS:
+            return rule("raw_use_viewer", "raw_app")
+        if ext in self.VIEWER_EXTS:
+            return self.image_viewer() or None
+        return None
+
     def _viewer_can(self, ext):
-        from .core import RAW_EXTS
+        from .core import RAW_EXTS, HDR_EXTS
         ext = (ext or "").lower()
-        return ext in self.VIEWER_EXTS or ext in RAW_EXTS
+        return (ext in self.VIEWER_EXTS or (ext in RAW_EXTS and self.cfg["raw_use_viewer"])
+                or (ext in HDR_EXTS and self.cfg["hdr_use_viewer"]))
+
+    def open_with(self, e, prog=None):
+        """Abrir con otro programa, solo esta vez (prog vacío = elegirlo)."""
+        if not prog:
+            from PySide6.QtWidgets import QFileDialog
+            prog, _ = QFileDialog.getOpenFileName(self, "Open with", os.path.dirname(self.cfg["hdr_app"] or "") or "",
+                                                  "Executables (*.exe)" if IS_WIN else "All (*)")
+            if not prog:
+                return
+        try:
+            subprocess.Popen([prog, e.path], cwd=os.path.dirname(prog) or None)
+        except Exception as ex:
+            self.status.setText(f"Could not open {os.path.basename(prog)}: {ex}")
 
     def open_default(self, path):
         if IS_WIN:
@@ -3945,7 +3991,20 @@ class MainWindow(QMainWindow):
                 if self.cfg["player"]:
                     m.addAction(f"Open in {os.path.splitext(os.path.basename(self.cfg['player']))[0]}",
                                 lambda: self.open_entry(e))
-                m.addAction("Open with default app", lambda: self.open_entry(e, with_player=False))
+                ow = m.addMenu("Open with")
+                ow.addAction("Default app", lambda: self.open_entry(e, with_player=False))
+                seen = set()
+                for label, prog in (("Image viewer", self.image_viewer()), ("HDR app", self.cfg["hdr_app"]),
+                                    ("RAW app", self.cfg["raw_app"]), ("Player", self.cfg["player"])):
+                    if not prog or not os.path.isfile(prog) or norm_key(prog) in seen:
+                        continue
+                    if label != "Player" and e.kind != "file":      # una secuencia: solo el player
+                        continue
+                    seen.add(norm_key(prog))
+                    name = os.path.splitext(os.path.basename(prog))[0]
+                    ow.addAction(f"{name}  ({label.lower()})", lambda pr=prog: self.open_with(e, pr))
+                ow.addSeparator()
+                ow.addAction("Choose program…", lambda: self.open_with(e))
             if pane.is_virtual() or pane.model.virtual:
                 m.addAction("Go to containing folder",
                             lambda: pane.navigate(e.dirpath, select=e.name))

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.48.0
+- Settings › General: new rows «EXR / HDR» and «RAW (DNG…)», each with a program to choose and a «Use the image viewer» tick (on by default). Ticked: the image viewer opens them; not ticked: the chosen program (empty = Windows default app). A single EXR (also a lone numbered one) follows the EXR / HDR rule; EXR sequences still go to the player.
+- The image viewer is still found by itself: PhotoLiteFast*.exe next to VFX Explorer or inside a folder next to it (e.g. «PhotoLiteFast20_Extended»), highest version wins. It now starts with its own folder as working folder, so the libraries it brings are found.
+- Right-click › «Open with»: Default app, the image viewer, the EXR / HDR program, the RAW program, the player, or «Choose program…» for a one-off.
+
 ## 0.47.3
 - Turning the Bonsai off (or on): if a branch above the open folder was collapsed, the folder stayed hidden inside it and the tree looked out of sync until you clicked around. Now the whole path is expanded and the folder is always shown and marked.
 

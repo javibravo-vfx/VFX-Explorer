@@ -20,6 +20,8 @@ IMAGE_EXTS = {
     ".tga", ".bmp", ".hdr", ".rgbe", ".webp", ".psd", ".psb", ".jp2", ".j2k", ".sgi",
     ".rgb", ".tx", ".jxl", ".dds", ".pfm", ".iff", ".rla", ".pic", ".gif",
 }
+HDR_EXTS = {".exr", ".hdr"}      # imágenes HDR sueltas (las secuencias van al player)
+
 RAW_EXTS = {      # RAW de cámaras de fotos + DNG
     ".dng", ".cr2", ".cr3", ".crw", ".nef", ".nrw", ".arw", ".srf", ".sr2", ".raf", ".orf", ".rw2", ".rwl",
     ".pef", ".srw", ".x3f", ".3fr", ".fff", ".iiq", ".erf", ".kdc", ".dcr", ".mrw", ".mos", ".raw", ".gpr",
@@ -921,6 +923,10 @@ class Config:
         "mini_tree_on": True,
         "hover_box": True,
         "image_viewer": "",             # programa para abrir imágenes (vacío = el predeterminado de Windows)
+        "hdr_app": "",                  # EXR / HDR sueltos: programa elegido (vacío = el de Windows)
+        "hdr_use_viewer": True,         # … o el visor de imágenes (prendido de fábrica)
+        "raw_app": "",                  # RAW de cámara (DNG, CR2…): programa elegido
+        "raw_use_viewer": True,
         "lib_slots": [None, None, None, None],
         "lib_tree_autocollapse": True,  # VFX Library: el árbol cierra las carpetas fuera del camino actual
         "lib_tree_sort_name": True,     # VFX Library: raíces por nombre (si no, en el orden en que se agregaron)
