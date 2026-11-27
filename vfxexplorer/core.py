@@ -295,17 +295,50 @@ def compress_ranges(nums):
 
 SEQ_RE = re.compile(r"^(?P<head>.*?)(?P<frame>\d+)(?P<ext>\.[^.]+)$")
 
-# cuántos dígitos tiene que tener el número para que sea una secuencia (render_0001.exr: 4). Con menos, archivos
-# sueltos (foto_12.jpg, v01…). Lo ajusta Settings › General (seq_digits)
-SEQ_MIN_DIGITS = 4
+# qué largos de número hacen una secuencia: «####, #####» = 4 o 5 dígitos (render_0001.exr, render_10000.exr).
+# Con otro largo, archivos sueltos (foto_12.jpg, v01…). Lo ajusta Settings › General (seq_pads)
+SEQ_LENGTHS = {4, 5}
+DEFAULT_SEQ_PADS = "####, #####"
+
+
+def parse_seq_pads(text):
+    """«####, #####» → {4, 5}. También acepta números («4, 5»)."""
+    out = set()
+    for part in str(text or "").replace(";", ",").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if set(part) == {"#"}:
+            out.add(len(part))
+        elif part.isdigit() and 0 < int(part) <= 12:
+            out.add(int(part))
+    return out
+
+
+def set_seq_pads(text):
+    global SEQ_LENGTHS
+    SEQ_LENGTHS = parse_seq_pads(text) or parse_seq_pads(DEFAULT_SEQ_PADS)
+
+
+SPLIT_SEQS = set()        # secuencias separadas a mano (clic derecho): claves de seq_key(); por workspace
+
+
+def seq_key(dirpath, head, ext):
+    return os.path.normcase(os.path.normpath(os.path.join(dirpath, head or ""))) + "|" + (ext or "").lower()
+
+
+def set_split_seqs(keys):
+    global SPLIT_SEQS
+    SPLIT_SEQS = set(keys or [])
 
 
 def set_seq_digits(n):
-    global SEQ_MIN_DIGITS
+    """(antes: «al menos n dígitos»; queda por compatibilidad)"""
     try:
-        SEQ_MIN_DIGITS = max(1, min(10, int(n)))
+        n = max(1, min(10, int(n)))
     except (TypeError, ValueError):
-        SEQ_MIN_DIGITS = 4
+        n = 4
+    set_seq_pads(", ".join("#" * k for k in range(n, 11)))
 
 
 @dataclass
@@ -323,6 +356,7 @@ class Entry:
     files: list = field(default_factory=list)
     _missing: list = None
     review: bool = False     # hay notas de review al lado (imagen.ext.review.json, del visor de imágenes)
+    split_key: str = ""      # frame de una secuencia separada a mano (seq_key): «Group back into sequence»
 
     @property
     def cat(self):
@@ -429,7 +463,7 @@ def split_frame(name):
         return None
     if m.group("ext").lower() not in IMAGE_EXTS or not _is_frame_boundary(m.group("head")):
         return None
-    if len(m.group("frame")) < SEQ_MIN_DIGITS:      # menos dígitos que una secuencia: archivo suelto
+    if len(m.group("frame")) not in SEQ_LENGTHS:   # no es un largo de secuencia (Settings): archivo suelto
         return None
     return m.group("head"), m.group("frame"), m.group("ext")
 
@@ -450,11 +484,19 @@ def group_files(dirpath, files, collapse=True):
             singles.append((name, size, mtime))
 
     out = []
+    split = {}
     for (head, ext), items in groups.items():
         if len(items) == 1:
             _, _, name, size, mtime = items[0]
             singles.append((name, size, mtime))
             continue
+        if SPLIT_SEQS:
+            k = seq_key(dirpath, head, ext)
+            if k in SPLIT_SEQS:                       # separada a mano: cada frame suelto (se puede volver a juntar)
+                for _, _, name, size, mtime in items:
+                    singles.append((name, size, mtime))
+                    split[name] = k
+                continue
         items.sort(key=lambda t: t[0])
         lens = {len(t[1]) for t in items}
         if len(lens) == 1:
@@ -472,7 +514,8 @@ def group_files(dirpath, files, collapse=True):
 
     for name, size, mtime in singles:
         out.append(Entry(kind="file", dirpath=dirpath, name=name, path=os.path.join(dirpath, name),
-                         ext=os.path.splitext(name)[1].lower(), size=size, mtime=mtime))
+                         ext=os.path.splitext(name)[1].lower(), size=size, mtime=mtime,
+                         split_key=split.get(name, "")))
     return out
 
 
@@ -945,7 +988,8 @@ class Config:
         "splitter_left3": "",
         "hidden_sys": ["onedrive"],
         "collapse_seqs": True,
-        "seq_digits": 4,                # dígitos del número para que sea secuencia (render_0001.exr)
+        "seq_pads": "####, #####",      # qué largos de número son secuencia (render_0001.exr, render_10000.exr)
+        "seq_split": [],                # secuencias separadas a mano en el workspace actual (seq_key)
         "mini_tree_on": True,
         "hover_box": True,
         "image_viewer": "",             # programa para abrir imágenes (vacío = el predeterminado de Windows)

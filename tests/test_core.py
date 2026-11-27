@@ -28,14 +28,14 @@ def test_grouping():
     # de fábrica una secuencia necesita 4 dígitos: p.8.png… y foto_12.jpg quedan sueltos
     assert "p.8.png" in g and "p.10.png" in g
     from vfxexplorer import core
-    core.set_seq_digits(1)                       # Settings › Sequences: 1 dígito alcanza
+    core.set_seq_pads("#, ##, ###")              # Settings › Sequences: también 1, 2 y 3 dígitos
     try:
         g1 = {e.name: e for e in group_files("/x", [(n, 1, 0) for n in ["p.8.png", "p.9.png", "p.10.png",
                                                                           "f_001.png", "f_002.png"]])}
         assert g1["p.#.png"].pad == 0 and g1["p.#.png"].frames == [8, 9, 10]
         assert "f_###.png" in g1
     finally:
-        core.set_seq_digits(4)
+        core.set_seq_pads("####, #####")
     assert compress_ranges([1, 2, 3, 5, 7, 8]) == "1-3, 5, 7-8"
 
 

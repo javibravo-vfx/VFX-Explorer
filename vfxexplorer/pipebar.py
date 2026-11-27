@@ -26,6 +26,8 @@ class PipelineBar(QWidget):
             cb.setPlaceholderText(ph)
             cb.setToolTip(ph if key != "dept" else "Department: folders at the 3D level (3D, Comp, DMP, 2D…)")
             cb.activated.connect(lambda _, k=key: self._pick(k))
+            cb.view().viewport().installEventFilter(self)     # botón del medio en la lista: en un tab nuevo
+            cb.view().viewport().setProperty("pipe_level", key)
             if vertical:
                 cb.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
                 cb.setMinimumContentsLength(6)
@@ -127,8 +129,23 @@ class PipelineBar(QWidget):
         self.setToolTip(f"Root: {self.pipe.base()}  ·  config: {self.pipe.source}")
         self._fill("proj", self.pipe.projects(), self._v("proj"))
 
+    def eventFilter(self, obj, ev):
+        from PySide6.QtCore import QEvent
+        key = obj.property("pipe_level") if hasattr(obj, "property") else None
+        if key and ev.type() in (QEvent.MouseButtonPress, QEvent.MouseButtonRelease) \
+                and ev.button() == Qt.MiddleButton:
+            if ev.type() == QEvent.MouseButtonRelease:
+                cb = self.cbs[key]
+                ix = cb.view().indexAt(ev.position().toPoint())
+                if ix.isValid():
+                    cb.setCurrentIndex(ix.row())
+                    cb.hidePopup()
+                    self._pick(key, new_tab=True)
+            return True
+        return super().eventFilter(obj, ev)
+
     # ---------------- elegir un nivel = navegar ahí
-    def _pick(self, level):
+    def _pick(self, level, new_tab=False):
         p, s, sh, d, t = self._vals()
         pipe = self.pipe
         if level == "proj":
@@ -152,7 +169,7 @@ class PipelineBar(QWidget):
         else:
             target = pipe.task_dir(p, s, sh, t, d)
         if target and os.path.isdir(target):
-            self.app.open_in_explorer(target)
+            self.app.open_in_explorer(target, new_tab=new_tab)
 
     def _same_place(self, p, s, sh):
         """Al cambiar de shot, entrar al mismo lugar (depto, task, stage, _input…) si existe en el shot nuevo."""

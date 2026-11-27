@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.56.0
+- Settings › General › Sequences is now a text field: the frame paddings that count as a sequence, separated by commas (default «####, #####»: render_0001.exr and render_10000.exr). Add «###» for render_001.exr, and so on. Other numbered files show as separate files.
+- Right-click on a sequence › «Show frames as separate files»; right-click on one of those frames › «Group back into sequence». Separated frames carry a yellow SEPARATED tag. Each workspace remembers its separated sequences (a new workspace or Reset to zero starts with none).
+- Pipeline dropdowns: middle-click an item to open it in a new tab.
+
 ## 0.55.0
 - Sequences need a frame number with at least 4 digits (render_0001.exr, plate.1001.exr). Numbered files with fewer digits (frame_001.png, photo_12.jpg) show as separate files.
 - Settings › General › Sequences: how many digits make a sequence (1–10, 4 by default), for pipelines that number differently. Changing it reloads the open folders.

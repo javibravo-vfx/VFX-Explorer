@@ -149,8 +149,10 @@ class MainWindow(QMainWindow):
         init_formats()
         self.data_dir = data_dir()
         self.cfg = Config(os.path.join(self.data_dir, "config.json"))
-        from .core import set_seq_digits
-        set_seq_digits(self.cfg["seq_digits"])    # cuántos dígitos hacen una secuencia (Settings)
+        from .core import set_seq_pads
+        set_seq_pads(self.cfg["seq_pads"])        # qué largos de número son secuencia (Settings: «####, #####»)
+        from .core import set_split_seqs
+        set_split_seqs(self.cfg["seq_split"])     # secuencias separadas a mano (del workspace)
         self.lib = Library(os.path.join(self.data_dir, "library.json"))
         if self.cfg.get("colors"):
             self.lib.migrate_colors(self.cfg.data.pop("colors"))
@@ -3395,6 +3397,30 @@ class MainWindow(QMainWindow):
         self._reload_sidebar()
         self.status.setText(f"Pinned to Quick access of {'VFX Library' if lib else 'File Explorer'}")
 
+    # ---------------- secuencias separadas a mano (se recuerdan por workspace)
+    def _set_split(self, keys, dirpath):
+        from .core import set_split_seqs
+        self.cfg["seq_split"] = sorted(keys)
+        set_split_seqs(keys)
+        self.save_soon()
+        for p in self.all_panes:
+            cur = p.current_dir()
+            if cur and norm_key(cur) == norm_key(dirpath):
+                p.refresh()
+
+    def split_seq(self, e):
+        from .core import seq_key
+        keys = set(self.cfg["seq_split"] or [])
+        keys.add(seq_key(e.dirpath, e.head, e.ext))
+        self._set_split(keys, e.dirpath)
+        self.status.setText(f"{e.name}: frames shown as separate files")
+
+    def group_seq(self, e):
+        keys = set(self.cfg["seq_split"] or [])
+        keys.discard(e.split_key)
+        self._set_split(keys, e.dirpath)
+        self.status.setText("Grouped back into a sequence")
+
     def insert_wpins(self, paths, index, take=False):
         """Workspace Pins soltados (o reordenados) en el modo Windows, en ese lugar."""
         w = self._ws_entry()
@@ -4481,6 +4507,12 @@ class MainWindow(QMainWindow):
                     ow.addAction(f"{name}  ({label.lower()})", lambda pr=prog: self.open_with(e, pr))
                 ow.addSeparator()
                 ow.addAction("Choose program…", lambda: self.open_with(e))
+                if len(ents) == 1 and e.kind == "seq":            # esta secuencia, en frames sueltos
+                    m.addSeparator()
+                    m.addAction("Show frames as separate files", lambda: self.split_seq(e))
+                elif len(ents) == 1 and e.kind == "file" and getattr(e, "split_key", ""):
+                    m.addSeparator()
+                    m.addAction("Group back into sequence", lambda: self.group_seq(e))
             if pane.is_virtual() or pane.model.virtual:
                 m.addAction("Go to containing folder",
                             lambda: pane.navigate(e.dirpath, select=e.name))

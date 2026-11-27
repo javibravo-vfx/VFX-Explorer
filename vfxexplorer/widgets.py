@@ -823,6 +823,15 @@ class GridDelegate(QStyledItemDelegate):
                 p.drawRoundedRect(QRectF(br), 3, 3)
                 p.setPen(QColor("#111"))
                 p.drawText(br, Qt.AlignCenter, label)
+            if getattr(e, "split_key", ""):            # frame de una secuencia separada a mano
+                sl = "SEPARATED"
+                sw = fm.horizontalAdvance(sl) + 10
+                sr = QRect(th.x() + 4, th.bottom() - fm.height() - 6, sw, fm.height() + 2)
+                p.setPen(Qt.NoPen)
+                p.setBrush(QColor(SPLIT_COLOR))
+                p.drawRoundedRect(QRectF(sr), 3, 3)
+                p.setPen(QColor("#2a1d00"))
+                p.drawText(sr, Qt.AlignCenter, sl)
             if getattr(e, "review", False):            # notas de review del visor al lado de la imagen
                 rl = "REVIEW"
                 rw = fm.horizontalAdvance(rl) + 10
@@ -969,6 +978,7 @@ def set_name_editor_data(editor, e):
 
 
 REVIEW_COLOR = "#ff9b6b"          # marquita «REVIEW»: la imagen tiene notas del visor
+SPLIT_COLOR = "#e0b450"           # marquita «SEPARATED»: frame de una secuencia separada a mano
 
 
 class ListNameDelegate(QStyledItemDelegate):
@@ -979,7 +989,14 @@ class ListNameDelegate(QStyledItemDelegate):
         if index.column() != 0:
             return
         e = index.data(ROLE_ENTRY)
-        if e is None or not getattr(e, "review", False):
+        if e is None:
+            return
+        pills = []
+        if getattr(e, "review", False):
+            pills.append(("REVIEW", REVIEW_COLOR, "#111"))
+        if getattr(e, "split_key", ""):
+            pills.append(("SEPARATED", SPLIT_COLOR, "#2a1d00"))
+        if not pills:
             return
         p.save()
         f = QFont(option.font)
@@ -987,16 +1004,18 @@ class ListNameDelegate(QStyledItemDelegate):
         f.setBold(True)
         p.setFont(f)
         fm = QFontMetrics(f)
-        rl = "REVIEW"
-        rw = fm.horizontalAdvance(rl) + 8
         r = option.rect
-        rr = QRect(r.right() - rw - 4, r.y() + (r.height() - fm.height() - 2) // 2, rw, fm.height() + 2)
+        x = r.right() - 4
         p.setRenderHint(QPainter.Antialiasing)
-        p.setPen(Qt.NoPen)
-        p.setBrush(QColor(REVIEW_COLOR))
-        p.drawRoundedRect(QRectF(rr), 3, 3)
-        p.setPen(QColor("#111"))
-        p.drawText(rr, Qt.AlignCenter, rl)
+        for rl, bg, fg in pills:
+            rw = fm.horizontalAdvance(rl) + 8
+            rr = QRect(x - rw, r.y() + (r.height() - fm.height() - 2) // 2, rw, fm.height() + 2)
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(bg))
+            p.drawRoundedRect(QRectF(rr), 3, 3)
+            p.setPen(QColor(fg))
+            p.drawText(rr, Qt.AlignCenter, rl)
+            x -= rw + 4
         p.restore()
 
     def createEditor(self, parent, option, index):
@@ -1685,13 +1704,13 @@ class SettingsDialog(QDialog):
         self.sidecar = QCheckBox("Model and folder previews (JPG/PNG with the same name, thumbnail.jpg…)")
         self.sidecar.setChecked(bool(cfg["sidecar_previews"]))
         lay.addRow("", self.sidecar)
-        self.seqd = QSpinBox()
-        self.seqd.setRange(1, 10)
-        self.seqd.setValue(int(cfg["seq_digits"] or 4))
-        self.seqd.setSuffix(" digits")
+        from .core import DEFAULT_SEQ_PADS
+        self.seqd = QLineEdit(cfg["seq_pads"] or DEFAULT_SEQ_PADS)
+        self.seqd.setPlaceholderText(DEFAULT_SEQ_PADS)
         lay.addRow("Sequences:", self.seqd)
-        lay.addRow("", _hint("Numbered files are a sequence when the number has at least this many digits "
-                             "(4: render_0001.exr). With fewer they show as separate files."))
+        lay.addRow("", _hint("Which frame paddings are a sequence, separated by commas: #### = render_0001.exr, "
+                             "##### = render_10000.exr, ### = render_001.exr. Other numbered files show as "
+                             "separate files."))
         self.threads = QSpinBox()
         self.threads.setRange(1, 16)
         self.threads.setValue(int(cfg["threads"]))
@@ -1973,11 +1992,12 @@ class SettingsDialog(QDialog):
         cfg["pipeline_location"] = self.p_loc.currentData()
         new_p = (cfg["pipeline_root"], cfg["pipeline_prefix"], cfg["pipeline_seq_exclude"],
                  json.dumps(cfg["pipeline_departments"]), cfg["pipeline_only_depts"])
+        from .core import parse_seq_pads, set_seq_pads, DEFAULT_SEQ_PADS
+        pads = ", ".join("#" * n for n in sorted(parse_seq_pads(self.seqd.text()))) or DEFAULT_SEQ_PADS
         listing_changed = hidden_changed or cfg["folder_sizes"] != self.fsizes.isChecked() \
-            or int(cfg["seq_digits"] or 4) != self.seqd.value()
-        cfg["seq_digits"] = self.seqd.value()
-        from .core import set_seq_digits
-        set_seq_digits(self.seqd.value())
+            or parse_seq_pads(cfg["seq_pads"] or DEFAULT_SEQ_PADS) != parse_seq_pads(pads)
+        cfg["seq_pads"] = pads
+        set_seq_pads(pads)
         cfg["folder_sizes"] = self.fsizes.isChecked()
         cfg["library_features"] = self.feats.isChecked()
         cfg["color_mode"] = self.cmode.currentData()
