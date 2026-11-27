@@ -1236,7 +1236,7 @@ class FilePane(QFrame):
     def _track_tab_sel(self):
         """La pestaña va guardando lo que se selecciona en su carpeta (sobrevive a recargas y cambios de pestaña)."""
         t = self.tab()
-        if t is None or t["virtual"] or self.root_lock or self.model.virtual \
+        if t is None or t["virtual"] or self.model.virtual \
                 or not same_path(self.model.root or "", t["path"]):
             return
         t["sel"] = {"path": t["path"], "names": self._tab_sel_names()}
@@ -1244,7 +1244,7 @@ class FilePane(QFrame):
     def _keep_tab_sel(self):
         """File Explorer: cada pestaña recuerda qué tenía seleccionado (en su carpeta)."""
         old = self.tab()
-        if old is not None and not old["virtual"] and not self.root_lock and self.model.entries \
+        if old is not None and not old["virtual"] and self.model.entries \
                 and not self.model.virtual and same_path(self.model.root or "", old["path"]):
             old["sel"] = {"path": old["path"], "names": self._tab_sel_names()}
 
@@ -1254,7 +1254,7 @@ class FilePane(QFrame):
         self._keep_tab_sel()
         self.ti = i
         t = self.tab()
-        sel = t.get("sel") if not self.root_lock else None
+        sel = t.get("sel")
         if sel and not t["virtual"] and same_path(sel.get("path", ""), t["path"]):
             self.pending_select = list(sel.get("names") or []) or None
         if t["virtual"]:
@@ -1329,7 +1329,7 @@ class FilePane(QFrame):
         tabs = []
         for i, t in enumerate(self.tabs):
             d = {"path": THISPC if (t["virtual"] and t["virtual"]["kind"] == "thispc") else t["path"]}
-            if not self.root_lock and not t["virtual"]:          # File Explorer: lo seleccionado en cada pestaña
+            if not t["virtual"]:          # lo seleccionado en cada pestaña (File Explorer y VFX Library)
                 if i == self.ti and self.model.entries:
                     d["sel"] = self._tab_sel_names()
                 elif t.get("sel") and same_path(t["sel"].get("path", ""), t["path"]):
@@ -1362,7 +1362,7 @@ class FilePane(QFrame):
             tabs = [p for p in tabs if self.allowed(p)] or ([fallback] if fallback else [])
         for p in tabs:
             self.add_tab(p, activate=False)
-            if sels.get(p) and not self.root_lock and not self.tabs[-1]["virtual"]:
+            if sels.get(p) and not self.tabs[-1]["virtual"]:
                 self.tabs[-1]["sel"] = {"path": p, "names": list(sels[p])}
         self.set_view((st or {}).get("view", "grid"), emit=False)
         self.group_mode = (st or {}).get("group", "auto")
@@ -1725,7 +1725,7 @@ class FilePane(QFrame):
         self._sort()
         self._update_status(f"Error: {err}" if err else None)
         t = self.tab()
-        if self.pending_select is None and not self.root_lock and t is not None and t.get("sel") \
+        if self.pending_select is None and t is not None and t.get("sel") \
                 and same_path(t["sel"].get("path", ""), path):
             self.pending_select = list(t["sel"].get("names") or []) or None     # una recarga no la pierde
         self._select_pending()

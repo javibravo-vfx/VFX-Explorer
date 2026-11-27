@@ -25,6 +25,8 @@ FPS_CHOICES = ["12", "23.976", "24", "25", "29.97", "30", "48", "50", "60"]
 HDR_STILL_EXTS = {".exr", ".hdr", ".sxr", ".mxr", ".pfm", ".rgbe"}
 HDR_RES = 2048          # el visor de HDRIs lee hasta este tamaño (lo que entra en pantalla, con aire)
 HDR_CACHE = 10          # HDRIs ya leídos que quedan en memoria (ir y volver es instantáneo)
+LDR_RES = 2048          # fotos (JPG, PNG, TIFF, RAW…): se leen hasta este tamaño
+LDR_CACHE = 30          # fotos ya leídas que quedan en memoria
 
 
 # ----------------------------------------------------------------------------
@@ -426,13 +428,21 @@ class Viewer(QWidget):
     def is_hdr_still(e):
         return e is not None and e.kind == "file" and (e.ext or "").lower() in HDR_STILL_EXTS
 
-    def _set_hdr_mode(self, on):
-        if on == self._hdr_mode:
+    @classmethod
+    def is_still(cls, e):
+        """Una imagen suelta (foto o HDRI): visor rápido, sin controles de reproducción."""
+        return e is not None and e.kind == "file" and (cls.is_hdr_still(e) or e.cat == "image")
+
+    def _set_hdr_mode(self, on, kind=None):
+        """on: imagen suelta (sin controles de player); kind "hdr" muestra exposición y gamma."""
+        kind = kind if on else None
+        if (on, kind) == (self._hdr_mode, getattr(self, "_still_kind", None)):
             return
         self._hdr_mode = on
+        self._still_kind = kind
         for w in self._play_widgets:
             w.setVisible(not on)
-        self.hdr_bar.setVisible(on)
+        self.hdr_bar.setVisible(on and kind == "hdr")
 
     def _update_look_labels(self):
         self.exp_lbl.setText(f"Exposure: {self.exposure:+.1f}")
@@ -450,6 +460,13 @@ class Viewer(QWidget):
     def _show_hdr(self):
         if self._hdr_cur is None:
             return
+        if isinstance(self._hdr_cur, QImage):        # una foto: tal cual, sin exposición ni gamma
+            img = self._hdr_cur
+            self.canvas.image = img
+            self.canvas.buffering = False
+            self.canvas.corner = getattr(self, "_still_size", "") or f"{img.width()}×{img.height()}"
+            self.canvas.update()
+            return
         rgb, alpha = self._hdr_cur
         self.canvas.image = imaging.hdr_display(rgb, self.exposure, self.gamma, alpha)
         self.canvas.buffering = False
@@ -465,21 +482,28 @@ class Viewer(QWidget):
 
     def _hdr_decode(self, path, settings):
         try:
-            return imaging.hdr_linear(path, settings, HDR_RES)
+            if os.path.splitext(path)[1].lower() in HDR_STILL_EXTS:
+                return imaging.hdr_linear(path, settings, HDR_RES)
+            img = _read_image(path, settings, LDR_RES)        # foto: decodificada ya escalada (rapidísimo)
+            return img if img is not None and not img.isNull() else None
         except Exception:
             return None
 
     def _hdr_store(self, key, r):
         self._hdr_cache[key] = r
         self._hdr_cache.move_to_end(key)
-        while len(self._hdr_cache) > HDR_CACHE:
-            self._hdr_cache.popitem(last=False)
+        n_hdr = sum(1 for v in self._hdr_cache.values() if not isinstance(v, QImage))
+        while len(self._hdr_cache) > HDR_CACHE + LDR_CACHE or n_hdr > HDR_CACHE:
+            k, v = self._hdr_cache.popitem(last=False)
+            if not isinstance(v, QImage):
+                n_hdr -= 1
 
     def _start_hdr(self, e, settings):
-        """Un HDRI: primero el thumbnail que ya está (al instante), después la imagen en float."""
-        self._set_hdr_mode(True)
+        """Una imagen suelta: primero el thumbnail que ya está (al instante), después la imagen (HDRI: en float)."""
+        hdr = self.is_hdr_still(e)
+        self._set_hdr_mode(True, "hdr" if hdr else "ldr")
         self.n, self.labels = 1, [1]
-        self.lbl.setText("HDR")
+        self.lbl.setText("HDR" if hdr else "image")
         self.canvas.message = ""
         self.canvas.title = e.name
         self.canvas.corner = ""
@@ -529,7 +553,7 @@ class Viewer(QWidget):
         settings = dict(self.app.thumbs.settings)
         from .asyncdir import run_async
         for e in entries:
-            if not self.is_hdr_still(e):
+            if not self.is_still(e):
                 continue
             key = self._hdr_key(e, settings)
             if key in self._hdr_cache or key in self._hdr_busy:
@@ -570,7 +594,7 @@ class Viewer(QWidget):
     def show_message(self, text):
         if hasattr(self, "layer_cb") and self.entry is None:
             self.layer_cb.hide()
-        if hasattr(self, "_hdr_mode") and (self.entry is None or not self.is_hdr_still(self.entry)):
+        if hasattr(self, "_hdr_mode") and (self.entry is None or not self.is_still(self.entry)):
             self._set_hdr_mode(False)
             self._hdr_cur = None
         self.canvas.image = None
@@ -683,7 +707,7 @@ class Viewer(QWidget):
         if self._layers and 0 <= li < len(self._layers) and self._layers[li][1]:
             settings["channels"] = self._layers[li][1]
             settings["data"] = self._layers[li][2]
-        if self.is_hdr_still(e):
+        if self.is_still(e):
             self._start_hdr(e, settings)
             return
         self._set_hdr_mode(False)

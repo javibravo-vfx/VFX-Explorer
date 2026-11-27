@@ -6,7 +6,7 @@ import sys
 import subprocess
 
 from PySide6.QtCore import Qt, QSize, QTimer, QByteArray, QDir, QUrl, QEvent, Signal, QRectF, QPointF, QObject
-from PySide6.QtGui import QKeySequence, QShortcut, QDesktopServices, QCursor, QAction, QPixmap, QFont
+from PySide6.QtGui import QKeySequence, QShortcut, QDesktopServices, QCursor, QAction, QPixmap, QFont, QColor
 from PySide6.QtWidgets import (QLineEdit, QPlainTextEdit, QTreeWidgetItem, QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QTreeView,
                                QListWidget, QListWidgetItem, QComboBox, QSlider, QToolBar, QLabel, QMenu,
                                QFileSystemModel, QAbstractItemView, QToolButton, QScrollArea, QFrame,
@@ -371,6 +371,19 @@ class MainWindow(QMainWindow):
         self.wpins.model().rowsMoved.connect(self._wpins_reordered)
         self.wpins.dropped.connect(self.add_wpins)
         self.favs.dropped_pins.connect(self.add_wpins)        # soltar en la parte de Workspace Pins de Quick access
+        # VFX PINS: los pins del workspace en la librería (carpetas o archivos de la librería; Default no tiene)
+        self.lib_wpins = QuickList(pin, accept_files=True, wspin_icon=wspin, all_wspins=True)
+        self.lib_wpins.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.lib_wpins.customContextMenuRequested.connect(lambda pos: self._libpins_menu(pos))
+        lclick = lambda it: it.data(Qt.UserRole) and self._open_libpin(it.data(Qt.UserRole), it.data(Qt.UserRole + 6))
+        self.lib_wpins.itemClicked.connect(lclick)
+        self.hook_list_keys(self.lib_wpins, lclick)
+        self.lib_wpins.itemChanged.connect(self._quick_item_changed)
+        sc = QShortcut(QKeySequence("F2"), self.lib_wpins, lambda: self._quick_rename(self.lib_wpins))
+        sc.setContext(Qt.WidgetShortcut)
+        self.lib_wpins.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.lib_wpins.model().rowsMoved.connect(self._libpins_reordered)
+        self.lib_wpins.dropped.connect(self.add_libpins)
         self.colls = self._mk_list(self._colls_menu, lambda it: self.open_collection(it.data(Qt.UserRole)))
         self.tagl = self._mk_list(self._tags_menu, lambda it: self.open_tag(it.data(Qt.UserRole)))
 
@@ -409,7 +422,16 @@ class MainWindow(QMainWindow):
 
         self.quick_stack = QStackedWidget()
         self.quick_stack.addWidget(self.favs)
-        self.quick_stack.addWidget(self.lib_favs)
+        # librería: Quick access arriba y, en un workspace, VFX PINS abajo (partido en dos)
+        self.lib_quick = QSplitter(Qt.Vertical)
+        self.lib_quick.setChildrenCollapsible(False)
+        self.lib_quick.addWidget(self.lib_favs)
+        self.libpins_box = boxed("VFX PINS", self.lib_wpins)
+        self.libpins_box.setToolTip("Pins of this workspace in the VFX Library (folders or files) · drop them here")
+        self.lib_quick.addWidget(self.libpins_box)
+        self.lib_quick.setSizes([200, 200])
+        self.libpins_box.setVisible(False)
+        self.quick_stack.addWidget(self.lib_quick)
         self.quick_stack.addWidget(self.wpins)
         self.quick_title = self._section("QUICK ACCESS")
         # QUICK ACCESS | WORKSPACE PINS (las pestañas solo en un workspace que no sea Default)
@@ -2336,6 +2358,8 @@ class MainWindow(QMainWindow):
         if not d:
             for pb in self.pipebars:
                 pb.clear()
+            if here == "::thispc":                # la barra de título también en This PC
+                self.setWindowTitle(f"This PC — {APP_NAME} {VERSION}")
         if d_tree:
             for pb in self.pipebars:
                 pb.sync(d)
@@ -3509,6 +3533,94 @@ class MainWindow(QMainWindow):
         if pins:
             self._fill_wpins()
         self._fill_favs_pins()
+        self.libpins_box.setVisible(w is not None)
+        self._fill_libpins()
+
+    # ---------------- VFX PINS (pins del workspace en la librería)
+    def _fill_libpins(self):
+        w = self._ws_entry()
+        names = self.cfg["quick_names"] or {}
+        L = self.lib_wpins
+        L.blockSignals(True)
+        L.clear()
+        for x in (w or {}).get("lib_pins", []):
+            it = self._pin_item(x, names)
+            if not self._pin_isfile(x):
+                it.setIcon(self.icons.folder_icon(self.dir_color(self._pin_path(x)) or self.LIB_FOLDER, 18))
+            it.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsDragEnabled | Qt.ItemIsEditable)
+            L.addItem(it)
+        if w is not None and not L.count():
+            hint = QListWidgetItem("Drag folders or files here")
+            hint.setFlags(Qt.NoItemFlags)
+            hint.setForeground(QColor("#6b7178"))
+            L.addItem(hint)
+        L.blockSignals(False)
+
+    def add_libpins(self, paths):
+        w = self._ws_entry()
+        if w is None:
+            return
+        pins = list(w.get("lib_pins", []))
+        have = {norm_key(self._pin_path(x)) for x in pins}
+        n = 0
+        for p in paths:
+            if not p or norm_key(p) in have:
+                continue
+            p = os.path.normpath(p)
+            isf = os.path.isfile(p)
+            if not (isf or os.path.isdir(p)) or not self.libpane.allowed(os.path.dirname(p) if isf else p):
+                continue
+            pins.append({"path": p, "file": True} if isf else p)
+            have.add(norm_key(p))
+            n += 1
+        if not n and paths:
+            self.status.setText("Only VFX Library folders or files can be pinned here")
+            return
+        w["lib_pins"] = pins
+        self.cfg.save()
+        self._fill_libpins()
+        self.status.setText(f"Pinned to VFX PINS ({n})")
+
+    def _libpins_reordered(self, *_):
+        w = self._ws_entry()
+        if w is None:
+            return
+        old = {norm_key(self._pin_path(x)): x for x in w.get("lib_pins", [])}
+        order = [self.lib_wpins.item(i).data(Qt.UserRole) for i in range(self.lib_wpins.count())]
+        w["lib_pins"] = [old[norm_key(p)] for p in order if p and norm_key(p) in old]
+        self.cfg.save()
+
+    def _open_libpin(self, p, isfile=False):
+        if isfile:
+            self.set_mode("library")
+            self.libpane.navigate(os.path.dirname(p), select=os.path.basename(p))
+        else:
+            self.open_library(p)
+
+    def _libpins_menu(self, pos):
+        it = self.lib_wpins.itemAt(pos)
+        if not it or not it.data(Qt.UserRole):
+            return
+        p = it.data(Qt.UserRole)
+        isf = bool(it.data(Qt.UserRole + 6))
+        m = QMenu(self)
+        if isf:
+            m.addAction("Show in its folder", lambda: self._open_libpin(p, True))
+        else:
+            m.addAction("Open", lambda: self.open_library(p))
+            m.addAction("Open in new tab", lambda: (self.set_mode("library"), self.libpane.add_tab(p)))
+            self._color_menu(m, [dir_target(p)])
+        m.addSeparator()
+
+        def remove():
+            w = self._ws_entry()
+            if w is not None:
+                w["lib_pins"] = [x for x in w.get("lib_pins", []) if norm_key(self._pin_path(x)) != norm_key(p)]
+                self.cfg.save()
+            self._fill_libpins()
+        self._quick_rename_actions(m, self.lib_wpins, it, p)
+        m.addAction("Unpin from this workspace", remove)
+        m.exec(self.lib_wpins.viewport().mapToGlobal(pos))
 
     def _qa_set_pins(self, on):
         w = self._ws_entry()
@@ -3604,8 +3716,64 @@ class MainWindow(QMainWindow):
             if not p or (it.data(ROLE_HIDDEN) and not self.cfg["show_hidden_quick"]):
                 continue
             specs.append({"text": it.text(), "icon": it.icon(), "path": p, "isfile": bool(it.data(Qt.UserRole + 6)),
-                          "pin": "wspin" if it.data(ROLE_WSPIN) else ("" if it.data(ROLE_SYS) else "pin")})
+                          "pin": "wspin" if it.data(ROLE_WSPIN) else ("" if it.data(ROLE_SYS) else "pin"),
+                          "sys": it.data(ROLE_SYS) or "", "real": it.data(Qt.UserRole + 4) or ""})
+        if self._ws_entry() is not None and not any(sp and sp.get("pin") == "wspin" for sp in specs):
+            # en un workspace: el lugar de los Workspace Pins aunque no haya ninguno (para soltarlos ahí)
+            specs += [None, {"placeholder": True, "text": "Drop Workspace Pins here"}]
         self.wintree.set_quick(specs)
+
+    def _wintree_quick_menu(self, it, pos):
+        """Modo Windows: el menú de los accesos de arriba (como en Quick access / Workspace Pins)."""
+        T = WinNavTree
+        p = it.data(0, Qt.UserRole)
+        pin = it.data(0, T.ROLE_PIN)
+        isf = bool(it.data(0, T.ROLE_ISFILE))
+        sysk = it.data(0, T.ROLE_SYS)
+        m = QMenu(self)
+        if isf:
+            m.addAction("Show in its folder", lambda: self._open_pin(p, True))
+            m.addAction("Open", lambda: self.open_default(p))
+        else:
+            m.addAction("Open", lambda: self.open_in_explorer(p))
+            m.addAction("Open in new tab", lambda: self.open_in_explorer(p, new_tab=True))
+            if self.paneB.isVisible():
+                m.addAction("Open in the other pane", lambda: (self.set_mode("explorer"),
+                                                               self.other(self.explorer_active).navigate(p)))
+            self._color_menu(m, [dir_target(p)])
+        m.addSeparator()
+        if not sysk:
+            def rename():
+                cur = it.text(0)
+                new, ok = QInputDialog.getText(self, "Rename here", "Name shown here (the folder keeps its name):",
+                                               text=cur)
+                if ok:
+                    new = new.strip()
+                    real = it.data(0, T.ROLE_REAL) or os.path.basename(p.rstrip("\\/"))
+                    self._set_quick_name(p, None if (not new or new == real) else new)
+            m.addAction("Rename here…", rename)
+            if (self.cfg["quick_names"] or {}).get(norm_key(p)):
+                m.addAction("Back to the folder's name", lambda: self._set_quick_name(p, None))
+        if sysk:
+            hid = sysk in (self.cfg["hidden_sys"] or [])
+            m.addAction(self.icons.eye(16, on=hid), "Show" if hid else "Hide", lambda: self._toggle_sys(sysk))
+        elif pin == "wspin":
+            def unpin_ws():
+                w = self._ws_entry()
+                if w is not None:
+                    w["pins"] = [x for x in w.get("pins", []) if norm_key(self._pin_path(x)) != norm_key(p)]
+                    self.cfg.save()
+                self._qa_refresh()
+                self._reload_sidebar()
+            m.addAction("Unpin from this workspace", unpin_ws)
+        else:
+            def unpin():
+                self.cfg["favorites"] = [x for x in self.cfg["favorites"] if norm_key(x) != norm_key(p)]
+                self._set_quick_name(p, None, reload=False)
+                self.cfg.save()
+                self._reload_sidebar()
+            m.addAction("Unpin from Quick access", unpin)
+        m.exec(self.wintree.viewport().mapToGlobal(pos))
 
     def _tree_open_item(self, it):
         p = it.data(0, Qt.UserRole)
@@ -3835,6 +4003,9 @@ class MainWindow(QMainWindow):
 
     def _tree_menu(self, tree, pos):
         it = tree.itemAt(pos)
+        if it is not None and tree is self.wintree and it.data(0, WinNavTree.ROLE_QUICK):
+            self._wintree_quick_menu(it, pos)
+            return
         if it is None:
             if tree.mini:
                 self._minitree_menu(pos)

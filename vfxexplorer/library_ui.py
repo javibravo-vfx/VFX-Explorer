@@ -59,8 +59,8 @@ class LibraryPage(QWidget):
         QTimer.singleShot(250, lambda e=e: self._prefetch_around(e))
 
     def _prefetch_around(self, e):
-        """HDRIs: el siguiente y el anterior se leen de antemano (moverse con las flechas es instantáneo)."""
-        if not self.viewer.is_hdr_still(e):
+        """Imágenes sueltas (fotos y HDRIs): las de al lado se leen de antemano (moverse con las flechas es instantáneo)."""
+        if not self.viewer.is_still(e):
             return
         from .models import ROLE_ENTRY
         v = self.pane.view()

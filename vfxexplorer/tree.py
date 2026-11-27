@@ -784,6 +784,9 @@ class WinNavTree(FolderTree):
     ROLE_QUICK = Qt.UserRole + 10
     ROLE_ISFILE = Qt.UserRole + 6
     ROLE_PIN = Qt.UserRole + 11          # "pin" / "wspin": el clavito a la derecha
+    ROLE_SYS = Qt.UserRole + 12          # escritorio, descargas… (de Windows)
+    ROLE_REAL = Qt.UserRole + 13         # el nombre real de la carpeta (si se renombró aquí)
+    ROLE_PH = Qt.UserRole + 14           # «Drop Workspace Pins here» (el lugar, sin pins todavía)
 
     def __init__(self, app):
         self.win = True
@@ -819,9 +822,18 @@ class WinNavTree(FolderTree):
                 it.setData(0, self.ROLE_SEP, True)
                 it.setFlags(Qt.NoItemFlags)
                 it.setSizeHint(0, QSize(10, 11))
+            elif sp.get("placeholder"):
+                it = QTreeWidgetItem([sp["text"]])
+                it.setData(0, self.ROLE_PH, True)
+                it.setData(0, self.ROLE_PIN, "wspin")
+                it.setFlags(Qt.ItemIsEnabled)
+                it.setForeground(0, QColor("#6b7178"))
+                it.setChildIndicatorPolicy(QTreeWidgetItem.DontShowIndicator)
             else:
                 it = QTreeWidgetItem([sp["text"]])
                 it.setIcon(0, sp["icon"])
+                it.setData(0, self.ROLE_SYS, sp.get("sys") or "")
+                it.setData(0, self.ROLE_REAL, sp.get("real") or "")
                 it.setData(0, Qt.UserRole, sp["path"])
                 it.setData(0, self.ROLE_QUICK, True)
                 it.setData(0, self.ROLE_ISFILE, bool(sp.get("isfile")))
@@ -842,7 +854,7 @@ class WinNavTree(FolderTree):
             return
         super().drawRow(p, opt, index)
         pin = index.data(self.ROLE_PIN)
-        if pin:
+        if pin and not index.data(self.ROLE_PH):
             g = self.app.icons.glyph("wspin" if pin == "wspin" else "pin", 14,
                                      "#4cc2ff" if pin == "wspin" else "#9d9d9d")
             r = opt.rect

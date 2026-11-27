@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.51.0
+- Workspaces always save themselves as you work («Keep updated» is always on and left the menu).
+- Every workspace has «Reset to zero» (one tab in This PC, factory panels); it keeps its Workspace Pins, notes and Windows mode.
+- Workspace menu › Startup workspace: where the app opens when «Continue where you left off» is off (Default unless you choose another).
+- The window title also shows «This PC».
+- Windows mode: right-click on the top items — Unpin from Quick access / Unpin from this workspace, Rename here, Color label, Hide (Windows folders). In a workspace (not Default) the Workspace Pins part is always there, with its divider, so you can drop pins even when it's empty.
+- VFX Library: each workspace remembers the selected file (the viewer shows it when you switch) and the 1–4 circles.
+- VFX Library: in a workspace (not Default) the Quick access panel is split in two — Quick access on top and VFX PINS below (drop library folders or files there), saved with the workspace.
+- VFX Library viewer: photos (JPG, PNG, TIFF, RAW, PSD…) open in a fast image viewer — no player controls, no exposure or gamma; the thumbnail shows at once, the next ones are read ahead and the last 30 stay in memory. HDRIs keep Exposure and Gamma.
+
 ## 0.50.0
 - Windows mode is on by default and each workspace remembers it (on or off). Resetting a workspace to zero turns it on.
 - First start: Default workspace from zero, Windows mode on, This PC, Details off in File Explorer and on in the VFX Library.

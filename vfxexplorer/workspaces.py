@@ -36,6 +36,7 @@ def capture(app):
     st["colors"] = {"mode": app.cfg["color_mode"] or "project", "lines": bool(app.cfg["tree_line_colors"]),
                     "cfilters": bool(app.cfg["color_filters_on"])}
     st["win_nav"] = bool(app.cfg["win_nav"])           # modo Windows del panel izquierdo
+    st["lib_slots"] = list(app.cfg["lib_slots"] or [])  # los circulitos 1…4 del player de la librería
     st["bonsai"] = list(app.cfg["mini_tree"] or [])     # cada workspace con su Bonsai (lo que podaste queda podado)
     return st
 
@@ -79,6 +80,10 @@ def apply(app, st):
         app.set_mode("explorer")
     apply_colors(app, st.get("colors"))           # (un workspace viejo sin colores guardados: los de fábrica)
     apply_bonsai(app, st.get("bonsai"))
+    if "lib_slots" in st:
+        app.cfg["lib_slots"] = list(st["lib_slots"] or [None] * 4)
+        if hasattr(app, "lib_slots"):
+            app.lib_slots.bar.update()
     if "win_nav" in st:
         apply_win_nav(app, st["win_nav"])
     panes = st.get("panes") or []
@@ -126,7 +131,7 @@ def apply(app, st):
 DEFAULT = "Default"
 
 
-def reset_layout(app):
+def reset_layout(app, keep_win=False):
     """Como al abrir la app por primera vez, solo en lo visual: una pestaña (This PC) en File Explorer, sin doble
     panel, Details prendido y las medidas de fábrica. No toca Quick access, la librería ni ninguna configuración."""
     home = os.path.expanduser("~")
@@ -135,7 +140,8 @@ def reset_layout(app):
         app.set_mode("explorer")
     apply_colors(app, None)                       # los colores también vuelven a los de fábrica
     apply_bonsai(app, [])                         # y el Bonsai arranca podado (queda solo la carpeta que se abre)
-    apply_win_nav(app, True)                      # panel izquierdo como en Windows
+    if not keep_win:
+        apply_win_nav(app, True)                  # panel izquierdo como en Windows
     for p in app.panes:
         p._stop_search()
         p.clear_tabs()
@@ -268,14 +274,13 @@ class WorkspaceButton(QToolButton):
         return cur if cur and cur != DEFAULT and self._find(cur) else DEFAULT
 
     def keep_updated(self):
-        return bool(self.app.cfg["workspace_keep_updated"])
+        return True                               # cada workspace se guarda solo mientras se trabaja (siempre)
 
     def refresh(self):
         cur = self.current()
         self._label = cur
         self._apply_width()
-        how = ("Keep updated: every workspace remembers what you do in it" if self.keep_updated()
-               else "Manual: use «Update» to save changes")
+        how = "Every workspace remembers what you do in it"
         self.setToolTip(f"Workspace: {cur}\n{how}\nShift+F1: Default · Shift+F2…F6: your workspaces · Ctrl+F1…F6: save the current layout there")
         self.update()
         if hasattr(self.app, "_qa_refresh"):
@@ -338,23 +343,25 @@ class WorkspaceButton(QToolButton):
         r.setCheckable(True)
         r.setChecked(bool(self.app.cfg["ws_reset_default"]))
         r.setToolTip(f"On: «{DEFAULT}» starts clean every time (one tab in This PC, factory panels)")
+        sm = m.addMenu("Startup workspace")
+        sm.setToolTip("Where the app opens when «Continue where you left off» is off")
+        start = self.app.cfg["ws_startup"] or DEFAULT
+        if start != DEFAULT and not self._find(start):
+            start = DEFAULT
+        for n in [DEFAULT] + [w["name"] for w in lst]:
+            a = sm.addAction(n, lambda n=n: self._set_startup(n))
+            a.setCheckable(True)
+            a.setChecked(n == start)
         m.addSeparator()
         m.addAction("New workspace…", self.new_ws)
         m.addAction("Save current layout as new workspace…", self.save_new)
-        k = m.addAction("Keep updated", self._toggle_keep)
-        k.setCheckable(True)
-        k.setChecked(keep)
-        k.setToolTip("Each workspace remembers its tabs and panels as you work, like separate windows")
         m.setToolTipsVisible(True)
         if cur == DEFAULT:
             m.addAction(f"Reset «{DEFAULT}» to zero", lambda: self.reset(DEFAULT))
         else:
-            up = m.addAction(f"Update «{cur}» with the current layout", lambda: self.update_ws(cur))
-            up.setEnabled(not keep)
-            if keep:
-                up.setToolTip("Not needed with Keep updated: the workspace saves itself")
-            m.addAction(f"Reset «{cur}» to how it was when the app opened" if keep
-                        else f"Reset «{cur}» to its saved layout", lambda: self.reset(cur))
+            m.addAction(f"Reset «{cur}» to how it was when the app opened", lambda: self.reset(cur))
+            z = m.addAction(f"Reset «{cur}» to zero", lambda: self.reset_zero(cur))
+            z.setToolTip("One tab in This PC and factory panels (keeps its Workspace Pins, notes and Windows mode)")
         if lst:
             ren = m.addMenu("Rename")
             dele = m.addMenu("Delete")
@@ -370,6 +377,30 @@ class WorkspaceButton(QToolButton):
         self.app.cfg[key] = not bool(self.app.cfg[key])
         self.app.cfg.save()
 
+    def _set_startup(self, name):
+        self.app.cfg["ws_startup"] = name
+        self.app.cfg.save()
+
+    def reset_zero(self, name):
+        """Cualquier workspace a cero: una pestaña en This PC y paneles de fábrica (el modo Windows queda como está)."""
+        if name == DEFAULT:
+            self.reset(DEFAULT)
+            return
+        w = self._find(name)
+        if w is None:
+            return
+        self._applying = True
+        try:
+            reset_layout(self.app, keep_win=True)
+        finally:
+            self._applying = False
+        w["state"] = capture(self.app)
+        self._start[name] = copy.deepcopy(w["state"])
+        self.app.cfg["workspace_current"] = name
+        self.app.cfg.save()
+        self.refresh()
+        self.app.status.setText(f"Workspace reset to zero: {name}")
+
     def startup(self, start_path=None):
         """Al abrir la app: «Reset Default to zero on startup» y «Continue where you left off»."""
         cfg = self.app.cfg
@@ -378,11 +409,16 @@ class WorkspaceButton(QToolButton):
         cur = self.current()
         if start_path:                            # se abrió con una carpeta: esa manda (no se rearma nada)
             return
-        if not cfg["ws_continue"] and cur != DEFAULT:
-            self._apply(cfg["workspace_default_state"] or None)
-            cfg["workspace_current"] = DEFAULT
+        target = cur
+        if not cfg["ws_continue"]:                # arranca en el «Startup workspace» (Default si no se eligió otro)
+            target = cfg["ws_startup"] or DEFAULT
+            if target != DEFAULT and not self._find(target):
+                target = DEFAULT
+        if target != cur:
+            self._apply((cfg["workspace_default_state"] or None) if target == DEFAULT else self._find(target)["state"])
+            cfg["workspace_current"] = target
             self.refresh()
-        elif cur == DEFAULT and cfg["ws_reset_default"]:
+        elif target == DEFAULT and cfg["ws_reset_default"]:
             self._apply(None)
         cfg.save()
 
@@ -520,6 +556,8 @@ class WorkspaceButton(QToolButton):
                 x["name"] = new
         if name in self._start:
             self._start[new] = self._start.pop(name)
+        if self.app.cfg["ws_startup"] == name:
+            self.app.cfg["ws_startup"] = new
         cur = self.app.cfg["workspace_current"]
         self._store(lst, new if cur == name else cur)
 
