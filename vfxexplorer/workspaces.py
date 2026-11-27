@@ -35,8 +35,15 @@ def capture(app):
     # colores: cada workspace con los suyos (automáticos, líneas del árbol, Color filters de los nombres)
     st["colors"] = {"mode": app.cfg["color_mode"] or "project", "lines": bool(app.cfg["tree_line_colors"]),
                     "cfilters": bool(app.cfg["color_filters_on"])}
+    st["win_nav"] = bool(app.cfg["win_nav"])           # modo Windows del panel izquierdo
     st["bonsai"] = list(app.cfg["mini_tree"] or [])     # cada workspace con su Bonsai (lo que podaste queda podado)
     return st
+
+
+def apply_win_nav(app, on):
+    app.cfg["win_nav"] = bool(on)
+    if hasattr(app, "b_winnav") and app.b_winnav.isChecked() != bool(on):
+        app.b_winnav.setChecked(bool(on))         # (lo aplica _toggle_winnav)
 
 
 def apply_bonsai(app, lst):
@@ -72,6 +79,8 @@ def apply(app, st):
         app.set_mode("explorer")
     apply_colors(app, st.get("colors"))           # (un workspace viejo sin colores guardados: los de fábrica)
     apply_bonsai(app, st.get("bonsai"))
+    if "win_nav" in st:
+        apply_win_nav(app, st["win_nav"])
     panes = st.get("panes") or []
     remember = bool(app.cfg["ws_remember_selection"])
     for i, p in enumerate(app.panes):
@@ -126,6 +135,7 @@ def reset_layout(app):
         app.set_mode("explorer")
     apply_colors(app, None)                       # los colores también vuelven a los de fábrica
     apply_bonsai(app, [])                         # y el Bonsai arranca podado (queda solo la carpeta que se abre)
+    apply_win_nav(app, True)                      # panel izquierdo como en Windows
     for p in app.panes:
         p._stop_search()
         p.clear_tabs()
@@ -266,7 +276,7 @@ class WorkspaceButton(QToolButton):
         self._apply_width()
         how = ("Keep updated: every workspace remembers what you do in it" if self.keep_updated()
                else "Manual: use «Update» to save changes")
-        self.setToolTip(f"Workspace: {cur}\n{how}\nAlt+Shift+1…9: your workspaces · Alt+Shift+0: Default")
+        self.setToolTip(f"Workspace: {cur}\n{how}\nShift+F1: Default · Shift+F2…F6: your workspaces · Ctrl+F1…F6: save the current layout there")
         self.update()
         if hasattr(self.app, "_qa_refresh"):
             self.app._qa_refresh()             # QUICK ACCESS | WORKSPACE PINS del workspace activo
@@ -308,16 +318,26 @@ class WorkspaceButton(QToolButton):
         cur = self.current()
         keep = self.keep_updated()
         lst = self.items()
-        d = m.addAction(f"{DEFAULT}\tAlt+Shift+0", lambda: self.switch(DEFAULT))
+        d = m.addAction(f"{DEFAULT}\tShift+F1", lambda: self.switch(DEFAULT))
         d.setCheckable(True)
         d.setChecked(cur == DEFAULT)
         if lst:
             m.addSeparator()
         for i, w in enumerate(lst):
-            a = m.addAction(w["name"] + (f"\tAlt+Shift+{i + 1}" if i < 9 else ""),
+            a = m.addAction(w["name"] + (f"\tShift+F{i + 2}" if i < 5 else (f"\tAlt+Shift+{i + 1}" if i < 9 else "")),
                             lambda n=w["name"]: self.switch(n))
             a.setCheckable(True)
             a.setChecked(w["name"] == cur)
+        m.addSeparator()
+        m.addSection("On startup")
+        c = m.addAction("Continue where you left off", lambda: self._toggle_cfg("ws_continue"))
+        c.setCheckable(True)
+        c.setChecked(bool(self.app.cfg["ws_continue"]))
+        c.setToolTip("On: the app opens in the workspace you were in. Off: it opens in Default")
+        r = m.addAction(f"Reset «{DEFAULT}» to zero on startup", lambda: self._toggle_cfg("ws_reset_default"))
+        r.setCheckable(True)
+        r.setChecked(bool(self.app.cfg["ws_reset_default"]))
+        r.setToolTip(f"On: «{DEFAULT}» starts clean every time (one tab in This PC, factory panels)")
         m.addSeparator()
         m.addAction("New workspace…", self.new_ws)
         m.addAction("Save current layout as new workspace…", self.save_new)
@@ -345,6 +365,39 @@ class WorkspaceButton(QToolButton):
                 if i:
                     mv.addAction(w["name"], lambda n=w["name"]: self.move_up(n))
             mv.setEnabled(len(lst) > 1)
+
+    def _toggle_cfg(self, key):
+        self.app.cfg[key] = not bool(self.app.cfg[key])
+        self.app.cfg.save()
+
+    def startup(self, start_path=None):
+        """Al abrir la app: «Reset Default to zero on startup» y «Continue where you left off»."""
+        cfg = self.app.cfg
+        if cfg["ws_reset_default"]:
+            cfg["workspace_default_state"] = None
+        cur = self.current()
+        if start_path:                            # se abrió con una carpeta: esa manda (no se rearma nada)
+            return
+        if not cfg["ws_continue"] and cur != DEFAULT:
+            self._apply(cfg["workspace_default_state"] or None)
+            cfg["workspace_current"] = DEFAULT
+            self.refresh()
+        elif cur == DEFAULT and cfg["ws_reset_default"]:
+            self._apply(None)
+        cfg.save()
+
+    def save_slot(self, i):
+        """Ctrl+F1…F6 (como en Nuke): guarda la vista actual en ese workspace (F1 = Default)."""
+        if i == 0:
+            self.app.cfg["workspace_default_state"] = capture(self.app)
+            self.app.cfg.save()
+            self.app.status.setText(f"Workspace updated: {DEFAULT}")
+            return
+        lst = self.items()
+        if i - 1 < len(lst):
+            self.update_ws(lst[i - 1]["name"])
+        else:
+            self.save_new()
 
     def _toggle_keep(self):
         self.autosave()

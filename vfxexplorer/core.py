@@ -891,7 +891,9 @@ class Config:
         "viewer_autoplay": True,
         "viewer_loop": True,
         # 0.4
-        "win_nav": False,               # panel izquierdo en modo Windows (un solo árbol, sin líneas)
+        "win_nav": True,                # panel izquierdo en modo Windows (un solo árbol, sin líneas); por workspace
+        "ws_continue": True,            # al abrir: seguir donde quedó (si no, entra en Default)
+        "ws_reset_default": True,       # al abrir: Default vuelve a cero
         "left_split_sync": True,        # panel izquierdo: el divisor de arriba igual en File Explorer y en la librería
         "left_sizes_0": None,           # … si no: la altura de cada uno (File Explorer / VFX Library)
         "left_sizes_1": None,

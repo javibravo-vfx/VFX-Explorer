@@ -183,6 +183,7 @@ class MainWindow(QMainWindow):
         self._default_splits = {k: bytes(sp.saveState().toBase64()).decode() for k, sp in
                                 (("left", self.left_split), ("lib", self.libpage.split))}
         self._restore(start_path)
+        self.wsbutton.startup(start_path)         # On startup: seguir donde quedó / Default a cero
         self._qa_refresh()
         self._start_review_watch()
         self._right_tab(self.cfg["details_tab"] or "details")
@@ -1418,6 +1419,19 @@ class MainWindow(QMainWindow):
         k = ev.key()
         i = -1
         act = None
+        if mods in (Qt.ShiftModifier, Qt.ControlModifier) and Qt.Key_F1 <= k <= Qt.Key_F6:
+            # como en Nuke: Shift+F1…F6 va al workspace (F1 = Default), Ctrl+F1…F6 le guarda la vista actual
+            n = k - Qt.Key_F1
+            if mods == Qt.ShiftModifier and n > 0 and n - 1 >= len(self.wsbutton.items()):
+                return False
+            if ev.type() == QEvent.ShortcutOverride:
+                ev.accept()
+                return True
+            if mods == Qt.ShiftModifier:
+                self.wsbutton.switch("Default" if n == 0 else self.wsbutton.items()[n - 1]["name"])
+            else:
+                self.wsbutton.save_slot(n)
+            return True
         if mods == (Qt.AltModifier | Qt.ShiftModifier):            # Alt+Shift+1…9: workspaces
             sc = ev.nativeScanCode()
             i = (sc - 2) if IS_WIN else (sc - 10)     # tecla 1…9; la 0 (scancode 11 / 19) = Default
@@ -3235,7 +3249,6 @@ class MainWindow(QMainWindow):
                 it.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsDragEnabled | Qt.ItemIsEditable)
                 w.addItem(it)
         self._fill_favs_pins()                    # Workspace Pins al final de Quick access (en un workspace)
-        self._win_quick()
         if not self.cfg["lib_favorites"]:
             it = QListWidgetItem("Drag a folder here to pin it")
             it.setForeground(Qt.gray)
@@ -3278,6 +3291,21 @@ class MainWindow(QMainWindow):
         self.cfg.save()
         self._reload_sidebar()
         self.status.setText(f"Pinned to Quick access of {'VFX Library' if lib else 'File Explorer'}")
+
+    def insert_favorites(self, paths, index):
+        """Modo Windows: carpetas (o pestañas) soltadas entre los accesos de Quick access, en ese lugar.
+        Si ya estaban, se mueven ahí."""
+        favs = list(self.cfg["favorites"] or [])
+        keys = {norm_key(p) for p in paths}
+        before = sum(1 for x in favs[:index] if norm_key(x) in keys)
+        favs = [x for x in favs if norm_key(x) not in keys]
+        index = max(0, min(len(favs), index - before))
+        for k, p in enumerate(paths):
+            favs.insert(index + k, os.path.normpath(p))
+        self.cfg["favorites"] = favs
+        self.cfg.save()
+        self._reload_sidebar()
+        self.status.setText("Pinned to Quick access")
 
     def _favs_reordered(self, *_):
         for w, key in ((self.favs, "favorites"), (self.lib_favs, "lib_favorites")):
@@ -3558,6 +3586,7 @@ class MainWindow(QMainWindow):
                 it.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsEditable)
                 F.addItem(it)
         F.blockSignals(False)
+        self._win_quick()                         # el modo Windows muestra lo mismo (al cambiar de workspace también)
 
     def _win_quick(self):
         """Modo Windows: lo mismo que Quick access (y los Workspace Pins), arriba de This PC."""

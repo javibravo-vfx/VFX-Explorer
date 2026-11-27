@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.50.0
+- Windows mode is on by default and each workspace remembers it (on or off). Resetting a workspace to zero turns it on.
+- First start: Default workspace from zero, Windows mode on, This PC, Details off in File Explorer and on in the VFX Library.
+- Workspace menu › On startup: «Continue where you left off» (off: the app opens in Default) and «Reset Default to zero on startup». Both on by default.
+- Workspace shortcuts like Nuke: Shift+F1 Default, Shift+F2…F6 your workspaces 1…5; Ctrl+F1…F6 saves the current layout in that workspace (an empty slot asks for a name). Alt+Shift+0…9 still work.
+- Windows mode: drop folders or tabs on the top part (Quick access) to pin them — the zone lights up light blue and a line shows where it will land, between the ones already there; dropping one that is already pinned moves it. Dropping on the Workspace Pins part adds a Workspace Pin.
+- Fix: in Windows mode, going from a workspace with Workspace Pins to Default kept showing those pins.
+
 ## 0.49.0
 - VFX Library: the images button is now «Only the main type of each folder» (on by default). A folder full of videos hides the stray JPGs, a folder of HDRIs hides the preview JPG, a folder of photos hides the odd MOV. Folders, 3D files and documents always show; a tie shows everything. HDRIs (.hdr/.exr) are no longer hidden.
 - VFX Library viewer for HDRIs (single EXR / HDR): instead of the video controls, Exposure and Gamma sliders (double-click: reset). The thumbnail shows at once while the full image loads; the next and previous HDRIs are read ahead and the last 10 stay in memory, so moving with the arrows is instant. The 1–4 circles stay.

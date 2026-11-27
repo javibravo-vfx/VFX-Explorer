@@ -901,3 +901,109 @@ class WinNavTree(FolderTree):
     def _apply_names(self, it, path, names):
         super()._apply_names(it, path, names)
         QTimer.singleShot(0, self._resync)        # (en red llega después: la marca baja si corresponde)
+
+    # ---------------- soltar carpetas / pestañas arriba: Quick access (entre los que ya están)
+    _qdrop = None                 # (zona "quick" | "wspin", y de la rayita, índice en Quick access)
+
+    def _quick_rows(self):
+        out = []
+        for i in range(self.topLevelItemCount()):
+            it = self.topLevelItem(i)
+            if it is self.root:
+                break
+            out.append(it)
+        return out
+
+    def _quick_zone_at(self, pos):
+        it = self.itemAt(pos)
+        rows = self._quick_rows()
+        if it is not None:
+            return it in rows
+        if rows:                                   # entre filas / arriba de todo
+            return pos.y() <= self.visualItemRect(rows[-1]).bottom()
+        return False
+
+    def _quick_target(self, pos):
+        rows = self._quick_rows()
+        y = pos.y()
+        ws = [r for r in rows if r.data(0, self.ROLE_PIN) == "wspin"]
+        if ws and y >= self.visualItemRect(ws[0]).top() - 2:
+            r0 = self.visualItemRect(ws[0])
+            return "wspin", None, 0, r0.top(), self.visualItemRect(ws[-1]).bottom()
+        pins = [r for r in rows if r.data(0, self.ROLE_PIN) == "pin"]
+        idx = sum(1 for r in pins if self.visualItemRect(r).center().y() < y)
+        if pins:
+            ly = self.visualItemRect(pins[idx - 1]).bottom() if idx else self.visualItemRect(pins[0]).top()
+        else:
+            q = [r for r in rows if r.data(0, self.ROLE_QUICK)]
+            ly = self.visualItemRect(q[-1]).bottom() if q else 2
+        top = self.visualItemRect(rows[0]).top()
+        bottom = self.visualItemRect(ws[0]).top() - 1 if ws else self.visualItemRect(rows[-1]).bottom()
+        return "quick", ly, idx, top, bottom
+
+    def _drop_paths(self, ev, files):
+        from .quicklist import dropped_paths
+        return dropped_paths(ev.mimeData(), files)
+
+    def dragEnterEvent(self, ev):
+        from .quicklist import TAB_MIME
+        if ev.mimeData().hasUrls() or ev.mimeData().hasFormat(TAB_MIME):
+            ev.acceptProposedAction()
+        else:
+            ev.ignore()
+
+    def dragMoveEvent(self, ev):
+        pos = ev.position().toPoint()
+        if self._quick_zone_at(pos):
+            zone, ly, idx, top, bottom = self._quick_target(pos)
+            if self._drop_paths(ev, zone == "wspin"):
+                self._set_drop(None)
+                self._qdrop = (zone, ly, idx, top, bottom)
+                self.viewport().update()
+                ev.setDropAction(Qt.LinkAction)
+                ev.accept()
+                return
+        if self._qdrop is not None:
+            self._qdrop = None
+            self.viewport().update()
+        if not ev.mimeData().hasUrls():            # una pestaña sobre el árbol: nada que copiar
+            ev.ignore()
+            return
+        super().dragMoveEvent(ev)
+
+    def dragLeaveEvent(self, ev):
+        self._qdrop = None
+        super().dragLeaveEvent(ev)
+
+    def dropEvent(self, ev):
+        q, self._qdrop = self._qdrop, None
+        self.viewport().update()
+        if q is not None:
+            zone, _ly, idx, _t, _b = q
+            paths = self._drop_paths(ev, zone == "wspin")
+            ev.setDropAction(Qt.LinkAction)
+            ev.accept()
+            if paths:
+                if zone == "wspin":
+                    QTimer.singleShot(0, lambda: self.app.add_wpins(paths))
+                else:
+                    QTimer.singleShot(0, lambda: self.app.insert_favorites(paths, idx))
+            return
+        if not ev.mimeData().hasUrls():
+            ev.ignore()
+            return
+        super().dropEvent(ev)
+
+    def paintEvent(self, ev):
+        super().paintEvent(ev)
+        if self._qdrop is None:
+            return
+        zone, ly, idx, top, bottom = self._qdrop
+        p = QPainter(self.viewport())
+        c = QColor(self.app.accent())
+        c.setAlpha(34)
+        p.fillRect(QRect(0, top, self.viewport().width(), bottom - top + 1), c)   # la zona, celeste
+        if ly is not None:
+            p.setPen(QPen(QColor(self.app.accent()), 2))
+            p.drawLine(8, ly, self.viewport().width() - 8, ly)                   # dónde va a quedar
+        p.end()
