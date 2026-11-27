@@ -89,7 +89,8 @@ class Icons:
         self._c.clear()
 
     DRIVE_STYLES = (("", "Automatic (as now)"), ("hdd", "HDD"), ("ssd", "SSD"), ("m2", "M.2 / NVMe"),
-                    ("nas", "NAS"), ("usb", "External / USB"))
+                    ("raid_m2", "RAID · M.2"), ("raid_hdd", "RAID · HDD"), ("nas", "NAS"),
+                    ("netdrive", "Network drive"), ("usb", "External / USB"))
 
     def drive_style(self, style, size=48, net=False):
         """Íconos elegibles para un disco (clic derecho › Drive icon), con los colores del ícono de siempre."""
@@ -136,7 +137,35 @@ class Icons:
             p.setPen(QPen(B, 1.5)); p.drawLine(QPointF(49, 24), QPointF(53, 24)); p.drawLine(QPointF(49, 28), QPointF(53, 28))
             p.setPen(QPen(D, 2.6)); p.setBrush(Qt.NoBrush); p.drawEllipse(QPointF(29, 24), 6, 6)
             p.setPen(Qt.NoPen); p.setBrush(LED); p.drawEllipse(QPointF(18, 39), 1.9, 1.9)
-        if net:                                    # en la red: la rayita verde de abajo (como el de siempre)
+        elif style == "raid_m2":                    # tres M.2 apilados
+            for k, y in enumerate((8, 19, 30)):
+                x = 4 + k * 3
+                p.setBrush(B.darker(100 + (2 - k) * 12)); p.drawRoundedRect(QRectF(x, y, 52, 11), 2, 2)
+                p.setBrush(D)
+                for cx, cw in ((6, 8), (17, 8), (28, 6)):
+                    p.drawRoundedRect(QRectF(x + cx, y + 2, cw, 7), 1, 1)
+                p.setBrush(LED); p.drawEllipse(QPointF(x + 44, y + 5.5), 1.4, 1.4)
+                p.setPen(QPen(K, 1.2)); p.setBrush(Qt.NoBrush); p.drawEllipse(QPointF(x + 49, y + 5.5), 1.8, 1.8)
+                p.setPen(Qt.NoPen)
+        elif style == "raid_hdd":                   # tres discos apilados (bahías), cada uno con su luz
+            for k, y in enumerate((5, 19, 33)):
+                p.setBrush(B); p.drawRoundedRect(QRectF(8, y, 48, 12), 2.5, 2.5)
+                p.setBrush(D); p.drawRoundedRect(QRectF(13, y + 3, 26, 6), 1.5, 1.5)
+                p.setBrush(K); p.drawRoundedRect(QRectF(42, y + 4.5, 7, 3), 1, 1)
+                p.setBrush(LED); p.drawEllipse(QPointF(52, y + 6), 1.6, 1.6)
+        elif style == "netdrive":                   # el disco de siempre, con su cable a la red (está en otro lado)
+            top = QPainterPath()
+            top.moveTo(14, 12); top.lineTo(19, 4); top.lineTo(45, 4); top.lineTo(50, 12); top.closeSubpath()
+            p.fillPath(top, QColor("#d9d9d9"))
+            p.setBrush(QColor("#9a9a9a")); p.drawRoundedRect(QRectF(8, 12, 48, 17), 3, 3)
+            p.setBrush(QColor("#5f5f5f")); p.drawRoundedRect(QRectF(10, 14, 44, 13), 2.5, 2.5)
+            p.setBrush(LED); p.drawEllipse(QPointF(16, 20.5), 1.8, 1.8)
+            p.setPen(QPen(B, 2.2)); p.drawLine(QPointF(32, 29), QPointF(32, 38))
+            p.drawLine(QPointF(16, 42), QPointF(48, 42))
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor("#4cc2ff")); p.drawRoundedRect(QRectF(27, 36.5, 10, 10), 2, 2)
+            p.setBrush(B); p.drawEllipse(QPointF(14, 42), 3, 3); p.drawEllipse(QPointF(50, 42), 3, 3)
+        if net and style != "netdrive":            # en la red: la rayita verde de abajo (como el de siempre)
             p.setBrush(LED); p.drawRoundedRect(QRectF(12, 49, 40, 3.5), 1.5, 1.5)
         p.end()
         self._c[key] = pm

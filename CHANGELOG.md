@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.58.1
+- Three more drive icons (right-click a drive › Drive icon): RAID · M.2 (stacked M.2 modules), RAID · HDD (stacked drive bays) and Network drive (a drive with its network cable, for drives that live somewhere else).
+
 ## 0.58.0
 - Drive icons: right-click a drive (This PC or the left panel) › Drive icon › Automatic (the usual one), HDD, SSD, M.2 / NVMe, NAS or External / USB. Remembered per drive and shown everywhere: This PC, both trees, the Bonsai, the tabs. Network drives keep their green line.
 - Fix: in Bonsai mode the pipeline / library drive sometimes wasn't painted in its color.
