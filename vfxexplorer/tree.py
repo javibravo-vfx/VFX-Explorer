@@ -471,7 +471,10 @@ class FolderTree(_LinedMixin, QTreeWidget):
         it.setData(0, Qt.UserRole, path)
         it.setToolTip(0, path)
         if drive:
-            it.setIcon(0, self.app.icons.drive_icon(self._drive_kind(path), 18))
+            it.setIcon(0, self.app.icons.drive_icon(self._drive_kind(path), 18, self._dstyle(path)))
+            col = self._dcolor(path)                 # (también en el Bonsai, que arma sus discos de nuevo)
+            if col:
+                it.setForeground(0, QColor(col))
         else:
             it.setIcon(0, self.app.icons.folder_icon(self.app.dir_color(path), 18))
         it.setChildIndicatorPolicy(QTreeWidgetItem.DontShowIndicatorWhenChildless if self.mini
@@ -499,7 +502,8 @@ class FolderTree(_LinedMixin, QTreeWidget):
             for i in range(self.root.childCount()):        # el mini tree solo cambia los nombres
                 c = self.root.child(i)
                 c.setText(0, self._drive_label(c.data(0, Qt.UserRole)))
-                c.setIcon(0, self.app.icons.drive_icon(self._drive_kind(c.data(0, Qt.UserRole)), 18))
+                c.setIcon(0, self.app.icons.drive_icon(self._drive_kind(c.data(0, Qt.UserRole)), 18,
+                                                       self._dstyle(c.data(0, Qt.UserRole))))
         else:
             have = {self._key(self.root.child(i).data(0, Qt.UserRole)): self.root.child(i)
                     for i in range(self.root.childCount())}
@@ -517,6 +521,24 @@ class FolderTree(_LinedMixin, QTreeWidget):
         if self._trace_path:
             self.sync(self._trace_path)
 
+    def _dstyle(self, path):
+        f = getattr(self.app, "drive_style", None)
+        return f(path) if f else ""
+
+    def _dcolor(self, path):
+        f = getattr(self.app, "drive_name_color", None)
+        return f(path) if f else None
+
+    def refresh_drive_looks(self):
+        """Ícono elegido y color (pipeline / librería) de cada disco."""
+        if self.root is None:
+            return
+        for i in range(self.root.childCount()):
+            c = self.root.child(i)
+            p = c.data(0, Qt.UserRole)
+            c.setIcon(0, self.app.icons.drive_icon(self._drive_kind(p), 18, self._dstyle(p)))
+        self.apply_hidden()
+
     def apply_hidden(self):
         hidden = {self._key(p) for p in (self.app.cfg["hidden_drives"] or [])}
         show = bool(self.app.cfg["show_hidden_drives"])
@@ -524,7 +546,7 @@ class FolderTree(_LinedMixin, QTreeWidget):
             c = self.root.child(i)
             hid = self._key(c.data(0, Qt.UserRole)) in hidden
             c.setHidden(hid and not show and not self.mini)
-            col = self.app.drive_name_color(c.data(0, Qt.UserRole)) if hasattr(self.app, "drive_name_color") else None
+            col = self._dcolor(c.data(0, Qt.UserRole))
             c.setForeground(0, QColor("#6a6a6a") if hid else QColor(col or "#e6e6e6"))
 
     def _forget(self, it):

@@ -1291,10 +1291,8 @@ class MainWindow(QMainWindow):
 
     def _apply_hidden_drives(self):
         """Oculta en el árbol de Carpetas los discos marcados (salvo con el ojito prendido)."""
-        self.tree.apply_hidden()
-        self.minitree.apply_hidden()
-        self.wintree.apply_hidden()
-        self.winbonsai.apply_hidden()
+        for t in (self.tree, self.minitree, self.wintree, self.winbonsai):
+            t.refresh_drive_looks()               # (ícono elegido y color pipeline / librería, también en el Bonsai)
 
     def hook_tree_keys(self, tree, opener):
         """Moverse con las flechas por un árbol abre la carpeta (con una pequeña espera, para no cargar
@@ -2248,6 +2246,37 @@ class MainWindow(QMainWindow):
             if t is not None and t["virtual"] and t["virtual"].get("kind") == "thispc":
                 p.refresh()
         return True
+
+    def drive_style(self, path):
+        """El ícono elegido para el disco («» = el de siempre)."""
+        if not path:
+            return ""
+        return (self.cfg["drive_icons"] or {}).get(norm_key(path), "")
+
+    def _drive_icon_menu(self, m, path, kind):
+        from .widgets import Icons
+        sub = m.addMenu("Drive icon")
+        cur = self.drive_style(path)
+        for style, label in Icons.DRIVE_STYLES:
+            a = sub.addAction(self.icons.drive_icon(kind, 18, style), label,
+                              lambda st=style: self.set_drive_style(path, st))
+            a.setCheckable(True)
+            a.setChecked(style == cur)
+
+    def set_drive_style(self, path, style):
+        icons = dict(self.cfg["drive_icons"] or {})
+        if style:
+            icons[norm_key(path)] = style
+        else:
+            icons.pop(norm_key(path), None)
+        self.cfg["drive_icons"] = icons
+        self.cfg.save()
+        for t in (self.tree, self.minitree, self.wintree, self.winbonsai):
+            t.refresh_drive_looks()
+        for p in self.all_panes:
+            p.refresh_tab_icons()
+            p.grid.viewport().update()
+            p.list.viewport().update()
 
     def _drive_roots(self, paths):
         out = set()
@@ -4244,10 +4273,12 @@ class MainWindow(QMainWindow):
         m.addAction("Open", lambda: self.open_in_explorer(p))
         if tree.mini:
             m.addAction("Remove from Bonsai", lambda: self.minitree.remove(p))
-        if it.parent() is tree.root and not tree.mini:   # disco: se puede ocultar del árbol
-            hid = norm_key(p) in {norm_key(x) for x in (self.cfg["hidden_drives"] or [])}
-            m.addAction(self.icons.eye(16, on=hid), "Show drive" if hid else "Hide drive",
-                        lambda: self._toggle_drive(p))
+        if it.parent() is tree.root:                     # disco: su ícono (y en el árbol completo, ocultarlo)
+            self._drive_icon_menu(m, p, tree._drive_kind(p))
+            if not tree.mini:
+                hid = norm_key(p) in {norm_key(x) for x in (self.cfg["hidden_drives"] or [])}
+                m.addAction(self.icons.eye(16, on=hid), "Show drive" if hid else "Hide drive",
+                            lambda: self._toggle_drive(p))
             m.addSeparator()
         m.addAction("Open in new tab", lambda: self.open_in_explorer(p, new_tab=True))
         if self.paneB.isVisible():
@@ -4517,6 +4548,7 @@ class MainWindow(QMainWindow):
             m.addSeparator()
             if len(ents) == 1:
                 m.addAction("Rename here\tF2", lambda: pane.view().edit(pane.view().currentIndex()))
+                self._drive_icon_menu(m, e.path, getattr(e, "drive_kind", "local"))
                 if norm_key(e.path) in (self.cfg["drive_names"] or {}):
                     m.addAction(f"Back to the drive's name ({getattr(e, 'label', '')})",
                                 lambda: self.rename_drive(e, ""))

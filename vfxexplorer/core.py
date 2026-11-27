@@ -1007,7 +1007,9 @@ class Config:
         "collapse_seqs": True,
         "seq_pads": "####, #####",      # qué largos de número son secuencia (render_0001.exr, render_10000.exr)
         "seq_split": [],
-        "drive_names": {},              # nombre propio de los discos (solo en la app)                # secuencias separadas a mano en el workspace actual (seq_key)
+        "drive_names": {},              # nombre propio de los discos (solo en la app)
+        "history_max": 10,              # ← / →: cuántas carpetas recuerda cada pestaña
+        "drive_icons": {},              # ícono elegido para cada disco (hdd, ssd, m2, nas, usb; vacío = el de siempre)                # secuencias separadas a mano en el workspace actual (seq_key)
         "mini_tree_on": True,
         "hover_box": True,
         "image_viewer": "",             # programa para abrir imágenes (vacío = el predeterminado de Windows)

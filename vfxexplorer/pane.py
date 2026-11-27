@@ -1295,7 +1295,7 @@ class FilePane(QFrame):
             return ic.glyph("library", 16, "#4cc2ff")
         p = t["path"]
         if os.path.dirname(p.rstrip("\\/")) in ("", p.rstrip("\\/")) or len(p.rstrip("\\/")) <= 2:
-            return ic.drive_icon("network" if is_network_path(p) else "local", 16)
+            return ic.drive_icon("network" if is_network_path(p) else "local", 16, self.app.drive_style(p))
         return ic.folder_icon(self.app.dir_color(p), 16)
 
     def _tab_title(self, t):
@@ -1418,6 +1418,7 @@ class FilePane(QFrame):
             if t is not None and add_history and t["history"][t["hpos"]] != THISPC:
                 t["history"] = t["history"][: t["hpos"] + 1] + [THISPC]
                 t["hpos"] = len(t["history"]) - 1
+                self._trim_history(t)
             self.show_virtual("This PC", "thispc", "")
             return
         path = os.path.expandvars(os.path.expanduser(path))
@@ -1455,6 +1456,7 @@ class FilePane(QFrame):
             t["history"] = t["history"][: t["hpos"] + 1]
             t["history"].append(path)
             t["hpos"] = len(t["history"]) - 1
+            self._trim_history(t)
         t["path"] = path
         self.pending_select = select
         self._show_location()
@@ -1543,6 +1545,17 @@ class FilePane(QFrame):
         if t and t["hpos"] < len(t["history"]) - 1:
             t["hpos"] += 1
             self.navigate(t["history"][t["hpos"]], add_history=False)
+
+    def _trim_history(self, t):
+        """El historial de la pestaña guarda las últimas N carpetas (Settings › General, 10 de fábrica)."""
+        try:
+            n = max(2, int(self.app.cfg["history_max"] or 10) + 1)    # (las N anteriores + la actual)
+        except (TypeError, ValueError):
+            n = 11
+        extra = len(t["history"]) - n
+        if extra > 0:
+            t["history"] = t["history"][extra:]
+            t["hpos"] = max(0, t["hpos"] - extra)
 
     def go_history(self, i):
         t = self.tab()

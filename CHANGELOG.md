@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.58.0
+- Drive icons: right-click a drive (This PC or the left panel) › Drive icon › Automatic (the usual one), HDD, SSD, M.2 / NVMe, NAS or External / USB. Remembered per drive and shown everywhere: This PC, both trees, the Bonsai, the tabs. Network drives keep their green line.
+- Fix: in Bonsai mode the pipeline / library drive sometimes wasn't painted in its color.
+- Back / Forward history keeps the last 10 folders per tab (Settings › General › Back / Forward).
+
 ## 0.57.0
 - Settings › Pipeline tidied up: sections DEPARTMENTS, PLATES and DROPDOWNS; each department field has its light-blue title above it (FOLDER, TASKS, FOLDER INSIDE TASK), with FOLDER level with DEPARTMENTS, a wider list and more room between the list and the fields.
 - Workspace shortcuts like Nuke: Shift+F1 Default, Shift+F2…F6 workspaces 1–5, Ctrl+F1…F6 workspaces 6–11. Alt+Shift+0…9 and «Ctrl+F saves the layout» are gone (workspaces save themselves).

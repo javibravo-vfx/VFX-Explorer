@@ -88,7 +88,63 @@ class Icons:
         self.default_folder = FOLDER_COLORS.get(name_or_hex, name_or_hex) or FOLDER_COLORS["yellow"]
         self._c.clear()
 
-    def drive(self, kind="local", size=48):
+    DRIVE_STYLES = (("", "Automatic (as now)"), ("hdd", "HDD"), ("ssd", "SSD"), ("m2", "M.2 / NVMe"),
+                    ("nas", "NAS"), ("usb", "External / USB"))
+
+    def drive_style(self, style, size=48, net=False):
+        """Íconos elegibles para un disco (clic derecho › Drive icon), con los colores del ícono de siempre."""
+        key = ("drvs", style, size, net)
+        if key in self._c:
+            return self._c[key]
+        pm = hi_pixmap(size)
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.scale(size / 64.0, size / 64.0)
+        p.translate(0, 7)                          # dibujado en 64×50, centrado en el cuadrado
+        p.setPen(Qt.NoPen)
+        B, D, K, LED = QColor("#a7abb0"), QColor("#6a6f75"), QColor(20, 20, 20, 130), QColor("#46d160")
+        if style == "hdd":
+            p.setBrush(B); p.drawRoundedRect(QRectF(8, 4, 48, 42), 4, 4)
+            p.setBrush(D); p.drawEllipse(QPointF(30, 24), 14, 14)
+            p.setBrush(B); p.drawEllipse(QPointF(30, 24), 3, 3)
+            p.setPen(QPen(K, 2.6, Qt.SolidLine, Qt.RoundCap)); p.drawLine(QPointF(44, 10), QPointF(33, 22))
+            p.setPen(Qt.NoPen); p.setBrush(K); p.drawEllipse(QPointF(46, 9), 2.6, 2.6)
+            p.setBrush(LED); p.drawEllipse(QPointF(13, 41), 1.9, 1.9)
+        elif style == "ssd":
+            p.setBrush(B); p.drawRoundedRect(QRectF(6, 9, 52, 32), 3.5, 3.5)
+            p.setBrush(D); p.drawRoundedRect(QRectF(12, 15, 28, 12), 2, 2)
+            f = QFont(); f.setPixelSize(8); f.setBold(True); p.setFont(f)
+            p.setPen(B); p.drawText(QRectF(12, 15, 28, 12), Qt.AlignCenter, "SSD"); p.setPen(Qt.NoPen)
+            p.setBrush(K); p.drawRoundedRect(QRectF(44, 33, 10, 3), 1, 1)
+            p.setBrush(LED); p.drawEllipse(QPointF(12, 35), 1.9, 1.9)
+        elif style == "m2":
+            p.setBrush(B); p.drawRoundedRect(QRectF(4, 18, 56, 14), 2, 2)
+            p.setBrush(D)
+            for x, w in ((10, 10), (23, 10), (36, 7)):
+                p.drawRoundedRect(QRectF(x, 20.5 if w == 10 else 21.5, w, 9 if w == 10 else 7), 1, 1)
+            p.setBrush(K); p.drawRect(QRectF(4, 22, 3, 6))
+            p.setPen(QPen(K, 1.5)); p.setBrush(Qt.NoBrush); p.drawEllipse(QPointF(56, 25), 2.4, 2.4)
+            p.setPen(Qt.NoPen); p.setBrush(LED); p.drawEllipse(QPointF(48, 25), 1.7, 1.7)
+        elif style == "nas":
+            p.setBrush(B); p.drawRoundedRect(QRectF(14, 3, 36, 44), 4, 4)
+            p.setBrush(D); p.drawRoundedRect(QRectF(19, 9, 12, 32), 1.5, 1.5); p.drawRoundedRect(QRectF(33, 9, 12, 32), 1.5, 1.5)
+            p.setPen(QPen(B, 1.5)); p.drawLine(QPointF(22, 13), QPointF(28, 13)); p.drawLine(QPointF(36, 13), QPointF(42, 13))
+            p.setPen(Qt.NoPen); p.setBrush(LED); p.drawEllipse(QPointF(25, 37), 1.6, 1.6); p.drawEllipse(QPointF(39, 37), 1.6, 1.6)
+        elif style == "usb":
+            p.setBrush(B); p.drawRoundedRect(QRectF(12, 7, 34, 38), 6, 6)
+            p.setBrush(D); p.drawRoundedRect(QRectF(46, 20, 10, 12), 1.5, 1.5)
+            p.setPen(QPen(B, 1.5)); p.drawLine(QPointF(49, 24), QPointF(53, 24)); p.drawLine(QPointF(49, 28), QPointF(53, 28))
+            p.setPen(QPen(D, 2.6)); p.setBrush(Qt.NoBrush); p.drawEllipse(QPointF(29, 24), 6, 6)
+            p.setPen(Qt.NoPen); p.setBrush(LED); p.drawEllipse(QPointF(18, 39), 1.9, 1.9)
+        if net:                                    # en la red: la rayita verde de abajo (como el de siempre)
+            p.setBrush(LED); p.drawRoundedRect(QRectF(12, 49, 40, 3.5), 1.5, 1.5)
+        p.end()
+        self._c[key] = pm
+        return pm
+
+    def drive(self, kind="local", size=48, style=""):
+        if style:
+            return self.drive_style(style, size, net=(kind == "network"))
         key = ("drv", kind, size)
         if key in self._c:
             return self._c[key]
@@ -121,10 +177,10 @@ class Icons:
         self._c[key] = pm
         return pm
 
-    def drive_icon(self, kind="local", size=18):
-        key = ("drvi", kind, size)
+    def drive_icon(self, kind="local", size=18, style=""):
+        key = ("drvi", kind, size, style)
         if key not in self._c:
-            self._c[key] = QIcon(self.drive(kind, max(size, 18)))
+            self._c[key] = QIcon(self.drive(kind, max(size, 18), style))
         return self._c[key]
 
     def folder(self, color=None, size=20, hi=False):
@@ -681,7 +737,7 @@ class GridDelegate(QStyledItemDelegate):
             p.setPen(QPen(QColor("#5a5a5a"), 1) if sel else Qt.NoPen)
             p.setBrush(QColor("#333333") if sel else QColor("#262626"))
             p.drawRoundedRect(QRectF(r).adjusted(0.5, 0.5, -0.5, -0.5), 4, 4)
-        ic = self.app.icons.drive(getattr(e, "drive_kind", "local"), 44)
+        ic = self.app.icons.drive(getattr(e, "drive_kind", "local"), 44, self.app.drive_style(e.path))
         p.drawPixmap(r.x() + 4, r.y() + (r.height() - 44) // 2, ic)
         x = r.x() + 56
         w = r.right() - x - 6
@@ -1737,6 +1793,12 @@ class SettingsDialog(QDialog):
         lay.addRow("", _hint("Which frame paddings are a sequence, separated by commas: #### = render_0001.exr, "
                              "##### = render_10000.exr, ### = render_001.exr. Other numbered files show as "
                              "separate files."))
+        self.histmax = QSpinBox()
+        self.histmax.setRange(2, 50)
+        self.histmax.setValue(int(cfg["history_max"] or 10))
+        self.histmax.setSuffix(" folders")
+        lay.addRow("Back / Forward:", self.histmax)
+        lay.addRow("", _hint("How many folders each tab remembers for ← / → (right-click on them shows the list)."))
         self.threads = QSpinBox()
         self.threads.setRange(1, 16)
         self.threads.setValue(int(cfg["threads"]))
@@ -2006,6 +2068,7 @@ class SettingsDialog(QDialog):
         cfg["use_chromaticities"] = self.chroma.isChecked()
         cfg["sidecar_previews"] = self.sidecar.isChecked()
         cfg["threads"] = self.threads.value()
+        cfg["history_max"] = self.histmax.value()
         hidden_changed = cfg["show_hidden"] != self.hidden.isChecked()
         cfg["show_hidden"] = self.hidden.isChecked()
         cfg["pipeline_root"] = self.p_root.text().strip()

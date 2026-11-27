@@ -214,7 +214,7 @@ class EntryModel(QAbstractTableModel):
                     return f"{human_size(getattr(e, 'free', 0))} free"
                 return ""
             if role == Qt.DecorationRole and col == C_NAME:
-                return self.app.icons.drive_icon(getattr(e, "drive_kind", "local"), 18)
+                return self.app.icons.drive_icon(getattr(e, "drive_kind", "local"), 18, self.app.drive_style(e.path))
             if role == Qt.ForegroundRole and col == C_NAME:
                 c = self.app.drive_name_color(e.path)
                 if c:
