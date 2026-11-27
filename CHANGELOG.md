@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.57.0
+- Settings › Pipeline tidied up: sections DEPARTMENTS, PLATES and DROPDOWNS; each department field has its light-blue title above it (FOLDER, TASKS, FOLDER INSIDE TASK), with FOLDER level with DEPARTMENTS, a wider list and more room between the list and the fields.
+- Workspace shortcuts like Nuke: Shift+F1 Default, Shift+F2…F6 workspaces 1–5, Ctrl+F1…F6 workspaces 6–11. Alt+Shift+0…9 and «Ctrl+F saves the layout» are gone (workspaces save themselves).
+- Workspace menu › «Set as new Default»: the current layout becomes where Default starts and resets to (also with «Reset Default to zero on startup»). «Back to factory Default» undoes it.
+- Drives can get their own name, only inside VFX Explorer (the real drive and its letter don't change): F2 on a drive in This PC (the editor now opens on the drive's name, like folders) or right-click › Rename here. Empty, or right-click › «Back to the drive's name», restores it.
+- With Color filters on, the pipeline drive shows its name in orange and the VFX Library drive in light blue (This PC and the left panel).
+- Right-click on Back / Forward: list of the previous / next folders of the tab, like Windows.
+
 ## 0.56.0
 - Settings › General › Sequences is now a text field: the frame paddings that count as a sequence, separated by commas (default «####, #####»: render_0001.exr and render_10000.exr). Add «###» for render_001.exr, and so on. Other numbered files show as separate files.
 - Right-click on a sequence › «Show frames as separate files»; right-click on one of those frames › «Group back into sequence». Separated frames carry a yellow SEPARATED tag. Each workspace remembers its separated sequences (a new workspace or Reset to zero starts with none).

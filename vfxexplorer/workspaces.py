@@ -362,7 +362,7 @@ class WorkspaceButton(QToolButton):
         if lst:
             m.addSeparator()
         for i, w in enumerate(lst):
-            a = m.addAction(w["name"] + (f"\tShift+F{i + 2}" if i < 5 else (f"\tAlt+Shift+{i + 1}" if i < 9 else "")),
+            a = m.addAction(w["name"] + (f"\tShift+F{i + 2}" if i < 5 else (f"\tCtrl+F{i - 4}" if i < 11 else "")),
                             lambda n=w["name"]: self.switch(n))
             a.setCheckable(True)
             a.setChecked(w["name"] == cur)
@@ -388,6 +388,10 @@ class WorkspaceButton(QToolButton):
         m.addSeparator()
         m.addAction("New workspace…", self.new_ws)
         m.addAction("Save current layout as new workspace…", self.save_new)
+        sd = m.addAction(f"Set as new «{DEFAULT}»", self.set_as_default)
+        sd.setToolTip(f"The current layout becomes where «{DEFAULT}» starts and resets to")
+        if self.app.cfg["workspace_default_base"]:
+            m.addAction(f"Back to factory «{DEFAULT}»", self.factory_default)
         m.setToolTipsVisible(True)
         if cur == DEFAULT:
             m.addAction(f"Reset «{DEFAULT}» to zero", lambda: self.reset(DEFAULT))
@@ -438,7 +442,7 @@ class WorkspaceButton(QToolButton):
         """Al abrir la app: «Reset Default to zero on startup» y «Continue where you left off»."""
         cfg = self.app.cfg
         if cfg["ws_reset_default"]:
-            cfg["workspace_default_state"] = None
+            cfg["workspace_default_state"] = self._default_zero()
         cur = self.current()
         if start_path:                            # se abrió con una carpeta: esa manda (no se rearma nada)
             return
@@ -452,8 +456,31 @@ class WorkspaceButton(QToolButton):
             cfg["workspace_current"] = target
             self.refresh()
         elif target == DEFAULT and cfg["ws_reset_default"]:
-            self._apply(None)
+            self._apply(self._default_zero())
         cfg.save()
+
+    def set_as_default(self):
+        """La vista actual pasa a ser el «Default»: arranca así y su Reset vuelve acá (no a la de fábrica)."""
+        st = capture(self.app)
+        self.app.cfg["workspace_default_base"] = copy.deepcopy(st)
+        self.app.cfg["workspace_default_state"] = copy.deepcopy(st)
+        self.app.cfg.save()
+        self.app.status.setText(f"«{DEFAULT}» now starts with this layout")
+
+    def factory_default(self):
+        self.app.cfg["workspace_default_base"] = None
+        self.app.cfg.save()
+        if self.current() == DEFAULT:
+            self.reset(DEFAULT)
+        else:
+            self.app.cfg["workspace_default_state"] = None
+            self.app.cfg.save()
+        self.app.status.setText(f"«{DEFAULT}» is back to the factory layout")
+
+    def _default_zero(self):
+        """El «cero» de Default: la vista fijada con «Set as new Default», o la de fábrica."""
+        base = self.app.cfg["workspace_default_base"]
+        return copy.deepcopy(base) if base else None
 
     def save_slot(self, i):
         """Ctrl+F1…F6 (como en Nuke): guarda la vista actual en ese workspace (F1 = Default)."""
@@ -498,7 +525,7 @@ class WorkspaceButton(QToolButton):
     def reset(self, name):
         """Default: a cero (como la primera vez). Con Keep updated: como estaba al abrir la app. Si no: al guardado."""
         if name == DEFAULT:
-            self._apply(None)
+            self._apply(self._default_zero())
             self.app.cfg["workspace_default_state"] = capture(self.app)
         else:
             w = self._find(name)

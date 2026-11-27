@@ -11,10 +11,8 @@ SHORTCUTS = [
         ("F6", "Switch between the two panes"),
         ("Alt+Shift+P", "Details pane on / off"),
         ("Shift+F1", "Default workspace"),
-        ("Shift+F2…F6", "Switch to workspace 1…5 (Workspace menu, left of File Explorer)"),
-        ("Ctrl+F1…F6", "Save the current layout in that workspace (like Nuke)"),
-        ("Alt+Shift+1…9", "Switch to workspace 1…9 (Workspace menu, left of File Explorer)"),
-        ("Alt+Shift+0", "Default workspace: one tab, no dual pane, panels at their default sizes"),
+        ("Shift+F2…F6", "Workspaces 1…5 (Workspace menu, left of File Explorer)"),
+        ("Ctrl+F1…F6", "Workspaces 6…11"),
     ]),
     ("Navigation", [
         ("Alt+←  /  Alt+→", "Back / Forward"),

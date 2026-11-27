@@ -689,7 +689,7 @@ class GridDelegate(QStyledItemDelegate):
         f.setPointSizeF(9.3)
         p.setFont(f)
         fm = QFontMetrics(f)
-        p.setPen(QColor("#f3f3f3"))
+        p.setPen(QColor(self.app.drive_name_color(e.path) or "#f3f3f3"))
         p.drawText(QRect(x, r.y() + 3, w, fm.height()), Qt.AlignLeft | Qt.AlignVCenter,
                    fm.elidedText(e.name, Qt.ElideMiddle, w))
         total, free = e.size or 0, getattr(e, "free", 0) or 0
@@ -947,6 +947,12 @@ class GridDelegate(QStyledItemDelegate):
         return make_name_editor(parent)
 
     def updateEditorGeometry(self, editor, option, index):
+        e = index.data(ROLE_ENTRY)
+        if e is not None and e.kind == "drive":   # en la tarjeta del disco: sobre su nombre
+            r = option.rect.adjusted(3, 3, -3, -3)
+            x = r.x() + 54
+            editor.setGeometry(QRect(x, r.y() + 1, r.right() - x - 4, 22))
+            return
         editor.setGeometry(self.name_rect(option.rect))
 
     def setEditorData(self, editor, index):
@@ -965,6 +971,14 @@ def make_name_editor(parent):
 def set_name_editor_data(editor, e):
     """Pone el nombre y selecciona solo la parte "base" (sin frame ni extensión)."""
     if e is None:
+        return
+    if e.kind == "drive":                         # el nombre (sin la letra, que no se cambia)
+        from .core import DRIVE_ALIASES, norm_key
+        txt = DRIVE_ALIASES.get(norm_key(e.path)) or getattr(e, "label", "") or e.name
+        editor.setText(txt)
+        editor.setToolTip("Name shown in VFX Explorer only (the drive and its letter don't change). "
+                          "Empty: back to the drive's name")
+        QTimer.singleShot(0, editor.selectAll)
         return
     editor.setText(e.name)
     if e.kind == "seq":
@@ -1501,6 +1515,13 @@ class RenameDialog(QDialog):
         return self.name.text().strip(), None, None
 
 
+def _sec_label(text):
+    """Título celeste de sección (DEPARTMENTS, FOLDER, PLATES…)."""
+    lb = QLabel(text)
+    lb.setStyleSheet("color:#4cc2ff; font-weight:bold; font-size:8pt; letter-spacing:1px;")
+    return lb
+
+
 class DeptEditor(QWidget):
     """Departamentos del pipeline: lista a la izquierda (Department 1, 2…) y su definición a la derecha."""
 
@@ -1511,13 +1532,13 @@ class DeptEditor(QWidget):
         self._defaults = DEFAULT_DEPTS
         self.deps = copy.deepcopy(list(deps))
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(0, 4, 0, 4)
+        lay.setContentsMargins(0, 10, 0, 4)
+        lay.setSpacing(28)                         # aire entre la lista y los campos
         left = QVBoxLayout()
-        cap = QLabel("DEPARTMENTS")
-        cap.setStyleSheet("color:#4cc2ff; font-weight:bold; font-size:8pt; letter-spacing:1px;")
-        left.addWidget(cap)
+        left.setSpacing(6)
+        left.addWidget(_sec_label("DEPARTMENTS"))
         self.lst = QListWidget()
-        self.lst.setFixedWidth(190)
+        self.lst.setFixedWidth(232)
         self.lst.currentRowChanged.connect(self._load)
         left.addWidget(self.lst, 1)
         bl = QHBoxLayout()
@@ -1536,31 +1557,36 @@ class DeptEditor(QWidget):
         bl.addWidget(rd)
         left.addLayout(bl)
         lay.addLayout(left)
+        # a la derecha: cada campo con su título celeste arriba (FOLDER a la altura de DEPARTMENTS)
         self.form = QWidget()
-        f = QFormLayout(self.form)
-        f.setContentsMargins(8, 0, 0, 0)
-        lw = self.fontMetrics().horizontalAdvance("Folders in each task:") + 12
-
-        def lab(t):                       # ancho fijo: el campo no se achica al cambiar el texto
-            lb = QLabel(t)
-            lb.setFixedWidth(lw)
-            return lb
+        f = QVBoxLayout(self.form)
+        f.setContentsMargins(0, 0, 0, 0)
+        f.setSpacing(4)
         self.f_name = QLineEdit()
         self.f_name.setPlaceholderText("Folder name inside the shot (3D, Comp, DMP…)")
-        f.addRow(lab("Folder:"), self.f_name)
+        f.addWidget(_sec_label("FOLDER"))
+        f.addWidget(self.f_name)
+        f.addSpacing(6)
         self.f_has = QCheckBox("Has tasks  (Department › Task › folders)")
-        f.addRow(lab(""), self.f_has)
+        f.addWidget(self.f_has)
+        f.addSpacing(6)
+        self.l_tasks = _sec_label("TASKS")
+        f.addWidget(self.l_tasks)
         self.f_tasks = QPlainTextEdit()
         self.f_tasks.setPlaceholderText("One task per line; after «:» what goes inside its first folder\n"
                                         "1_matchmove: footage, textures\n7_fx: textures, cache")
-        self.f_tasks.setMinimumHeight(130)
-        f.addRow(lab("Tasks:"), self.f_tasks)
+        self.f_tasks.setMinimumHeight(110)
+        self.f_tasks.setMaximumHeight(190)
+        f.addWidget(self.f_tasks)
+        f.addSpacing(6)
+        self.l_folders = _sec_label("FOLDERS")
+        f.addWidget(self.l_folders)
         self.f_folders = QLineEdit()
         self.f_folders.setPlaceholderText("1_projects, 2_review, 3_publish")
-        self.l_folders = lab("Folders:")
-        f.addRow(self.l_folders, self.f_folders)
+        f.addWidget(self.f_folders)
         self.f_hint = _hint("")
-        f.addRow(lab(""), self.f_hint)
+        f.addWidget(self.f_hint)
+        f.addStretch(1)
         lay.addWidget(self.form, 1)
         self.f_name.textEdited.connect(self._store)
         self.f_has.toggled.connect(self._store)
@@ -1597,7 +1623,7 @@ class DeptEditor(QWidget):
     def _sync_ui(self):
         has = self.f_has.isChecked()
         self.f_tasks.setEnabled(has)
-        self.l_folders.setText("Folders in each task:" if has else "Folders:")
+        self.l_folders.setText("FOLDER INSIDE TASK" if has else "FOLDERS")
         n = self.f_name.text().strip() or "Dept"
         fl = [x.strip() for x in self.f_folders.text().split(",") if x.strip()]
         if has:
@@ -1777,9 +1803,11 @@ class SettingsDialog(QDialog):
         il.addWidget(self.p_input, 1)
         il.addWidget(QLabel("  with"))
         il.addWidget(self.p_input_subs, 2)
-        pl.addRow("Plates / input folder:", irow)
-        pl.addRow("", _hint("Folder inside the shot where the plates arrive (and its subfolders; the first one is "
-                            "where the plates go). The ＋ creates it and the folder button jumps to the plates."))
+        pl.addRow(_sec_label("PLATES"))
+        pl.addRow("Input folder:", irow)
+        pl.addRow("", _hint("Folder inside the shot where the plates arrive (the first subfolder is where they go). "
+                            "＋ creates it; the folder button jumps there."))
+        pl.addRow(_sec_label("DROPDOWNS"))
         self.p_only = QCheckBox("Dept dropdown shows only these departments (otherwise every folder of the shot)")
         self.p_only.setChecked(app.pipeline.only_listed())
         pl.addRow("", self.p_only)

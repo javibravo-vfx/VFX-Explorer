@@ -668,6 +668,9 @@ class FilePane(QFrame):
         nrow.setSpacing(6)
         self.b_back = tb("back", "Back (Alt+←)", self.go_back, nrow)
         self.b_fwd = tb("fwd", "Forward (Alt+→)", self.go_forward, nrow)
+        for b, back in ((self.b_back, True), (self.b_fwd, False)):     # clic derecho: el historial
+            b.setContextMenuPolicy(Qt.CustomContextMenu)
+            b.customContextMenuRequested.connect(lambda pos, b=b, back=back: self.history_menu(b, back))
         self.b_up = tb("up", "Up (Alt+↑ · Backspace)", self.go_up, nrow)
         self.b_ref = tb("reload", "Refresh (F5)", self.refresh, nrow)
         self.nav_spacer = QWidget()
@@ -1540,6 +1543,32 @@ class FilePane(QFrame):
         if t and t["hpos"] < len(t["history"]) - 1:
             t["hpos"] += 1
             self.navigate(t["history"][t["hpos"]], add_history=False)
+
+    def go_history(self, i):
+        t = self.tab()
+        if t and 0 <= i < len(t["history"]) and i != t["hpos"]:
+            t["hpos"] = i
+            self.navigate(t["history"][i], add_history=False)
+
+    def history_menu(self, widget, back=True, pos=None):
+        """Clic derecho en ← / →: las carpetas anteriores (o siguientes) de la pestaña, como en Windows."""
+        t = self.tab()
+        if not t:
+            return
+        h, cur = t["history"], t["hpos"]
+        idx = list(range(cur - 1, -1, -1)) if back else list(range(cur + 1, len(h)))
+        if not idx:
+            return
+        m = QMenu(self)
+        for i in idx[:15]:
+            p = h[i]
+            name = "This PC" if p == THISPC else (os.path.basename(p.rstrip("\\/")) or p)
+            a = m.addAction(self.app.icons.glyph("pc", 16, "#4cc2ff") if p == THISPC
+                            else self.app.icons.folder_icon(self.app.dir_color(p), 16), name,
+                            lambda i=i: self.go_history(i))
+            a.setToolTip(p)
+        m.setToolTipsVisible(True)
+        m.exec(widget.mapToGlobal(pos) if pos is not None else widget.mapToGlobal(widget.rect().bottomLeft()))
 
     def go_up(self):
         t = self.tab()

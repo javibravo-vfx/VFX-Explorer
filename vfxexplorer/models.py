@@ -179,6 +179,8 @@ class EntryModel(QAbstractTableModel):
             return False
         e = self.entries[index.row()]
         value = (value or "").strip()
+        if e.kind == "drive":                     # nombre propio del disco (vacío: vuelve al real)
+            return bool(self.app.rename_drive(e, value))
         if not value or value == e.name:
             return False
         return bool(self.app.rename_inline(e, value))
@@ -213,6 +215,10 @@ class EntryModel(QAbstractTableModel):
                 return ""
             if role == Qt.DecorationRole and col == C_NAME:
                 return self.app.icons.drive_icon(getattr(e, "drive_kind", "local"), 18)
+            if role == Qt.ForegroundRole and col == C_NAME:
+                c = self.app.drive_name_color(e.path)
+                if c:
+                    return QColor(c)
             if role == ROLE_SORT:
                 return natural_key(e.path) if col == C_NAME else (e.size if col == C_SIZE else 0)
             if role == Qt.ToolTipRole:

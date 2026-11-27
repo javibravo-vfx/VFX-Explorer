@@ -151,8 +151,9 @@ class MainWindow(QMainWindow):
         self.cfg = Config(os.path.join(self.data_dir, "config.json"))
         from .core import set_seq_pads
         set_seq_pads(self.cfg["seq_pads"])        # qué largos de número son secuencia (Settings: «####, #####»)
-        from .core import set_split_seqs
+        from .core import set_split_seqs, set_drive_aliases
         set_split_seqs(self.cfg["seq_split"])     # secuencias separadas a mano (del workspace)
+        set_drive_aliases(self.cfg["drive_names"])   # nombre propio de los discos (solo en la app)
         self.lib = Library(os.path.join(self.data_dir, "library.json"))
         if self.cfg.get("colors"):
             self.lib.migrate_colors(self.cfg.data.pop("colors"))
@@ -841,6 +842,10 @@ class MainWindow(QMainWindow):
             b.setToolTip(tip)
             b.setAutoRaise(True)
             b.clicked.connect(lambda _=False, fn=fn: self._gnav(fn))
+            if key in ("back", "fwd"):            # clic derecho: el historial de la pestaña
+                b.setContextMenuPolicy(Qt.CustomContextMenu)
+                b.customContextMenuRequested.connect(
+                    lambda pos, b=b, back=(key == "back"): self._gpane().history_menu(b, back))
             gl.addWidget(b)
             self.gnav_buttons[key] = b
         self.gsearch = QLineEdit()
@@ -1478,34 +1483,16 @@ class MainWindow(QMainWindow):
         i = -1
         act = None
         if mods in (Qt.ShiftModifier, Qt.ControlModifier) and Qt.Key_F1 <= k <= Qt.Key_F6:
-            # como en Nuke: Shift+F1…F6 va al workspace (F1 = Default), Ctrl+F1…F6 le guarda la vista actual
+            # como en Nuke: Shift+F1 Default, Shift+F2…F6 los workspaces 1…5, Ctrl+F1…F6 los workspaces 6…11
             n = k - Qt.Key_F1
-            if mods == Qt.ShiftModifier and n > 0 and n - 1 >= len(self.wsbutton.items()):
+            lst = self.wsbutton.items()
+            idx = (n - 1) if mods == Qt.ShiftModifier else (n + 5)       # índice en la lista (-1 = Default)
+            if idx >= len(lst):
                 return False
             if ev.type() == QEvent.ShortcutOverride:
                 ev.accept()
                 return True
-            if mods == Qt.ShiftModifier:
-                self.wsbutton.switch("Default" if n == 0 else self.wsbutton.items()[n - 1]["name"])
-            else:
-                self.wsbutton.save_slot(n)
-            return True
-        if mods == (Qt.AltModifier | Qt.ShiftModifier):            # Alt+Shift+1…9: workspaces
-            sc = ev.nativeScanCode()
-            i = (sc - 2) if IS_WIN else (sc - 10)     # tecla 1…9; la 0 (scancode 11 / 19) = Default
-            if i == 9:
-                i = -1
-            if not -1 <= i <= 8:
-                return False
-            if i >= len(self.wsbutton.items()):
-                return False
-            if ev.type() == QEvent.ShortcutOverride:
-                ev.accept()
-                return True
-            if i < 0:
-                self.wsbutton.switch("Default")
-            else:
-                self.wsbutton.switch_index(i)
+            self.wsbutton.switch("Default" if idx < 0 else lst[idx]["name"])
             return True
         if mods == (Qt.ControlModifier | Qt.ShiftModifier):        # Ctrl+Shift+1 / 2: vista íconos / lista
             i = self._digit(ev)
@@ -2241,8 +2228,56 @@ class MainWindow(QMainWindow):
         if ix.isValid():
             view.edit(ix.sibling(ix.row(), 0))
 
+    # ---------------- discos: nombre propio (el disco real no se toca) y color del pipeline / la librería
+    def rename_drive(self, e, text):
+        from .core import set_drive_aliases
+        names = dict(self.cfg["drive_names"] or {})
+        k = norm_key(e.path)
+        text = (text or "").strip()
+        real = getattr(e, "label", "") or ""
+        if text and text != real:
+            names[k] = text
+        else:
+            names.pop(k, None)                    # vacío o el nombre real: vuelve al del disco
+        self.cfg["drive_names"] = names
+        set_drive_aliases(names)
+        self.cfg.save()
+        self.reload_tree_drives()
+        for p in self.all_panes:
+            t = p.tab()
+            if t is not None and t["virtual"] and t["virtual"].get("kind") == "thispc":
+                p.refresh()
+        return True
+
+    def _drive_roots(self, paths):
+        out = set()
+        for p in paths:
+            if not p:
+                continue
+            drv, _ = os.path.splitdrive(os.path.normpath(p))
+            if drv:
+                out.add(norm_key(drv + ("" if drv.startswith(("\\", "//")) else os.sep)))
+                out.add(norm_key(drv))
+        return out
+
+    def drive_name_color(self, path):
+        """Con los Color filters prendidos: el disco del pipeline en naranja y el de la librería en celeste."""
+        if not self.cfg["color_filters_on"] or not path:
+            return None
+        k = norm_key(path)
+        try:
+            if k in self._drive_roots([self.pipeline.base()]):
+                return "#ffb224"
+        except Exception:
+            pass
+        if k in self._drive_roots(self.cfg["library_roots"] or []):
+            return "#4cc2ff"
+        return None
+
     def rename_inline(self, e, text):
         """Renombrado en el lugar (F2). Para secuencias renombra todos los frames."""
+        if e.kind == "drive":
+            return self.rename_drive(e, text)
         try:
             if e.kind == "seq":
                 pairs = fileops.seq_rename_from_text(e, text)
@@ -2464,6 +2499,8 @@ class MainWindow(QMainWindow):
             p.list.viewport().update()
             p.refresh_tab_icons()                 # el color de la carpeta también en las pestañas
         self.tree.refresh_colors()                # íconos del árbol completo también (antes solo el Bonsai)
+        if hasattr(self, "wintree"):
+            self._apply_hidden_drives()           # (y el color de los discos del pipeline / la librería)
         self.wintree.refresh_colors()
         self.winbonsai.refresh_colors()
         self.minitree.refresh_colors()
@@ -4305,6 +4342,7 @@ class MainWindow(QMainWindow):
         self.cfg.save()
         self._cf_rules = None
         self.refresh_views()
+        self._apply_hidden_drives()               # el color de los discos del pipeline / la librería en los árboles
 
     def color_filter_for(self, e):
         """(color de texto, fondo) según los Color filters, o None."""
@@ -4477,6 +4515,12 @@ class MainWindow(QMainWindow):
             m.addAction("Pin to Quick access", lambda: self.add_favorites([x.path for x in ents]))
             m.addAction("Copy path", lambda: QApplication.clipboard().setText(getattr(e, "unc", "") or e.path))
             m.addSeparator()
+            if len(ents) == 1:
+                m.addAction("Rename here\tF2", lambda: pane.view().edit(pane.view().currentIndex()))
+                if norm_key(e.path) in (self.cfg["drive_names"] or {}):
+                    m.addAction(f"Back to the drive's name ({getattr(e, 'label', '')})",
+                                lambda: self.rename_drive(e, ""))
+                m.addSeparator()
             m.addAction("Refresh\tF5", pane.refresh)
             m.exec(view.viewport().mapToGlobal(pos))
             return

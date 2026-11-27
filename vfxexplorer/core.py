@@ -646,6 +646,27 @@ def _posix_drives():
     return out
 
 
+DRIVE_ALIASES = {}        # nombre propio de cada disco (solo en la app; el disco real no se toca): norm_key(raíz) → nombre
+
+
+def set_drive_aliases(d):
+    global DRIVE_ALIASES
+    DRIVE_ALIASES = dict(d or {})
+
+
+def drive_display_name(label, letter, unc, kind, root):
+    """«Nombre (T:)» o «Nombre (\\\\host) (T:)», con el nombre propio si se le puso uno (la letra queda)."""
+    label = DRIVE_ALIASES.get(norm_key(root)) or label
+    if letter:
+        if unc and kind == "network":
+            host = unc.lstrip("\\").split("\\")[0]
+            return f"{label} (\\\\{host}) ({letter})"
+        return f"{label} ({letter})"
+    if root == "/" and norm_key(root) not in DRIVE_ALIASES:
+        return "System (/)"
+    return label
+
+
 def list_drives():
     """Entradas tipo 'drive' con nombre, total y libre (puede tardar con unidades de red: usar en un thread)."""
     raw = _win_drives() if IS_WIN else _posix_drives()
@@ -660,15 +681,10 @@ def list_drives():
             pass
         label = d["label"] or ({"local": "Local Disk", "network": "Network drive", "removable": "Removable drive",
                                 "cdrom": "CD drive"}[d["kind"]])
-        if d["letter"]:
-            name = f"{label} ({d['unc'].rstrip(chr(92))}) ({d['letter']})" if d["unc"] and d["kind"] == "network" \
-                else f"{label} ({d['letter']})"
-            if d["unc"] and d["kind"] == "network":
-                host = d["unc"].lstrip("\\").split("\\")[0]
-                name = f"{label} (\\\\{host}) ({d['letter']})"
-        else:
-            name = label if d["root"] != "/" else "System (/)"
+        name = drive_display_name(label, d["letter"], d["unc"], d["kind"], d["root"])
         e = Entry(kind="drive", dirpath="", name=name, path=d["root"], size=total)
+        e.label = label                    # el nombre real del disco (para «Back to the drive's name»)
+        e.letter = d["letter"]
         e.free = free
         e.drive_kind = d["kind"]
         e.unc = d["unc"]
@@ -952,6 +968,7 @@ class Config:
         "win_nav": True,                # panel izquierdo en modo Windows (un solo árbol, sin líneas); por workspace
         "ws_continue": False,           # al abrir: seguir donde quedó (si no, entra en el Startup workspace)
         "ws_reset_default": True,       # al abrir: Default vuelve a cero
+        "workspace_default_base": None,  # «Set as new Default»: la vista con la que arranca y se resetea Default
         "ws_startup": "Default",        # al abrir sin «Continue where you left off»: este workspace
         "left_split_sync": True,        # panel izquierdo: el divisor de arriba igual en File Explorer y en la librería
         "left_sizes_0": None,           # … si no: la altura de cada uno (File Explorer / VFX Library)
@@ -989,7 +1006,8 @@ class Config:
         "hidden_sys": ["onedrive"],
         "collapse_seqs": True,
         "seq_pads": "####, #####",      # qué largos de número son secuencia (render_0001.exr, render_10000.exr)
-        "seq_split": [],                # secuencias separadas a mano en el workspace actual (seq_key)
+        "seq_split": [],
+        "drive_names": {},              # nombre propio de los discos (solo en la app)                # secuencias separadas a mano en el workspace actual (seq_key)
         "mini_tree_on": True,
         "hover_box": True,
         "image_viewer": "",             # programa para abrir imágenes (vacío = el predeterminado de Windows)

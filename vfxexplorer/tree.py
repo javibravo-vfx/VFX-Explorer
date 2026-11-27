@@ -524,7 +524,8 @@ class FolderTree(_LinedMixin, QTreeWidget):
             c = self.root.child(i)
             hid = self._key(c.data(0, Qt.UserRole)) in hidden
             c.setHidden(hid and not show and not self.mini)
-            c.setForeground(0, QColor("#6a6a6a") if hid else QColor("#e6e6e6"))
+            col = self.app.drive_name_color(c.data(0, Qt.UserRole)) if hasattr(self.app, "drive_name_color") else None
+            c.setForeground(0, QColor("#6a6a6a") if hid else QColor(col or "#e6e6e6"))
 
     def _forget(self, it):
         self._items.pop(self._key(it.data(0, Qt.UserRole)), None)
