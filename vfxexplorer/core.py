@@ -891,6 +891,7 @@ class Config:
         "viewer_autoplay": True,
         "viewer_loop": True,
         # 0.4
+        "win_bonsai": False,            # modo Windows con el Bonsai (con líneas) en vez del árbol tipo Windows
         "win_nav": True,                # panel izquierdo en modo Windows (un solo árbol, sin líneas); por workspace
         "ws_continue": True,            # al abrir: seguir donde quedó (si no, entra en Default)
         "ws_reset_default": True,       # al abrir: Default vuelve a cero

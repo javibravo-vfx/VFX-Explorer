@@ -193,7 +193,7 @@ class _LinedMixin:
         cy = rect.center().y()
         top, bot = rect.top(), rect.bottom() + 1
         style = self._cfg("tree_lines_style", "chevron")
-        plain = getattr(self, "win", False)        # modo Windows: solo › / ⌄, sin líneas ni camino
+        plain = getattr(self, "plain", False)      # modo Windows: solo › / ⌄, sin líneas ni camino
         if plain:
             style = "chevron"
         dotted = style == "dotted"
@@ -775,10 +775,9 @@ def MiniTree(app):
     return FolderTree(app, mini=True)
 
 
-class WinNavTree(FolderTree):
-    """Modo Windows del panel izquierdo: un solo árbol que scrollea entero — Quick access (y los Workspace Pins),
-    una línea y This PC. Como en Windows: no se abre solo al entrar en carpetas; queda marcada la carpeta
-    actual si se ve, o el último nivel abierto de su camino. Sin líneas: solo › / ⌄."""
+class _WinQuickMixin:
+    """Modo Windows del panel izquierdo: arriba Quick access (y los Workspace Pins), una línea y después el árbol,
+    todo en un solo árbol que scrollea entero. Lo usan el árbol tipo Windows y el Bonsai."""
 
     ROLE_SEP = Qt.UserRole + 9
     ROLE_QUICK = Qt.UserRole + 10
@@ -787,18 +786,15 @@ class WinNavTree(FolderTree):
     ROLE_SYS = Qt.UserRole + 12          # escritorio, descargas… (de Windows)
     ROLE_REAL = Qt.UserRole + 13         # el nombre real de la carpeta (si se renombró aquí)
     ROLE_PH = Qt.UserRole + 14           # «Drop Workspace Pins here» (el lugar, sin pins todavía)
+    ROLE_HIDDEN = Qt.UserRole + 15       # carpeta de Windows oculta (con el ojito prendido se ve atenuada)
 
-    def __init__(self, app):
-        self.win = True
+    def __init__(self, app, **kw):
         self._quick_specs = []
         self._win_path = ""
-        super().__init__(app)
-        self.itemExpanded.connect(lambda it: QTimer.singleShot(0, self._resync))
-        self.itemCollapsed.connect(lambda it: QTimer.singleShot(0, self._resync))
+        super().__init__(app, **kw)
 
     def _make_root(self):
         super()._make_root()
-        self.root.setExpanded(False)              # This PC cerrado, como en Windows
         self._fill_quick_items()
 
     # ---------------- Quick access arriba
@@ -806,7 +802,8 @@ class WinNavTree(FolderTree):
         """specs: lista de dicts {text, icon, path, isfile, pin} o None = línea divisoria."""
         self._quick_specs = list(specs)
         self._fill_quick_items()
-        self._resync()
+        if hasattr(self, "_resync"):
+            self._resync()
 
     def _fill_quick_items(self):
         if self.root is None:
@@ -840,6 +837,9 @@ class WinNavTree(FolderTree):
                 it.setData(0, self.ROLE_PIN, sp.get("pin") or "")
                 it.setToolTip(0, sp["path"])
                 it.setChildIndicatorPolicy(QTreeWidgetItem.DontShowIndicator)
+                if sp.get("hidden"):                    # oculto (se ve atenuado con el ojito prendido)
+                    it.setForeground(0, QColor("#6b7178"))
+                    it.setData(0, self.ROLE_HIDDEN, True)
             items.append(it)
         for i, it in enumerate(items):
             self.insertTopLevelItem(i, it)
@@ -852,13 +852,149 @@ class WinNavTree(FolderTree):
             p.drawLine(opt.rect.left() + 12, y, opt.rect.right() - 12, y)
             p.restore()
             return
-        super().drawRow(p, opt, index)
+        if index.data(self.ROLE_HIDDEN):
+            p.save()
+            p.setOpacity(0.45)
+            super().drawRow(p, opt, index)
+            p.restore()
+        else:
+            super().drawRow(p, opt, index)
         pin = index.data(self.ROLE_PIN)
         if pin and not index.data(self.ROLE_PH):
             g = self.app.icons.glyph("wspin" if pin == "wspin" else "pin", 14,
                                      "#4cc2ff" if pin == "wspin" else "#9d9d9d")
             r = opt.rect
             p.drawPixmap(self.viewport().width() - 24, r.center().y() - 7, g.pixmap(14, 14))
+
+    # ---------------- soltar carpetas / pestañas arriba: Quick access (entre los que ya están)
+    _qdrop = None                 # (zona "quick" | "wspin", y de la rayita, índice en Quick access)
+
+    def _quick_rows(self):
+        out = []
+        for i in range(self.topLevelItemCount()):
+            it = self.topLevelItem(i)
+            if it is self.root:
+                break
+            out.append(it)
+        return out
+
+    def _quick_zone_at(self, pos):
+        it = self.itemAt(pos)
+        rows = self._quick_rows()
+        if it is not None:
+            return it in rows
+        if rows:                                   # entre filas / arriba de todo
+            return pos.y() <= self.visualItemRect(rows[-1]).bottom()
+        return False
+
+    def _quick_target(self, pos):
+        rows = self._quick_rows()
+        y = pos.y()
+        ws = [r for r in rows if r.data(0, self.ROLE_PIN) == "wspin"]
+        if ws and y >= self.visualItemRect(ws[0]).top() - 2:
+            r0 = self.visualItemRect(ws[0])
+            return "wspin", None, 0, r0.top(), self.visualItemRect(ws[-1]).bottom()
+        pins = [r for r in rows if r.data(0, self.ROLE_PIN) == "pin"]
+        idx = sum(1 for r in pins if self.visualItemRect(r).center().y() < y)
+        if pins:
+            ly = self.visualItemRect(pins[idx - 1]).bottom() if idx else self.visualItemRect(pins[0]).top()
+        else:
+            q = [r for r in rows if r.data(0, self.ROLE_QUICK)]
+            ly = self.visualItemRect(q[-1]).bottom() if q else 2
+        top = self.visualItemRect(rows[0]).top()
+        bottom = self.visualItemRect(ws[0]).top() - 1 if ws else self.visualItemRect(rows[-1]).bottom()
+        return "quick", ly, idx, top, bottom
+
+    def _drop_paths(self, ev, files):
+        from .quicklist import dropped_paths
+        return dropped_paths(ev.mimeData(), files)
+
+    def dragEnterEvent(self, ev):
+        from .quicklist import TAB_MIME
+        if ev.mimeData().hasUrls() or ev.mimeData().hasFormat(TAB_MIME):
+            ev.acceptProposedAction()
+        else:
+            ev.ignore()
+
+    def dragMoveEvent(self, ev):
+        pos = ev.position().toPoint()
+        over = self.itemAt(pos)
+        if over is not None and over.data(0, self.ROLE_SYS):
+            # Desktop, Documents, Downloads…: ahí no se meten accesos de otro lado
+            if self._qdrop is not None:
+                self._qdrop = None
+                self.viewport().update()
+            self._set_drop(None)
+            ev.ignore()
+            return
+        if self._quick_zone_at(pos):
+            zone, ly, idx, top, bottom = self._quick_target(pos)
+            if self._drop_paths(ev, zone == "wspin"):
+                self._set_drop(None)
+                self._qdrop = (zone, ly, idx, top, bottom)
+                self.viewport().update()
+                ev.setDropAction(Qt.LinkAction)
+                ev.accept()
+                return
+        if self._qdrop is not None:
+            self._qdrop = None
+            self.viewport().update()
+        if not ev.mimeData().hasUrls():            # una pestaña sobre el árbol: nada que copiar
+            ev.ignore()
+            return
+        super().dragMoveEvent(ev)
+
+    def dragLeaveEvent(self, ev):
+        self._qdrop = None
+        super().dragLeaveEvent(ev)
+
+    def dropEvent(self, ev):
+        q, self._qdrop = self._qdrop, None
+        self.viewport().update()
+        if q is not None:
+            zone, _ly, idx, _t, _b = q
+            paths = self._drop_paths(ev, zone == "wspin")
+            ev.setDropAction(Qt.LinkAction)
+            ev.accept()
+            if paths:
+                if zone == "wspin":
+                    QTimer.singleShot(0, lambda: self.app.add_wpins(paths))
+                else:
+                    QTimer.singleShot(0, lambda: self.app.insert_favorites(paths, idx))
+            return
+        if not ev.mimeData().hasUrls():
+            ev.ignore()
+            return
+        super().dropEvent(ev)
+
+    def paintEvent(self, ev):
+        super().paintEvent(ev)
+        if self._qdrop is None:
+            return
+        zone, ly, idx, top, bottom = self._qdrop
+        p = QPainter(self.viewport())
+        c = QColor(self.app.accent())
+        c.setAlpha(34)
+        p.fillRect(QRect(0, top, self.viewport().width(), bottom - top + 1), c)   # la zona, celeste
+        if ly is not None:
+            p.setPen(QPen(QColor(self.app.accent()), 2))
+            p.drawLine(8, ly, self.viewport().width() - 8, ly)                   # dónde va a quedar
+        p.end()
+
+
+class WinNavTree(_WinQuickMixin, FolderTree):
+    """Como en Windows: This PC cerrado, no se abre solo al entrar en carpetas; queda marcada la carpeta actual
+    si se ve, o el último nivel abierto de su camino. Sin líneas: solo › / ⌄."""
+    plain = True
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.itemExpanded.connect(lambda it: QTimer.singleShot(0, self._resync))
+        self.itemCollapsed.connect(lambda it: QTimer.singleShot(0, self._resync))
+
+    def _make_root(self):
+        super()._make_root()
+        self.root.setExpanded(False)              # This PC cerrado, como en Windows
 
     # ---------------- dónde estamos (sin abrir nada)
     def _shown(self, it):
@@ -914,108 +1050,11 @@ class WinNavTree(FolderTree):
         super()._apply_names(it, path, names)
         QTimer.singleShot(0, self._resync)        # (en red llega después: la marca baja si corresponde)
 
-    # ---------------- soltar carpetas / pestañas arriba: Quick access (entre los que ya están)
-    _qdrop = None                 # (zona "quick" | "wspin", y de la rayita, índice en Quick access)
 
-    def _quick_rows(self):
-        out = []
-        for i in range(self.topLevelItemCount()):
-            it = self.topLevelItem(i)
-            if it is self.root:
-                break
-            out.append(it)
-        return out
 
-    def _quick_zone_at(self, pos):
-        it = self.itemAt(pos)
-        rows = self._quick_rows()
-        if it is not None:
-            return it in rows
-        if rows:                                   # entre filas / arriba de todo
-            return pos.y() <= self.visualItemRect(rows[-1]).bottom()
-        return False
+class WinBonsaiTree(_WinQuickMixin, FolderTree):
+    """Modo Windows con el Bonsai: el mismo panel único (Quick access arriba), y abajo solo las carpetas visitadas,
+    con sus líneas y el camino marcado."""
 
-    def _quick_target(self, pos):
-        rows = self._quick_rows()
-        y = pos.y()
-        ws = [r for r in rows if r.data(0, self.ROLE_PIN) == "wspin"]
-        if ws and y >= self.visualItemRect(ws[0]).top() - 2:
-            r0 = self.visualItemRect(ws[0])
-            return "wspin", None, 0, r0.top(), self.visualItemRect(ws[-1]).bottom()
-        pins = [r for r in rows if r.data(0, self.ROLE_PIN) == "pin"]
-        idx = sum(1 for r in pins if self.visualItemRect(r).center().y() < y)
-        if pins:
-            ly = self.visualItemRect(pins[idx - 1]).bottom() if idx else self.visualItemRect(pins[0]).top()
-        else:
-            q = [r for r in rows if r.data(0, self.ROLE_QUICK)]
-            ly = self.visualItemRect(q[-1]).bottom() if q else 2
-        top = self.visualItemRect(rows[0]).top()
-        bottom = self.visualItemRect(ws[0]).top() - 1 if ws else self.visualItemRect(rows[-1]).bottom()
-        return "quick", ly, idx, top, bottom
-
-    def _drop_paths(self, ev, files):
-        from .quicklist import dropped_paths
-        return dropped_paths(ev.mimeData(), files)
-
-    def dragEnterEvent(self, ev):
-        from .quicklist import TAB_MIME
-        if ev.mimeData().hasUrls() or ev.mimeData().hasFormat(TAB_MIME):
-            ev.acceptProposedAction()
-        else:
-            ev.ignore()
-
-    def dragMoveEvent(self, ev):
-        pos = ev.position().toPoint()
-        if self._quick_zone_at(pos):
-            zone, ly, idx, top, bottom = self._quick_target(pos)
-            if self._drop_paths(ev, zone == "wspin"):
-                self._set_drop(None)
-                self._qdrop = (zone, ly, idx, top, bottom)
-                self.viewport().update()
-                ev.setDropAction(Qt.LinkAction)
-                ev.accept()
-                return
-        if self._qdrop is not None:
-            self._qdrop = None
-            self.viewport().update()
-        if not ev.mimeData().hasUrls():            # una pestaña sobre el árbol: nada que copiar
-            ev.ignore()
-            return
-        super().dragMoveEvent(ev)
-
-    def dragLeaveEvent(self, ev):
-        self._qdrop = None
-        super().dragLeaveEvent(ev)
-
-    def dropEvent(self, ev):
-        q, self._qdrop = self._qdrop, None
-        self.viewport().update()
-        if q is not None:
-            zone, _ly, idx, _t, _b = q
-            paths = self._drop_paths(ev, zone == "wspin")
-            ev.setDropAction(Qt.LinkAction)
-            ev.accept()
-            if paths:
-                if zone == "wspin":
-                    QTimer.singleShot(0, lambda: self.app.add_wpins(paths))
-                else:
-                    QTimer.singleShot(0, lambda: self.app.insert_favorites(paths, idx))
-            return
-        if not ev.mimeData().hasUrls():
-            ev.ignore()
-            return
-        super().dropEvent(ev)
-
-    def paintEvent(self, ev):
-        super().paintEvent(ev)
-        if self._qdrop is None:
-            return
-        zone, ly, idx, top, bottom = self._qdrop
-        p = QPainter(self.viewport())
-        c = QColor(self.app.accent())
-        c.setAlpha(34)
-        p.fillRect(QRect(0, top, self.viewport().width(), bottom - top + 1), c)   # la zona, celeste
-        if ly is not None:
-            p.setPen(QPen(QColor(self.app.accent()), 2))
-            p.drawLine(8, ly, self.viewport().width() - 8, ly)                   # dónde va a quedar
-        p.end()
+    def __init__(self, app):
+        super().__init__(app, mini=True)

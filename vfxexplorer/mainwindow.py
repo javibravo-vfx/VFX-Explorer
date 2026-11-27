@@ -22,7 +22,7 @@ from .imaging import ThumbManager, InfoTask, Signals, init_formats
 from .widgets import Icons, TAG_COLORS, TagDialog, RenameDialog, SettingsDialog, ACCENT
 from .pane import FilePane
 from .colors import ColorEngine, COLOR_MODES, DEFAULT_NAME_RULES
-from .tree import FolderTree, MiniTree, WinNavTree
+from .tree import FolderTree, MiniTree, WinNavTree, WinBonsaiTree
 from .dirsize import DirSizeManager
 from .library_ui import LibraryPage, LibrarySidebar
 from .pipebar import PipelineBar
@@ -391,12 +391,14 @@ class MainWindow(QMainWindow):
         self.tree = FolderTree(self)
         self.minitree = MiniTree(self)
         self.wintree = WinNavTree(self)           # modo Windows: Quick access + This PC en un solo árbol
-        for t in (self.tree, self.minitree, self.wintree):
+        self.winbonsai = WinBonsaiTree(self)      # modo Windows con el Bonsai (con líneas), en el mismo panel
+        self.wintrees = (self.wintree, self.winbonsai)
+        for t in (self.tree, self.minitree, self.wintree, self.winbonsai):
             t.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
             t.itemClicked.connect(lambda it, c: it.data(0, Qt.UserRole) and self._tree_open_item(it))
             t.setContextMenuPolicy(Qt.CustomContextMenu)
             t.customContextMenuRequested.connect(lambda pos, t=t: self._tree_menu(t, pos))
-        for t in (self.tree, self.minitree, self.wintree):
+        for t in (self.tree, self.minitree, self.wintree, self.winbonsai):
             self.hook_tree_keys(t, self.open_in_explorer)
         self._drives_gen = 0
         QTimer.singleShot(0, self.reload_tree_drives)
@@ -404,6 +406,7 @@ class MainWindow(QMainWindow):
         self.tree_stack.addWidget(self.tree)
         self.tree_stack.addWidget(self.minitree)
         self.tree_stack.addWidget(self.wintree)
+        self.tree_stack.addWidget(self.winbonsai)
 
         self.libside = LibrarySidebar(self)
         self.pipebar_side = PipelineBar(self, vertical=True)
@@ -507,9 +510,29 @@ class MainWindow(QMainWindow):
         self.b_winnav.setChecked(bool(self.cfg["win_nav"]))
         self.b_winnav.toggled.connect(self._toggle_winnav)
         self._popfix(self.b_winnav)
-        self._winnav_icon()
         fbar.addWidget(self.b_winnav)
+        # al lado: el Bonsai dentro del modo Windows (solo cambia el árbol: con líneas, lo visitado) y su Prune
+        self.b_winbonsai = QToolButton()
+        self.b_winbonsai.setCheckable(True)
+        self.b_winbonsai.setAutoRaise(True)
+        self.b_winbonsai.setChecked(bool(self.cfg["win_bonsai"]))
+        self.b_winbonsai.toggled.connect(self._toggle_winbonsai)
+        self._popfix(self.b_winbonsai)
+        fbar.addWidget(self.b_winbonsai)
+        self.b_winprune = QToolButton()
+        self.b_winprune.setAutoRaise(True)
+        self.b_winprune.setIcon(ic.glyph("scissors", 15, "#c9ccd1"))
+        self.b_winprune.setToolTip("Prune: empty the Bonsai (it grows again from the current folder)")
+        self.b_winprune.clicked.connect(self._clear_minitree)
+        self._popfix(self.b_winprune)
+        fbar.addWidget(self.b_winprune)
         fbar.addStretch(1)
+        self.b_wineye = self._eye_button("show_hidden_quick", "Show hidden Quick access items\n"
+                                         "(hide them with right-click › Hide)",
+                                         lambda: (self.b_eye.setChecked(bool(self.cfg["show_hidden_quick"])),
+                                                  self._reload_sidebar()))
+        fbar.addWidget(self.b_wineye)
+        self._winnav_icon()
         fpl.addLayout(fbar)
         self.side_boxes["tree"] = folders_page
 
@@ -1255,6 +1278,7 @@ class MainWindow(QMainWindow):
         self.tree.apply_hidden()
         self.minitree.apply_hidden()
         self.wintree.apply_hidden()
+        self.winbonsai.apply_hidden()
 
     def hook_tree_keys(self, tree, opener):
         """Moverse con las flechas por un árbol abre la carpeta (con una pequeña espera, para no cargar
@@ -1330,6 +1354,7 @@ class MainWindow(QMainWindow):
         self.tree.set_drives(drives)
         self.minitree.set_drives(drives)
         self.wintree.set_drives(drives)
+        self.winbonsai.set_drives(drives)
 
     def _toggle_drive(self, path):
         hidden = list(self.cfg["hidden_drives"] or [])
@@ -1519,7 +1544,7 @@ class MainWindow(QMainWindow):
             if r.isValid() and 0 <= r.top() < src.viewport().height():
                 y = r.top()
         self.cfg["mini_tree_on"] = bool(on)
-        self.tree_stack.setCurrentIndex(2 if self.cfg["win_nav"] else (1 if on else 0))
+        self.tree_stack.setCurrentIndex((3 if self.cfg["win_bonsai"] else 2) if self.cfg["win_nav"] else (1 if on else 0))
         self.b_minitree.setIcon(self.icons.glyph("bonsai", 16, "#4cc2ff" if on else "#9d9d9d"))
         self.b_minitree.setToolTip("Bonsai: only the folders you visited  (click: full folder tree)" if on
                                    else "Full folder tree  (click: Bonsai, only the folders you visited)")
@@ -1593,12 +1618,15 @@ class MainWindow(QMainWindow):
 
     def _clear_minitree(self):
         self.minitree.clear_all()
+        self.winbonsai.rebuild()
         t = self.explorer_active.tab()
         cur = self.explorer_active.current_dir()
         here = "::thispc" if (t and t["virtual"] and t["virtual"]["kind"] == "thispc") else cur
         if cur:
             self.minitree.add(cur)
+            self.winbonsai.add(cur)
         self.minitree.sync(here or "")
+        self.winbonsai.sync(here or "")
         self.status.setText("Bonsai pruned")
 
     def _minitree_menu(self, pos):
@@ -2353,6 +2381,9 @@ class MainWindow(QMainWindow):
             self.minitree.add(d)
         self.minitree.sync(here)
         self.wintree.sync(here)                   # (modo Windows: solo marca, no abre ni lee nada)
+        if d:
+            self.winbonsai.add(d)
+        self.winbonsai.sync(here)
         if not self.b_minitree.isChecked() and not self.cfg["win_nav"]:   # el árbol completo, solo si se ve
             self.tree.sync(here if (here == "::thispc" or d_tree) else "")
         if not d:
@@ -2385,6 +2416,7 @@ class MainWindow(QMainWindow):
             p.refresh_tab_icons()                 # el color de la carpeta también en las pestañas
         self.tree.refresh_colors()                # íconos del árbol completo también (antes solo el Bonsai)
         self.wintree.refresh_colors()
+        self.winbonsai.refresh_colors()
         self.minitree.refresh_colors()
 
     def _start_freeze_watch(self):
@@ -3716,12 +3748,14 @@ class MainWindow(QMainWindow):
             if not p or (it.data(ROLE_HIDDEN) and not self.cfg["show_hidden_quick"]):
                 continue
             specs.append({"text": it.text(), "icon": it.icon(), "path": p, "isfile": bool(it.data(Qt.UserRole + 6)),
+                          "hidden": bool(it.data(ROLE_HIDDEN)),
                           "pin": "wspin" if it.data(ROLE_WSPIN) else ("" if it.data(ROLE_SYS) else "pin"),
                           "sys": it.data(ROLE_SYS) or "", "real": it.data(Qt.UserRole + 4) or ""})
         if self._ws_entry() is not None and not any(sp and sp.get("pin") == "wspin" for sp in specs):
             # en un workspace: el lugar de los Workspace Pins aunque no haya ninguno (para soltarlos ahí)
             specs += [None, {"placeholder": True, "text": "Drop Workspace Pins here"}]
-        self.wintree.set_quick(specs)
+        for t in self.wintrees:
+            t.set_quick(specs)
 
     def _wintree_quick_menu(self, it, pos):
         """Modo Windows: el menú de los accesos de arriba (como en Quick access / Workspace Pins)."""
@@ -3773,7 +3807,8 @@ class MainWindow(QMainWindow):
                 self.cfg.save()
                 self._reload_sidebar()
             m.addAction("Unpin from Quick access", unpin)
-        m.exec(self.wintree.viewport().mapToGlobal(pos))
+        m.exec(self.sender_tree.viewport().mapToGlobal(pos) if getattr(self, "sender_tree", None)
+               else self.wintree.viewport().mapToGlobal(pos))
 
     def _tree_open_item(self, it):
         p = it.data(0, Qt.UserRole)
@@ -3784,6 +3819,13 @@ class MainWindow(QMainWindow):
 
     def _winnav_icon(self):
         on = self.b_winnav.isChecked()
+        bon = self.b_winbonsai.isChecked()
+        self.b_winbonsai.setVisible(on)
+        self.b_winprune.setVisible(on and bon)
+        self.b_wineye.setVisible(on)
+        self.b_winbonsai.setIcon(self.icons.glyph("bonsai", 16, "#4cc2ff" if bon else "#9d9d9d"))
+        self.b_winbonsai.setToolTip("Bonsai (on): below Quick access, only the folders you visited, with lines"
+                                    if bon else "Bonsai: below Quick access, only the folders you visited (with lines)")
         self.b_winnav.setIcon(self.icons.glyph("winmode", 15, "#4cc2ff" if on else "#8a8f96"))
         self.b_winnav.setToolTip("Windows mode (on): Quick access and This PC in one panel that scrolls as one; "
                                  "the tree doesn't open by itself" if on else
@@ -3796,8 +3838,29 @@ class MainWindow(QMainWindow):
         self._toggle_minitree(self.b_minitree.isChecked())
         self._side_tooltip(self.sidetabs.currentIndex())
         if on:
+            self.b_wineye.blockSignals(True)
+            self.b_wineye.setChecked(bool(self.cfg["show_hidden_quick"]))
+            self.b_wineye.blockSignals(False)
+            self.b_wineye.setIcon(self.icons.eye(16, on=self.b_wineye.isChecked(),
+                                                 color="#4cc2ff" if self.b_wineye.isChecked() else "#9d9d9d"))
             self._win_quick()
-            self.wintree.sync(self.wintree._win_path or (self.explorer_active.current_dir() or ""))
+            self._win_here_sync()
+        self.save_soon()
+
+    def _win_here_sync(self):
+        if not hasattr(self, "explorer_active"):
+            return
+        t = self.explorer_active.tab()
+        cur = self.explorer_active.current_dir() or ""
+        here = "::thispc" if (t and t["virtual"] and t["virtual"]["kind"] == "thispc") else cur
+        self.wintree.sync(here)
+        self.winbonsai.sync(here)
+
+    def _toggle_winbonsai(self, on):
+        self.cfg["win_bonsai"] = bool(on)
+        self._winnav_icon()
+        self._toggle_minitree(self.b_minitree.isChecked())
+        self._win_here_sync()
         self.save_soon()
 
     def _open_pin(self, p, isfile=False):
@@ -4003,7 +4066,8 @@ class MainWindow(QMainWindow):
 
     def _tree_menu(self, tree, pos):
         it = tree.itemAt(pos)
-        if it is not None and tree is self.wintree and it.data(0, WinNavTree.ROLE_QUICK):
+        if it is not None and tree in self.wintrees and it.data(0, WinNavTree.ROLE_QUICK):
+            self.sender_tree = tree
             self._wintree_quick_menu(it, pos)
             return
         if it is None:

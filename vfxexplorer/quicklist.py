@@ -104,9 +104,14 @@ class QuickList(QListWidget):
             return self.row(it) >= first
         return pos.y() >= self.visualItemRect(self.item(first)).top()
 
+    def _over_sys(self, ev):
+        """¿Sobre Desktop, Documents, Downloads…? Ahí no se meten accesos de otro lado (ni se reordenan)."""
+        it = self.itemAt(ev.position().toPoint())
+        return it is not None and bool(it.data(ROLE_SYS))
+
     def _external(self, ev):
         """(rutas, ¿va a Workspace Pins?)"""
-        if ev.source() is self:
+        if ev.source() is self or self._over_sys(ev):
             return [], False
         zone = self._in_pins_zone(ev.position().toPoint())
         return dropped_paths(ev.mimeData(), self.accept_files or zone), zone
@@ -160,6 +165,9 @@ class QuickList(QListWidget):
 
     def dragMoveEvent(self, ev):
         if ev.source() is self:
+            if self._over_sys(ev):
+                ev.ignore()
+                return
             super().dragMoveEvent(ev)
             return
         paths, zone = self._external(ev)
@@ -178,6 +186,9 @@ class QuickList(QListWidget):
     def dropEvent(self, ev):
         self._hot(False)
         if ev.source() is self:
+            if self._over_sys(ev):
+                ev.ignore()
+                return
             super().dropEvent(ev)
             return
         paths, zone = self._external(ev)

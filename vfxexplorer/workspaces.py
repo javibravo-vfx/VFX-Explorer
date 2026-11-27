@@ -36,6 +36,7 @@ def capture(app):
     st["colors"] = {"mode": app.cfg["color_mode"] or "project", "lines": bool(app.cfg["tree_line_colors"]),
                     "cfilters": bool(app.cfg["color_filters_on"])}
     st["win_nav"] = bool(app.cfg["win_nav"])           # modo Windows del panel izquierdo
+    st["win_bonsai"] = bool(app.cfg["win_bonsai"])     # … con el Bonsai
     st["lib_slots"] = list(app.cfg["lib_slots"] or [])  # los circulitos 1…4 del player de la librería
     st["bonsai"] = list(app.cfg["mini_tree"] or [])     # cada workspace con su Bonsai (lo que podaste queda podado)
     return st
@@ -53,6 +54,8 @@ def apply_bonsai(app, lst):
         return
     app.cfg["mini_tree"] = list(lst)
     app.minitree.rebuild()
+    if hasattr(app, "winbonsai"):
+        app.winbonsai.rebuild()
 
 
 FACTORY_COLORS = {"mode": "project", "lines": True, "cfilters": False}
@@ -86,6 +89,8 @@ def apply(app, st):
             app.lib_slots.bar.update()
     if "win_nav" in st:
         apply_win_nav(app, st["win_nav"])
+    if "win_bonsai" in st and hasattr(app, "b_winbonsai") and app.b_winbonsai.isChecked() != bool(st["win_bonsai"]):
+        app.b_winbonsai.setChecked(bool(st["win_bonsai"]))
     panes = st.get("panes") or []
     remember = bool(app.cfg["ws_remember_selection"])
     for i, p in enumerate(app.panes):
@@ -141,7 +146,9 @@ def reset_layout(app, keep_win=False):
     apply_colors(app, None)                       # los colores también vuelven a los de fábrica
     apply_bonsai(app, [])                         # y el Bonsai arranca podado (queda solo la carpeta que se abre)
     if not keep_win:
-        apply_win_nav(app, True)                  # panel izquierdo como en Windows
+        apply_win_nav(app, True)                  # panel izquierdo como en Windows (sin el Bonsai)
+        if hasattr(app, "b_winbonsai") and app.b_winbonsai.isChecked():
+            app.b_winbonsai.setChecked(False)
     for p in app.panes:
         p._stop_search()
         p.clear_tabs()

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.52.0
+- Windows mode: Bonsai button next to the Windows mode button — the same single scrolling panel (Quick access on top), but below it only the folders you visited, with lines and the path marked. The Prune scissors appear next to it. Each workspace remembers it; Reset to zero turns it off.
+- Windows mode: an eye under the tree to show hidden Quick access items (they show dimmed). Hide now works there: before, with the eye on, hidden items still showed and there was no eye to turn it off.
+- Desktop, Documents, Downloads… (the Windows folders at the top) no longer take drops or reordered items, in Windows mode and in the normal Quick access.
+
 ## 0.51.0
 - Workspaces always save themselves as you work («Keep updated» is always on and left the menu).
 - Every workspace has «Reset to zero» (one tab in This PC, factory panels); it keeps its Workspace Pins, notes and Windows mode.
