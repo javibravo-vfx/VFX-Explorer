@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.61.2
+- Fix (since 0.60.1): on start, the VFX Library tree on a NAS could lose its expand arrows and could not be opened. A folder listing that arrives twice no longer marks the folder as empty.
+
 ## 0.61.1
 - Folders dragged from the VFX Library tree are offered as copy or link, so Quick access and the Workspace Pins always take them (with the lock on too).
 

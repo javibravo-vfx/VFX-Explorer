@@ -382,10 +382,11 @@ class LibrarySidebar(QWidget):
                 it.takeChild(i)
             else:
                 have.add(_nk(cp))
+        # sin subcarpetas: sin flechita (se mira la lectura completa, no solo lo nuevo)
+        it.setChildIndicatorPolicy(QTreeWidgetItem.ShowIndicator if (dirs or have)
+                                   else QTreeWidgetItem.DontShowIndicator)
         # una lectura que llega dos veces (de la red, o después de recargar el árbol) no duplica las carpetas
         dirs = [d for d in dirs if _nk(os.path.join(path, d)) not in have]
-        if not dirs:
-            it.setChildIndicatorPolicy(QTreeWidgetItem.DontShowIndicator)
         main = bool(it.data(0, Qt.UserRole + 4))
         from .libicons import folder_icon_for
         for d in dirs:
