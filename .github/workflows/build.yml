@@ -130,6 +130,22 @@ jobs:
           $exe = (Resolve-Path "dist\VFXExplorer\VFXExplorer.exe").Path
           $dir = Join-Path $env:TEMP "vfx_nas_stress"
           $failed = @()
+          # unidad mapeada real a un share de esta PC (como T: → W:), si el runner lo permite
+          $share = "VFXStress$([Guid]::NewGuid().ToString('N').Substring(0,8))"
+          $local = Join-Path $env:RUNNER_TEMP $share
+          $letter = $null; $created = $false; $mapped = $false
+          try {
+            New-Item -ItemType Directory -Force $local | Out-Null
+            $used = @(Get-PSDrive -PSProvider FileSystem | ForEach-Object { $_.Name })
+            $letter = @('T','Q','P','O','N','M') | Where-Object { $_ -notin $used } | Select-Object -First 1
+            New-SmbShare -Name $share -Path $local -FullAccess "$env:USERDOMAIN\$env:USERNAME" -ErrorAction Stop | Out-Null
+            $created = $true
+            & net.exe use "${letter}:" "\\$env:COMPUTERNAME\$share" /persistent:no
+            if ($LASTEXITCODE -ne 0) { throw "net use falló" }
+            $mapped = $true
+            $env:VFX_LOOPBACK_LOCAL = $local
+            $env:VFX_LOOPBACK_MAPPED = "${letter}:\"
+          } catch { Write-Warning "Sin unidad mapeada real: $_" }
           foreach ($seed in 1, 2, 3) {
             Write-Host "===== semilla $seed ====="
             $p = Start-Process -FilePath $exe -ArgumentList "--nas-stress $seed 400" -Wait -PassThru
@@ -141,6 +157,9 @@ jobs:
             }
             Remove-Item "$dir\result.log" -ErrorAction SilentlyContinue
           }
+          Remove-Item Env:VFX_LOOPBACK_LOCAL,Env:VFX_LOOPBACK_MAPPED -ErrorAction SilentlyContinue
+          if ($mapped) { & net.exe use "${letter}:" /delete /y | Out-Null }
+          if ($created) { Remove-SmbShare -Name $share -Force -ErrorAction SilentlyContinue }
           $left = @(Get-Process VFXExplorer -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe })
           if ($left.Count -gt 0) { $left | Stop-Process -Force; throw "Procesos VFXExplorer huérfanos" }
           if ($failed.Count -gt 0) { throw "Estrés NAS falló en las semillas: $($failed -join ', ')" }

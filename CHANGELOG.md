@@ -3,6 +3,7 @@
 ## 0.62.4-beta — NAS stress test
 
 - New `VFXExplorer.exe --nas-stress [seed] [steps]`: ~150 folders (photos, EXR, HDR, EXR sequences) on a simulated NAS whose disks fall asleep and take 2–6 s to wake; the real window gets random actions (Library and File Explorer navigation, tree expand/collapse and clicks, file selection with viewer and Details, tabs, mode switches, refresh, back). Fails on a crash or if the window stalls more than 5 s. Result and crash.log in %TEMP%\vfx_nas_stress.
+- When CI can create a local SMB share mapped to a drive letter (like T: → W:), the stress also browses a second library root on that real mapped drive, so the Windows routing code runs under the same load.
 - GitHub Windows build runs it on the exe (3 seeds × 400 steps, required; plus one run with a real Windows window, informative) and prints crash.log on failure. App behavior unchanged.
 
 ## 0.62.3-beta — crash log

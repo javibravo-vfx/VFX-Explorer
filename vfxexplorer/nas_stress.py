@@ -66,12 +66,12 @@ class FakeNas:
             time.sleep(wait)
 
 
-def _fixture(base):
+def _fixture(base, tops=None):
     import numpy as np
     from PySide6.QtGui import QImage, QColor
     import OpenImageIO as oiio
     rnd = random.Random(7)
-    tops = ["Assets 3D", "Surfaces Textures", "Lighting", "VFX Stock Elements", "Reference", "Mocap"]
+    tops = tops or ["Assets 3D", "Surfaces Textures", "Lighting", "VFX Stock Elements", "Reference", "Mocap"]
     folders = []
     rgb = np.linspace(.02, 2.0, 96 * 48 * 3, dtype=np.float32).reshape(48, 96, 3)
     for t in tops:
@@ -135,6 +135,18 @@ def run(argv):
         imaging.init_formats()
         folders = _fixture(base)
         say(f"fixture: {len(folders)} carpetas en {base} · semilla {seed} · {steps} pasos")
+        roots = [base]
+        # unidad mapeada real a un share de esta misma PC (como T: → W:), si el CI la pudo crear
+        loc, mapped = os.environ.get("VFX_LOOPBACK_LOCAL"), os.environ.get("VFX_LOOPBACK_MAPPED")
+        if loc and mapped:
+            sub = tempfile.mkdtemp(prefix="vfx_smb_", dir=loc)
+            local_folders = _fixture(sub, ["Plates", "Comps"])
+            mroot = os.path.join(mapped, os.path.relpath(sub, loc))
+            folders += [os.path.join(mroot, os.path.relpath(f, sub)) for f in local_folders]
+            roots.append(mroot)
+            say(f"unidad mapeada real: {len(local_folders)} carpetas en {mroot} (→ {sub}) · red: {core.net_root(mroot)}")
+        else:
+            say("unidad mapeada real: no disponible (solo NAS simulado)")
         core.NET_FAKE_ROOTS.add(base)
 
         # todo lo que lee el NAS pasa por el «disco que duerme»
@@ -157,13 +169,27 @@ def run(argv):
         from .mainwindow import MainWindow
         from .models import ROLE_ENTRY
         w = MainWindow(None)
-        w.cfg["library_roots"] = [base]
+        w.cfg["library_roots"] = roots
         w.cfg.save()
         w.resize(1500, 900)
         w.show()
         w.libside.reload()
         rnd = random.Random(seed)
         state = {"n": 0, "errors": 0, "last": time.monotonic(), "gap": 0.0, "gaps": []}
+        if len(roots) > 1:
+            from . import storage
+            _nrp = storage.native_read_path
+            routed = {"direct": 0, "network": 0}
+
+            def nrp(p):
+                r = _nrp(p)
+                if r != p:
+                    routed["direct"] += 1
+                elif storage.network_root(p):
+                    routed["network"] += 1
+                return r
+            storage.native_read_path = nrp
+            state["routed"] = routed
 
         def beat():
             now = time.monotonic()
@@ -249,6 +275,8 @@ def run(argv):
 
         def finish():
             hb.stop()
+            if "routed" in state:
+                say(f"unidad mapeada: lecturas directas del disco {state['routed']['direct']} · por red {state['routed']['network']}")
             say(f"pasos {state['n']} · errores de acción {state['errors']} · despertares del NAS {nas.wakeups} · "
                 f"lecturas que esperaron {nas.waits} · traba máx {state['gap']:.2f} s · trabas >1 s {state['gaps'][:20]}")
             state["done"] = True
