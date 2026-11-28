@@ -659,7 +659,7 @@ class MainWindow(QMainWindow):
         lp.model.lib_mode = True
         lp.grid.lib_mode = True
         lp.list.lib_mode = True
-        lp.root_lock = lambda: [r for r in (self.cfg["library_roots"] or []) if safe_isdir(r)]
+        lp.root_lock = lambda: [r for r in (self.cfg["library_roots"] or []) if net_root(r) or safe_isdir(r)]
         lp.focused.connect(self.set_active)
         lp.selection_changed.connect(self._sel_changed)
         lp.location_changed.connect(self._location_changed)
@@ -1606,7 +1606,7 @@ class MainWindow(QMainWindow):
             place()
         self._mt_place = (tok, dst, place)        # si la carpeta llega más tarde (red), se acomoda ahí
         # el árbol puede seguir abriendo ramas (o leyendo carpetas) un rato después: se reacomoda unas veces
-        if here == "::thispc" or on or reachable(here):
+        if here == "::thispc" or on or net_root(here) or reachable(here):
             for ms in (0, 60, 200, 500):
                 QTimer.singleShot(ms, align)
 
@@ -1834,9 +1834,9 @@ class MainWindow(QMainWindow):
         states = self.cfg["panes"] or []
         home = QDir.homePath()
         from .core import THISPC
-        fallback = start_path if safe_isdir(start_path) else (THISPC if IS_WIN else home)
+        fallback = start_path if net_root(start_path) or safe_isdir(start_path) else (THISPC if IS_WIN else home)
         a_state = states[0] if states else None
-        if safe_isdir(start_path):
+        if net_root(start_path) or safe_isdir(start_path):
             a_state = {"tabs": [{"path": start_path}], "current": 0, "view": (a_state or {}).get("view", "grid")}
         self.paneA.restore(a_state, fallback)
         self.paneB.restore(states[1] if len(states) > 1 else None, fallback)
@@ -1901,6 +1901,14 @@ class MainWindow(QMainWindow):
             QProcess.startDetached(sys.executable, sys.argv)
 
     def closeEvent(self, ev):
+        # Stop accepting network decoder jobs before waiting on viewer threads.
+        from .media_process import shutdown
+        shutdown()
+        # Pending remote scans are pure Python daemon work, never deliver to a closing window.
+        for p in self.all_panes:
+            p._cancel_remote_scans()
+        self.libside._lister.cancel_all()
+        self.libside._retry_state.clear()
         if getattr(self, "_resetting", False):
             self.save_timer.stop()
             for p in self.all_panes:
@@ -2483,7 +2491,7 @@ class MainWindow(QMainWindow):
             return
         t = pane.tab()
         here = "::thispc" if (t and t["virtual"] and t["virtual"]["kind"] == "thispc") else (d or "")
-        d_tree = d if (d and reachable(d)) else ""
+        d_tree = d or ""
         if d:
             self.minitree.add(d)
         self.minitree.sync(here)
@@ -2569,29 +2577,22 @@ class MainWindow(QMainWindow):
         threading.Thread(target=watch, daemon=True).start()
 
     def _net_watch(self):
+        # State-only timer: never wakes disks by polling healthy or inactive shares.
         bad = set(net_offline_roots())
-        for r in list(self._net_known_bad | bad):
-            if r not in bad:                 # respondió de nuevo
-                self._net_back(r)
-            else:
-                reachable(r, 0)              # dispara otro chequeo en segundo plano (no espera)
-        self._net_known_bad = set(net_offline_roots())
+        self.libside.update_network_labels()
+        for r in self._net_known_bad - bad:
+            self._net_back(r)
+        self._net_known_bad = bad
 
     def _net_back(self, root):
-        self.status.setText(f"{root} is back online")
-        self.libside.reload()
-        roots = self.libpane.root_lock()
-        if roots and not self.libpane.tabs:
-            lst = self.cfg["library_pane"] or None
-            if lst:
-                lst = dict(lst, tabs=[t for t in lst.get("tabs", []) if self.libpane.allowed(t.get("path", ""))])
-            self.libpane.restore(lst, roots[0])
-        for p in self.all_panes:
-            cur = p.current_dir()
-            if cur and net_root(cur) == root:
-                p.refresh()
+        if self.libside.isVisible():
+            self.libside.refresh_network_tree(root)
+        if any(p.isVisible() and net_root(p.current_dir()) == root for p in self.all_panes):
+            self.status.setText(f"{root} is back online")
+        # Visible failed scans already have their own retry; avoid a redundant second scan.
         for pb in self.pipebars:
-            pb.reload()
+            if pb.isVisible():
+                pb.reload()
 
     def refresh_dirs(self, dirs):
         keys = {norm_key(d) for d in dirs if d}
@@ -2684,7 +2685,7 @@ class MainWindow(QMainWindow):
         misma también vale la única imagen de una carpeta que además tiene otros archivos (p. ej. un modelo
         con su render)."""
         from .core import IMAGE_EXTS
-        if not d or not reachable(d):
+        if not d:
             return None
         roots = {os.path.normcase(os.path.normpath(r)) for r in self.libpane.root_lock()}
         cur = os.path.normpath(d)
@@ -2716,7 +2717,7 @@ class MainWindow(QMainWindow):
 
     def _folder_pdf(self, d):
         """PDF de la carpeta actual o de la carpeta madre más cercana (dentro de la librería)."""
-        if not d or not reachable(d):
+        if not d:
             return None
         roots = [os.path.normcase(os.path.normpath(r)) for r in self.libpane.root_lock()]
         cache = self.__dict__.setdefault("_pdf_cache", {})
@@ -3605,7 +3606,7 @@ class MainWindow(QMainWindow):
                 p.live_update()
 
     def _back_to_window(self):
-        """Al volver a la ventana: la pestaña visible de cada panel se pone al día (también en red)."""
+        """Al volver a la ventana: la pestaña visible de cada panel se pone al día (también en red, incluyendo REVIEW)."""
         self._rev_timer.start()
         for p in self.all_panes:
             if p.isVisible() and not p.is_virtual():
@@ -3617,7 +3618,7 @@ class MainWindow(QMainWindow):
         for p in (self.all_panes if self.cfg["review_live"] else []):   # apagado en Settings: no vigila nada
             if p.isVisible() and not p.is_virtual():
                 d = p.current_dir()
-                if d and d != THISPC and not is_network_path(d) and os.path.isdir(d):
+                if d and d != THISPC and not net_root(d) and os.path.isdir(d):
                     want.add(os.path.normpath(d))
         have = set(self._rev_watch.directories())
         if have - want:
@@ -3647,7 +3648,7 @@ class MainWindow(QMainWindow):
             if not p.isVisible() or p.is_virtual() or not p.model.entries:
                 continue
             d = p.current_dir()
-            if not d or d == THISPC or not reachable(d):
+            if not d or d == THISPC or net_root(d):
                 continue
 
             def scan(d=d):

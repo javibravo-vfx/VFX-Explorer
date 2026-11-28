@@ -169,6 +169,12 @@ def selftest():
 
 
 def main():
+    if "--nas-stress" in sys.argv:
+        from vfxexplorer.nas_stress import run
+        sys.exit(run(sys.argv))
+    if "--nas-selftest" in sys.argv:
+        from vfxexplorer.nas_selftest import run
+        sys.exit(run())
     if "--selftest" in sys.argv:
         sys.exit(selftest())
     if sys.platform.startswith("win"):
@@ -177,8 +183,16 @@ def main():
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("javibravo-vfx.vfxexplorer")
         except Exception:
             pass
+    try:                                   # registro de cierres inesperados (VFXExplorer_data/crash.log)
+        from vfxexplorer import crashlog, VERSION
+        from vfxexplorer.core import data_dir
+        crashlog.install(data_dir(), VERSION)
+    except Exception:
+        crashlog = None
     from PySide6.QtWidgets import QApplication
     from PySide6.QtCore import QTimer
+    if crashlog:
+        crashlog.install_qt()
     _mark("import Qt")
     app = QApplication(sys.argv)
     app.setApplicationName("VFX Explorer")
@@ -225,4 +239,6 @@ def main():
 
 
 if __name__ == "__main__":
+    import multiprocessing
+    multiprocessing.freeze_support()
     main()

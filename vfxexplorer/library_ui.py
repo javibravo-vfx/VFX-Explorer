@@ -10,7 +10,7 @@ from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QTreeWidget, QTreeWidgetItem,
                                QToolButton, QLabel, QMenu, QFileDialog)
 
-from .core import reachable
+from .core import reachable, net_root, network_status
 from .viewer import Viewer
 from .pane import FilePane
 from .tree import LibTree
@@ -112,11 +112,15 @@ class LibrarySidebar(QWidget):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(1)
         from .asyncdir import AsyncLister
-        self._lister = AsyncLister(self)
+        from .tree_retry import TreeRetries
+        self._lister = AsyncLister(self, separate_cache=True)
         self._lister.done.connect(self._listed)
+        self._lister.cached.connect(self._listed_cached)
+        self._retry_state = TreeRetries()
         self.tree = LibTree(app, self._item, self._expand)
         self.tree.setIconSize(app.icons.folder(None, 18).size())
         self.tree.itemExpanded.connect(self._expand)
+        self.tree.itemCollapsed.connect(self._collapsed)
         self.tree.itemClicked.connect(lambda it, c: self.app.open_library(it.data(0, Qt.UserRole)))
         self._press = None                        # (momento, carpeta) del último clic en el árbol
         self.tree.viewport().installEventFilter(self)
@@ -191,9 +195,12 @@ class LibrarySidebar(QWidget):
             fn()
         finally:
             tr.setAutoScroll(auto)
-        if y0 is None or it is None or it.treeWidget() is not tr:
+        try:
+            if y0 is None or it is None or it.treeWidget() is not tr:
+                return
+            y1 = tr.visualItemRect(it).top()
+        except RuntimeError:  # anchor removed by the new listing
             return
-        y1 = tr.visualItemRect(it).top()
         if y1 != y0:
             sb = tr.verticalScrollBar()
             sb.setValue(sb.value() + (y1 - y0))
@@ -296,6 +303,9 @@ class LibrarySidebar(QWidget):
 
     def reload(self):
         cur = self.tree._trace_path
+        self._retry_state.clear()
+        self._lister.cancel_all()
+        self._press = None
         self.tree.clear()
         roots = self.roots()
         if not roots:
@@ -315,16 +325,6 @@ class LibrarySidebar(QWidget):
             # una carpeta elegida: su propio nombre (prolijo) con su ícono, y adentro carpetas comunes
             if is_drive:
                 name = "VFX Library" if single else f"VFX Library ({r.rstrip(chr(92)).rstrip('/')})"
-            if not reachable(r):                  # NAS apagado: se muestra, sin tocarlo, y se reintenta solo
-                it = QTreeWidgetItem([name + "   (offline)"])
-                it.setData(0, Qt.UserRole, r)
-                it.setData(0, Qt.UserRole + 2, True)
-                it.setForeground(0, Qt.gray)
-                it.setIcon(0, self.app.icons.folder_icon(None, 18))
-                it.setToolTip(0, r + "\nNot available right now — it shows up by itself when the network is back")
-                it.setChildIndicatorPolicy(QTreeWidgetItem.DontShowIndicator)
-                self.tree.addTopLevelItem(it)
-                continue
             it = self._item(r, name, pretty=not is_drive)
             it.setToolTip(0, r)
             if is_drive:
@@ -334,10 +334,40 @@ class LibrarySidebar(QWidget):
                 ic = folder_icon_for(os.path.basename(r.rstrip("\\/")), 18)
                 if ic is not None:
                     it.setIcon(0, ic)
+            it.setData(0, Qt.UserRole + 7, it.text(0))
             self.tree.addTopLevelItem(it)
             it.setExpanded(len(roots) <= 3)      # las raíces arrancan abiertas
+        self.update_network_labels()
         if cur:
             self.sync(cur)
+
+    def update_network_labels(self):
+        """Update labels in place; do not rebuild or wake the tree."""
+        for i in range(self.tree.topLevelItemCount()):
+            it = self.tree.topLevelItem(i)
+            path = it.data(0, Qt.UserRole)
+            base = it.data(0, Qt.UserRole + 7)
+            if not path or not net_root(path) or base is None:
+                continue
+            state, pending = network_status(path)
+            suffix = " (offline)" if state is False else ""
+            tip = path + ("\nChecking storage…" if pending or state is None else "\nStorage offline" if state is False else "")
+            if it.text(0) != base + suffix:
+                it.setText(0, base + suffix)
+            it.setToolTip(0, tip)
+
+    def refresh_network_tree(self, root):
+        """Refresh only expanded items of the recovered share, preserving selection/scroll."""
+        def visit(it):
+            path = it.data(0, Qt.UserRole)
+            if not path or net_root(path) != root or not it.isExpanded():
+                return
+            self._retry_state.reset(_nk(path))
+            self._lister.request(path)
+            for i in range(it.childCount()):
+                visit(it.child(i))
+        for i in range(self.tree.topLevelItemCount()):
+            visit(self.tree.topLevelItem(i))
 
     def _item(self, path, label, pretty=True):
         if pretty and self.app.cfg["lib_pretty_names"]:
@@ -354,10 +384,9 @@ class LibrarySidebar(QWidget):
         if it.data(0, Qt.UserRole + 1):
             return
         path = it.data(0, Qt.UserRole)
-        if not reachable(path):
-            return
-        from .core import net_root
         if net_root(path):                        # red (NAS): se lee en otro hilo, sin trabar la ventana
+            if _nk(path) in self._retry_state.pending:
+                return
             it.setData(0, Qt.UserRole + 1, True)
             if not it.childCount():
                 ph = QTreeWidgetItem(["loading…"])
@@ -376,9 +405,12 @@ class LibrarySidebar(QWidget):
 
     def _fill(self, it, path, dirs):
         have = set()
+        expected = {_nk(os.path.join(path, d)) for d in dirs}
         for i in reversed(range(it.childCount())):
             cp = it.child(i).data(0, Qt.UserRole)
-            if not cp:                                        # «loading…»
+            if not cp or _nk(cp) not in expected:              # «loading…» or deleted on disk
+                if cp:
+                    self._cancel_branch(it.child(i))
                 it.takeChild(i)
             else:
                 have.add(_nk(cp))
@@ -397,17 +429,119 @@ class LibrarySidebar(QWidget):
                     c.setIcon(0, ic)
             it.addChild(c)
 
-    def _listed(self, path, dirs):
-        it = self.tree.item_for(path, expand=False) if hasattr(self.tree, "item_for") else None
-        if it is None or os.path.normcase(os.path.normpath(it.data(0, Qt.UserRole) or "")) != \
-                os.path.normcase(os.path.normpath(path)):
+    def _find(self, path):
+        """La carpeta en el árbol tal como está ahora, sin leer nada ni depender de qué ramas ya se leyeron
+        (una rama que falló mientras el NAS arrancaba no tiene que esconder lo que llega de sus subcarpetas)."""
+        key = _nk(path)
+        best = None
+        for i in range(self.tree.topLevelItemCount()):
+            t = self.tree.topLevelItem(i)
+            r = _nk(t.data(0, Qt.UserRole))
+            if r and (key == r or key.startswith(r.rstrip("\\/") + os.sep)):
+                if best is None or len(r) > len(_nk(best.data(0, Qt.UserRole))):
+                    best = t
+        it = best
+        while it is not None and _nk(it.data(0, Qt.UserRole)) != key:
+            nxt = None
+            for j in range(it.childCount()):
+                c = it.child(j)
+                cp = c.data(0, Qt.UserRole)
+                if cp and (key == _nk(cp) or key.startswith(_nk(cp).rstrip("\\/") + os.sep)):
+                    nxt = c
+                    break
+            it = nxt
+        return it
+
+    def _cancel_branch(self, it):
+        path = it.data(0, Qt.UserRole)
+        if not path:
             return
-        # lo que llega de la red no corre la vista: queda quieta la primera carpeta visible
+        root = _nk(path)
+        # Only inspect outstanding requests, not every loaded descendant on collapse.
+        outstanding = set(self._retry_state.attempts) | {_nk(p) for p in self._lister.busy}
+        for key in outstanding:
+            if key != root and not key.startswith(root.rstrip("\\/") + os.sep):
+                continue
+            self._retry_state.reset(key)
+            for p in list(self._lister.busy):
+                if _nk(p) == key:
+                    self._lister.cancel(p)
+            child = self._find(key)
+            if child is not None:
+                child.setData(0, Qt.UserRole + 1, False)
+                self._remove_loading(child)
+
+    def _collapsed(self, it):
+        # A collapsed branch no longer needs live reads/retries. Cached children stay visible on reopen.
+        self._cancel_branch(it)
+
+    @staticmethod
+    def _remove_loading(it):
+        for i in reversed(range(it.childCount())):
+            if not it.child(i).data(0, Qt.UserRole):
+                it.takeChild(i)
+
+    @staticmethod
+    def _branch_open(it):
+        while it is not None:
+            if not it.isExpanded():
+                return False
+            it = it.parent()
+        return True
+
+    def _retry_later(self, path):
+        key = _nk(path)
+        it = self._find(path)
+        if it is None or not self._branch_open(it):
+            self._retry_state.reset(key)
+            if it is not None:
+                self._remove_loading(it)
+                it.setData(0, Qt.UserRole + 1, False)
+            return
+        scheduled = self._retry_state.schedule(key)
+        if scheduled is None:
+            if key not in self._retry_state.pending:  # exhausted, not just already scheduled
+                self._remove_loading(it)
+                # Suppress incidental sync() reads until collapse/reopen or explicit recovery.
+                it.setData(0, Qt.UserRole + 1, True)
+            return
+        ticket, delay = scheduled
+        QTimer.singleShot(delay, self, lambda p=path, t=ticket: self._retry(p, t))
+
+    def _retry(self, path, ticket):
+        key = _nk(path)
+        if not self._retry_state.consume(key, ticket):
+            return
+        it = self._find(path)
+        if it is not None and self._branch_open(it):
+            self._lister.request(path)
+        else:
+            self._retry_state.reset(key)
+            if it is not None:
+                self._remove_loading(it)
+                it.setData(0, Qt.UserRole + 1, False)
+
+    def _listed_cached(self, path, dirs):
+        self._listed(path, dirs, cached=True)
+
+    def _listed(self, path, dirs, cached=False):
+        it = self._find(path)
+        if it is None:
+            self._retry_state.reset(_nk(path))
+            return
+        if dirs is None:
+            # Keep cached children, but don't mark the directory authoritative.
+            it.setData(0, Qt.UserRole + 1, False)
+            self._retry_later(path)
+            return
+        if not cached:
+            self._retry_state.reset(_nk(path))
+        it.setData(0, Qt.UserRole + 1, True)
         top = self.tree.itemAt(0, 0)
         self._anchored(top, lambda: self._fill(it, path, [d for d in dirs if not d.startswith(".")]))
         cur = self.tree._trace_path
         if cur and os.path.normcase(cur).startswith(os.path.normcase(os.path.normpath(path))):
-            self.sync(cur, scroll=False)          # el camino actual pasaba por acá: completar el trazo
+            self.sync(cur, scroll=False)
 
     def add_root(self):
         d = QFileDialog.getExistingDirectory(self, "VFX Library folder",

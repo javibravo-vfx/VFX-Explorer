@@ -10,7 +10,7 @@ import subprocess
 from collections import OrderedDict
 
 import numpy as np
-from PySide6.QtCore import Qt, QObject, Signal, QRunnable, QThreadPool
+from PySide6.QtCore import Qt, QObject, Signal, QRunnable, QThreadPool, QTimer
 from PySide6.QtGui import QImage, QPixmap, QPainter, QColor, QImageReader
 
 try:
@@ -36,17 +36,16 @@ _PDF_LOCK = threading.Lock()     # pdfium no es thread-safe
 _WARM = {}            # unidad de red -> último momento en que se la despertó
 
 
-def _warm(path, whole=False):
+def _warm(path, whole=False, root=None):
     """OpenImageIO no suelta el GIL de Python mientras espera al disco: con el NAS con los discos dormidos, un
     hilo leyendo un EXR congelaba toda la app hasta que arrancaban. Antes se lee un pedacito con Python (que sí lo
     suelta): los discos arrancan acá, sin trabar nada. Si el NAS se usó hace menos de 30 s, los discos ya están
     andando y no se lee nada de más (reproducir una secuencia desde el NAS rinde igual que antes)."""
-    root = net_root(path)
+    root = root or net_root(path)
     if not root:
         return
     now = time.monotonic()
     if now - _WARM.get(root, -1e9) < 30:
-        _WARM[root] = now
         return
     try:
         with open(path, "rb", buffering=0) as f:
@@ -56,8 +55,17 @@ def _warm(path, whole=False):
         pass
 
 
+def warm_disk(physical, logical):
+    """Una unidad mapeada que se lee directo del disco físico (SMB local, p. ej. T: → W:): ese disco también
+    puede estar dormido (HDD) y OIIO esperaría con el GIL tomado. Se despierta igual que el NAS."""
+    from .storage import queue_key
+    _warm(physical, root="phys:" + (queue_key(logical) or physical[:2].casefold()))
+
+
 def oiio_open(path, whole=False):
-    _warm(path, whole)
+    from . import media_process
+    if not media_process._child:
+        _warm(path, whole)
     return oiio.ImageInput.open(path)
 
 def pdf_page_count(path):
@@ -227,6 +235,10 @@ def exr_layers(path):
     """Capas de un EXR para el selector del viewer: [(etiqueta, [canales] | None, es_dato)]."""
     if not HAS_OIIO:
         return []
+    from .media_process import isolated, call, decode_path
+    path = decode_path(path)
+    if isolated(path):
+        return call(__name__, "exr_layers", (path,))
     inp = oiio_open(path)
     if not inp:
         return []
@@ -270,6 +282,10 @@ def exr_layers(path):
 
 
 def oiio_thumb(path, settings, maxdim=THUMB_RES):
+    from .media_process import isolated, call, decode_path
+    path = decode_path(path)
+    if isolated(path):
+        return call(__name__, "oiio_thumb", (path, settings, maxdim), preview=maxdim <= THUMB_RES)
     r = _oiio_read(path, settings, maxdim)
     if r is None:
         return QImage()
@@ -350,6 +366,10 @@ def _oiio_cs(path, settings, chroma, is_float, cs_attr):
 def hdr_linear(path, settings, maxdim):
     """Para el visor de HDRIs: la imagen en float lineal Rec.709 (sin recortar los altos), para aplicarle
     exposición y gamma al vuelo. Devuelve (rgb HxWx3 float32, alpha o None) o None."""
+    from .media_process import isolated, call, decode_path
+    path = decode_path(path)
+    if isolated(path):
+        return call(__name__, "hdr_linear", (path, settings, maxdim))
     r = _oiio_read(path, settings, maxdim)
     if r is None:
         return None
@@ -524,7 +544,7 @@ class DirIndex:
                         break
                     out[de.name.lower()] = de.name
         except OSError:
-            pass
+            return out
         with self._lock:
             if len(self._c) > 2000:
                 self._c.clear()
@@ -564,7 +584,48 @@ def find_sidecar(e, index):
 # Carga de thumbnails (en threads) con caché en disco
 # ----------------------------------------------------------------------------
 
+def _thumb_cache_alias(e, settings, cache_dir):
+    # Snapshot identity: the middle frame / sidecar may not have its own stat in Entry.
+    sig = repr((e.thumb_source(), e.kind, e.mtime, e.size, e.thumb_mtime, e.thumb_size, settings['cs'], settings['chroma'], settings['sidecar'], 'nas-v1'))
+    return os.path.join(cache_dir, hashlib.sha1(sig.encode('utf-8', 'replace')).hexdigest() + '.jpg')
+
+
+def cached_thumbnail(e, settings, cache_dir):
+    if e.cat in ('dir', 'model') and not settings['sidecar']:
+        return QImage()
+    img = QImage(_thumb_cache_alias(e, settings, cache_dir))
+    if not img.isNull():
+        return img
+    # Reuse existing v2 cache for ordinary files, including upgrades from 0.61.3.
+    if (e.kind == 'file' and e.cat != 'model' and e.mtime) or (e.kind == 'seq' and e.thumb_mtime):
+        mt, size = (e.thumb_mtime, e.thumb_size) if e.kind == 'seq' else (e.mtime, e.size)
+        sig = f"{e.thumb_source()}|{mt}|{size}|{settings['cs']}|{settings['chroma']}|v2"
+        return QImage(os.path.join(cache_dir, hashlib.sha1(sig.encode('utf-8', 'replace')).hexdigest() + '.jpg'))
+    return QImage()
+
+
+def _save_alias(img, e, settings, cache_dir):
+    if net_root(e.path) and not img.isNull() and (e.cat in ("dir", "model") or not (e.mtime if e.kind == "file" else e.thumb_mtime)):
+        # atomic publish: the cache-only pool must never see a partially written JPG
+        ck = _thumb_cache_alias(e, settings, cache_dir)
+        tmp = ck + '.' + str(threading.get_ident()) + '.tmp'
+        try:
+            if img.convertToFormat(QImage.Format_RGB32).save(tmp, 'JPG', 88):
+                os.replace(tmp, ck)
+        except OSError:
+            pass
+        finally:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+
+
 def load_thumbnail(e, settings, cache_dir, index):
+    if net_root(e.path):
+        hit = cached_thumbnail(e, settings, cache_dir)
+        if not hit.isNull():
+            return hit
     src, ext, cat = e.thumb_source(), e.ext, e.cat
     if cat in ("dir", "model"):
         if not settings["sidecar"]:
@@ -582,6 +643,7 @@ def load_thumbnail(e, settings, cache_dir, index):
     if os.path.isfile(ck):
         img = QImage(ck)
         if not img.isNull():
+            _save_alias(img, e, settings, cache_dir)
             return img
     e2 = ext.lstrip(".")
     if cat == "video" or ext in VIDEO_EXTS:
@@ -599,41 +661,54 @@ def load_thumbnail(e, settings, cache_dir, index):
             img.convertToFormat(QImage.Format_RGB32).save(ck, "JPG", 88)
         except Exception:
             pass
+    _save_alias(img, e, settings, cache_dir)
     return img
 
 
 class Signals(QObject):
-    done = Signal(str, QImage)
+    done = Signal(str, QImage, int)
     info = Signal(int, str)
+    cache_miss = Signal(object)
 
 
 class ThumbTask(QRunnable):
-    def __init__(self, key, entry, settings, cache_dir, index, signals):
+    def __init__(self, key, entry, settings, cache_dir, index, signals, cache_only=False, epoch=0):
         super().__init__()
         self.key, self.e = key, entry
+        self.cache_only, self.epoch = cache_only, epoch
         self.settings, self.cache_dir, self.index, self.signals = settings, cache_dir, index, signals
 
     def run(self):
         try:
-            img = load_thumbnail(self.e, self.settings, self.cache_dir, self.index)
+            img = (cached_thumbnail(self.e, self.settings, self.cache_dir) if self.cache_only else
+                   load_thumbnail(self.e, self.settings, self.cache_dir, self.index))
         except Exception:
             img = QImage()
-        self.signals.done.emit(self.key, img)
+        if self.cache_only and img.isNull():
+            self.signals.cache_miss.emit((self.key, self.e, self.settings, self.epoch))
+        else:
+            self.signals.done.emit(self.key, img, self.epoch)
 
 
 class VideoScrubTask(QRunnable):
     """Frame k de steps de un video (para el scrub de la grilla)."""
 
-    def __init__(self, key, path, k, steps, settings, cache_dir, signals):
+    def __init__(self, key, path, k, steps, settings, cache_dir, signals, epoch=0, stamp=None):
         super().__init__()
+        self.stamp = stamp
         self.key, self.path, self.k, self.steps = key, path, k, steps
+        self.epoch = epoch
         self.settings, self.cache_dir, self.signals = settings, cache_dir, signals
 
     def run(self):
         img = QImage()
         try:
-            st = os.stat(self.path)
-            sig = f"{self.path}|{st.st_mtime}|{st.st_size}|scrub{self.k}/{self.steps}|v1"
+            if self.stamp:
+                mt, size = self.stamp
+            else:
+                st = os.stat(self.path)
+                mt, size = st.st_mtime, st.st_size
+            sig = f"{self.path}|{mt}|{size}|scrub{self.k}/{self.steps}|v1"
             ck = os.path.join(self.cache_dir, hashlib.sha1(sig.encode("utf-8", "replace")).hexdigest() + ".jpg")
             if os.path.isfile(ck):
                 img = QImage(ck)
@@ -648,7 +723,7 @@ class VideoScrubTask(QRunnable):
                         img.convertToFormat(QImage.Format_RGB32).save(ck, "JPG", 85)
         except Exception:
             img = QImage()
-        self.signals.done.emit(self.key, img)
+        self.signals.done.emit(self.key, img, self.epoch)
 
 
 class ThumbManager(QObject):
@@ -658,6 +733,12 @@ class ThumbManager(QObject):
         super().__init__()
         self.cfg = cfg
         self.pool = QThreadPool()
+        self.cache_pool = QThreadPool(self)
+        self.cache_pool.setMaxThreadCount(4)
+        from .storage import RootPools
+        self.storage_pools = RootPools(self.pool, self, 3)
+        self._epoch = 0
+        self.retry_after = {}
         self.cache = OrderedDict()
         self.scaled = {}
         self.pending = set()
@@ -665,7 +746,9 @@ class ThumbManager(QObject):
         self.index = DirIndex()
         self.signals = Signals()
         self.signals.done.connect(self._done)
-        self.cache_dir = os.path.join(data_dir, "thumbs")
+        self.signals.cache_miss.connect(self._cache_miss)
+        from .storage_cache import cache_home
+        self.cache_dir = os.path.join(cache_home(data_dir) or data_dir, "thumbs")
         os.makedirs(self.cache_dir, exist_ok=True)
         self.reload_settings()
 
@@ -702,6 +785,7 @@ class ThumbManager(QObject):
         for k in keys:
             self.cache.pop(k, None)
             self.failed.discard(k)
+            self.retry_after.pop(k, None)
         for sk in [sk for sk in self.scaled if sk[0] in keys]:
             self.scaled.pop(sk, None)
 
@@ -711,9 +795,11 @@ class ThumbManager(QObject):
         key = self.key_for(e)
         pm = self.cache.get(key)
         if pm is None:
-            if key not in self.pending and key not in self.failed:
+            if key not in self.pending and key not in self.failed and time.monotonic() >= self.retry_after.get(key, 0):
                 self.pending.add(key)
-                self.pool.start(ThumbTask(key, e, dict(self.settings), self.cache_dir, self.index, self.signals))
+                remote = bool(net_root(e.path))
+                pool = self.cache_pool if remote else self.pool
+                pool.start(ThumbTask(key, e, dict(self.settings), self.cache_dir, self.index, self.signals, remote, self._epoch))
             return None
         self.cache.move_to_end(key)
         if w and h:
@@ -747,10 +833,11 @@ class ThumbManager(QObject):
             key = f"{e.path}#scrub{k}"
             pm = self.cache.get(key)
             if pm is None:
-                if key not in self.pending and key not in self.failed:
+                if key not in self.pending and key not in self.failed and time.monotonic() >= self.retry_after.get(key, 0):
                     self.pending.add(key)
-                    self.pool.start(VideoScrubTask(key, e.path, k, steps, dict(self.settings), self.cache_dir,
-                                                   self.signals))
+                    pool = self.storage_pools.for_path(e.path)
+                    pool.start(VideoScrubTask(key, e.path, k, steps, dict(self.settings), self.cache_dir,
+                                                   self.signals, self._epoch, (e.mtime, e.size) if net_root(e.path) and e.mtime else None))
                 return None, f"{int(frac * 100)}%"
             sk = (key, w, h)
             s = self.scaled.get(sk)
@@ -763,18 +850,31 @@ class ThumbManager(QObject):
     def has_failed(self, e):
         return self.key_for(e) in self.failed
 
-    def _done(self, key, img):
+    def _cache_miss(self, payload):
+        key, e, settings, epoch = payload
+        if epoch == self._epoch and key in self.pending:
+            self.storage_pools.for_path(e.path).start(ThumbTask(key, e, settings, self.cache_dir, self.index, self.signals, epoch=epoch))
+
+    def _done(self, key, img, epoch):
+        if epoch != self._epoch:
+            return
         self.pending.discard(key)
         if img.isNull():
-            self.failed.add(key)
+            if net_root(key):
+                self.retry_after[key] = time.monotonic() + 15
+            else:
+                self.failed.add(key)
         else:
+            self.retry_after.pop(key, None)
             self.cache[key] = QPixmap.fromImage(img)
             while len(self.cache) > 2500:
                 self.cache.popitem(last=False)
         self.ready.emit(key)
 
     def cancel_pending(self):
-        self.pool.clear()
+        self._epoch += 1
+        self.storage_pools.clear()
+        self.cache_pool.clear()
         self.pending.clear()
 
     def forget(self, keys=None):
@@ -784,6 +884,7 @@ class ThumbManager(QObject):
             self.cache.clear()
             self.scaled.clear()
             self.failed.clear()
+            self.retry_after.clear()
             self.index.clear()
             return
         for k in keys:
@@ -814,6 +915,10 @@ class ThumbManager(QObject):
 # ----------------------------------------------------------------------------
 
 def oiio_info(path):
+    from .media_process import isolated, call, decode_path
+    path = decode_path(path)
+    if isolated(path):
+        return call(__name__, "oiio_info", (path,), preview=True)
     inp = oiio_open(path)
     if not inp:
         return [("Error", oiio.geterror() or "could not open")]

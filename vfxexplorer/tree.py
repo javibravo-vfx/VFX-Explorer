@@ -629,8 +629,6 @@ class FolderTree(_LinedMixin, QTreeWidget):
         path = it.data(0, Qt.UserRole)
         from .core import net_root, reachable
         if net_root(path):                          # red: en otro hilo (un NAS despertando no traba nada)
-            if not reachable(path):
-                return
             if not hasattr(self, "_lister"):
                 from .asyncdir import AsyncLister
                 self._lister = AsyncLister(self)
@@ -645,6 +643,8 @@ class FolderTree(_LinedMixin, QTreeWidget):
         if it is None:
             return
         self._apply_names(it, path, names)
+        if names is None:
+            return
         # la carpeta a la que había que llegar (en red se lee de a un nivel, en otro hilo): seguir bajando
         target = self._trace_path or getattr(self, "_pending_sync", "")
         if target and self._key(target).startswith(self._key(path)):
@@ -702,8 +702,6 @@ class FolderTree(_LinedMixin, QTreeWidget):
             return None
         rel = os.path.relpath(os.path.normpath(path), root)
         if rel in (".", ""):
-            return cur
-        if not reachable(path):
             return cur
         for part in rel.split(os.sep):
             self._load(cur)
@@ -1174,7 +1172,8 @@ class WinNavTree(_WinQuickMixin, FolderTree):
 
     def _apply_names(self, it, path, names):
         super()._apply_names(it, path, names)
-        QTimer.singleShot(0, self._resync)        # (en red llega después: la marca baja si corresponde)
+        if names is not None:
+            QTimer.singleShot(0, self._resync)        # (en red llega después: la marca baja si corresponde)
 
 
 

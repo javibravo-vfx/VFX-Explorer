@@ -26,6 +26,10 @@ def read_image_meta(path):
     ext = os.path.splitext(path)[1].lower().lstrip(".")
     out = {}
     if HAS_OIIO and (ext in OIIO_EXTS or ext not in QT_FAST):
+        from .media_process import isolated, call, decode_path
+        path = decode_path(path)
+        if isolated(path):
+            return call(__name__, "read_image_meta", (path,), preview=True)
         from .imaging import oiio_open
         inp = oiio_open(path)
         if inp:
@@ -105,11 +109,16 @@ class MetaManager(QObject):
         self.app = app
         self.pool = QThreadPool()
         self.pool.setMaxThreadCount(2)
+        from .storage import RootPools
+        self.storage_pools = RootPools(self.pool, self, 2)
         self.cache = OrderedDict()
         self.pending = set()
         self.sig = _Sig()
         self.sig.done.connect(self._done)
-        self.path = os.path.join(app.data_dir, "meta_cache.json")
+        from .storage_cache import cache_home
+        home = cache_home(app.data_dir) or app.data_dir
+        os.makedirs(home, exist_ok=True)
+        self.path = os.path.join(home, "meta_cache.json")
         try:
             with open(self.path, "r", encoding="utf-8") as f:
                 self.cache = OrderedDict(json.load(f))
@@ -135,7 +144,7 @@ class MetaManager(QObject):
             self.pending.add(k)
             src = os.path.join(e.dirpath, e.files[0]) if e.kind == "seq" and e.files else e.path
             kind = "video" if e.cat == "video" else "image"
-            self.pool.start(_Task(k, kind, src, self.app.thumbs.settings.get("ffprobe"), self.sig))
+            self.storage_pools.for_path(src).start(_Task(k, kind, src, self.app.thumbs.settings.get("ffprobe"), self.sig))
         return None
 
     def _done(self, key, m):
@@ -147,7 +156,7 @@ class MetaManager(QObject):
         self.ready.emit(key.split("|", 1)[0])
 
     def cancel(self):
-        self.pool.clear()
+        self.storage_pools.clear()
         self.pending.clear()
 
     def save(self):

@@ -1,5 +1,62 @@
 # Changelog
 
+## 0.62.6-beta — bounded NAS navigation and retry stability
+
+- Fix Library tree retry backoff: cached results do not reset the counter. Real success resets it; stale retry tickets are invalidated on collapse, reload, removal or recovery. Stop after eight retries (2/4/8/16/30 seconds, capped at 30). Keep cached children.
+- Ordinary mapped/UNC pane scans and tree listings use separate bounded daemon queues per logical storage root (two active reads per role, up to 16 pending pane jobs and 64 pending tree jobs). Cancel obsolete foreground requests; prioritize the latest. Cache reads are separate and can finish while live I/O is blocked. Local fixed-drive pane scans keep the existing QThread path.
+- Remote directory results are delivered only by owner-thread timers (15 ms while jobs are pending); tree updates are budgeted between deliveries to reduce wake-up bursts. Active OS reads are not force-killed.
+- NAS stress now fails on action/uncaught exceptions, missing wake coverage, stuck loading, maximum heartbeat gap >1.5 s, p95 >200 ms or p99 >500 ms. Real-window Windows stress is mandatory; beta branch builds automatically. Fix the simulated awake interval.
+- Add scheduler/backoff and Qt delivery regression tests. Retain native crash logging, SMB loopback, HDR shared memory and the original UI. Crash root cause and Windows performance still require validation.
+
+## 0.62.5-beta
+
+- Fix: VFX Library tree folders could stay on «loading…» forever after the NAS woke up (the File Explorer tab opened them fine). A listing that failed while the disks were spinning up marked the parent branch as unread although it still showed its folders, and from then on the listings of its subfolders were discarded. Listings now find their folder as the tree shows it, and a failed listing retries by itself (2, 4, 8… up to 30 s) instead of leaving the «loading…» behind.
+- NAS stress test: some reads during spin-up now fail, as on Windows, and the run fails if any tree folder is left on «loading…».
+
+## 0.62.4-beta — NAS stress test
+
+- New `VFXExplorer.exe --nas-stress [seed] [steps]`: ~150 folders (photos, EXR, HDR, EXR sequences) on a simulated NAS whose disks fall asleep and take 2–6 s to wake; the real window gets random actions (Library and File Explorer navigation, tree expand/collapse and clicks, file selection with viewer and Details, tabs, mode switches, refresh, back). Fails on a crash or if the window stalls more than 5 s. Result and crash.log in %TEMP%\vfx_nas_stress.
+- When CI can create a local SMB share mapped to a drive letter (like T: → W:), the stress also browses a second library root on that real mapped drive, so the Windows routing code runs under the same load.
+- GitHub Windows build runs it on the exe (3 seeds × 400 steps, required; plus one run with a real Windows window, informative) and prints crash.log on failure. App behavior unchanged.
+
+## 0.62.3-beta — crash log
+
+- New VFXExplorer_data/crash.log: a sudden close now leaves the stack of every thread (native crashes in Qt / OpenImageIO included), plus uncaught Python errors from any thread and Qt critical/fatal messages. Each run writes a start and exit line, so a session without its exit line was a sudden close. Kept under 512 KB.
+
+## 0.62.2-beta — review of 0.62.1
+
+- A mapped drive read directly from its local disk (SMB loopback, e.g. T: → W:) now wakes that disk the same way as a NAS before OpenImageIO reads it: a sleeping local HDD no longer freezes the window.
+- A network drive letter stays classified as network for the session (it was re-queried every 5 s from the window; on a stale or sleeping mapping that query can be slow). Local letters are still re-checked every 5 s to catch new mappings.
+- Two new routing tests for these.
+
+## 0.62.1-beta — storage routing and HDR transport
+
+- Central Windows storage routing for physical disks, mapped/UNC shares and SMB loopback. Verified equivalent local files use direct native decoding while retaining logical paths, share-access checks and network-safe listing behavior. Unverified mappings use isolation.
+- Separate thumbnail, metadata, still-viewer and native decoder queues per network root; retain direct local queues and bound idle decoder retention.
+- Parent-owned bounded shared-memory transport for linear RGB/alpha data, with original IPC fallback and cleanup on failure or timeout.
+- Preserve local derived caches even if the portable app/data folder is on a mapped share.
+- New routing and real process-transport tests; packaged EXE test now verifies shared-memory transport and, when Windows CI can provision a real SMB loopback share, direct decoding through its mapped drive.
+- Physical NAS and Windows performance/SMB verification still pending.
+
+## 0.62.0-beta — NAS stabilization
+
+- Fix false offline at online-probe TTL expiry: keep last confirmed state; unknown is not offline and stale probe results cannot overwrite a newer successful read.
+- Restore offline labels in place; state-only timer, no periodic root probes, retry visible failed reads with 8/16/32/60-second backoff.
+- Reconcile newly added files without invalidating a nonexistent old entry; refresh review badges on actual folder scans/reactivation, not by continuous network polling.
+- Start one native decoder per role on demand, expand to two only when jobs overlap; retire only a blocked slot, cancel pending waits and join children at shutdown.
+- Frozen Windows NAS selftest decodes EXR/HDR, checks thumbnails/float data/layers/metadata, verifies GUI heartbeat, timeout recovery and child cleanup. Beta tags create prereleases.
+- Physical NAS/Windows performance validation still pending.
+
+## 0.61.4 — NAS / cache-first (validation build)
+
+- Persistent SQLite snapshots of visited network folders and expanded trees; display last known content before scanning.
+- Preserve snapshots on failed/partial scans, coalesce same-folder reads, retry failed visible directory reads and reconcile successful scans without unnecessary resets.
+- Cache-first network thumbnails (including old v2 image/sequence cache); separate local, network and disk-cache queues. Cache for previews and directory snapshots stays local if the executable is on a share.
+- Native OpenImageIO network calls run in lazy persistent processes, separate preview and foreground pools; local decoding unchanged.
+- Network breadcrumb, autocomplete and pipeline listings/menus moved off the GUI thread; configured library roots remain available offline.
+- Network searches and saved library references use last-known listings while refreshing. No healthy-share periodic scan added.
+- Added eight headless cache/storage tests; full GUI, Windows SMB, executable packaging and decoder throughput still require validation (see docs/NAS-VALIDATION.md).
+
 ## 0.61.3
 - Fix: in the VFX Library, clicking the empty space of the top tab row made Details show the file selected in a File Explorer tab. That space now only moves the window; Details keeps showing the library selection.
 

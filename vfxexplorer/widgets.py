@@ -1221,18 +1221,44 @@ class SixKeyEdit(QLineEdit):
         return text[: i + 1], text[i + 1:]
 
     def _fill(self, folder):
-        from .core import reachable
+        from .core import net_root
         if folder == self._dir:
             return
         self._dir = folder
-        names = []
-        if folder and reachable(folder):
-            try:
-                with os.scandir(folder) as it:
-                    names = sorted((d.name for d in it if not d.name.startswith(".") and d.is_dir()), key=str.lower)
-            except OSError:
-                names = []
+        def apply(names):
+            if folder != self._dir or names is None:
+                return
+            self._model.setStringList([folder + n for n in names[:2000]])
+            if self.hasFocus() and net_root(folder):
+                self.comp.setCompletionPrefix(self.text())
+                if self.comp.completionCount():
+                    self.comp.complete(self.cursorRect())
+        if not folder:
+            apply([])
+        elif net_root(folder):
+            from .asyncdir import AsyncLister
+            self._model.setStringList([])
+            if not hasattr(self, '_net_lister'):
+                self._net_lister = AsyncLister(self)
+                self._net_lister.done.connect(lambda path, names: self._apply_remote_completion(path, names))
+            self._net_lister.request(folder)
+        else:
+            from .asyncdir import list_subdirs
+            apply(list_subdirs(folder) or [])
+
+    def _apply_remote_completion(self, folder, names):
+        if folder != self._dir:
+            return
+        if names is None:
+            self._dir = None  # permit another attempt
+            return
         self._model.setStringList([folder + n for n in names[:2000]])
+        if self.hasFocus():
+            self.comp.setCompletionPrefix(self.text())
+            if self.comp.completionCount():
+                r = self.cursorRect()
+                r.setWidth(max(320, self.width() - r.x()))
+                self.comp.complete(r)
 
     def open_list(self):
         text = self.text()
@@ -1290,7 +1316,8 @@ class SixKeyEdit(QLineEdit):
         t = self.text()
         if k == Qt.Key_Right and not ctrl and self.cursorPosition() == len(t) and not self.hasSelectedText():
             p = os.path.expandvars(t)
-            if p and not p.endswith(("\\", "/")) and os.path.isdir(p):
+            from .core import net_root
+            if p and not p.endswith(("\\", "/")) and (net_root(p) or os.path.isdir(p)):
                 self.setText(t + os.sep)
                 self.open_list()
                 return
@@ -1431,22 +1458,34 @@ class BreadcrumbBar(QWidget):
             m.clear()
             if path == "::thispc":
                 from .core import list_drives
-                for d in list_drives():
-                    m.addAction(_drive_icon_cache(d), d.name, lambda p=d.path: self.navigate.emit(p))
+                from .asyncdir import run_async
+                m.addAction("Reading…").setEnabled(False)
+                def got(drives):
+                    m.clear()
+                    for d in drives or []:
+                        m.addAction(_drive_icon_cache(d), d.name, lambda p=d.path: self.navigate.emit(p))
+                run_async(list_drives, got, m)
                 return
-            from .core import reachable
-            try:
-                if not reachable(path):
-                    raise OSError("offline")
-                with os.scandir(path) as it:
-                    dirs = sorted((d.name for d in it if d.is_dir() and not d.name.startswith(".")), key=str.lower)
-            except OSError:
-                dirs = []
-            if not dirs:
-                m.addAction("(no subfolders)").setEnabled(False)
-            for d in dirs[:400]:
-                full = os.path.join(path, d)
-                m.addAction(d, lambda p=full: self.navigate.emit(p))
+            from .core import net_root
+            def populate(dirs):
+                m.clear()
+                if dirs is None:
+                    m.addAction("(storage unavailable)").setEnabled(False)
+                    return
+                if not dirs:
+                    m.addAction("(no subfolders)").setEnabled(False)
+                for d in dirs[:400]:
+                    full = os.path.join(path, d)
+                    m.addAction(d, lambda p=full: self.navigate.emit(p))
+            from .asyncdir import list_subdirs, AsyncLister
+            if net_root(path):
+                m.addAction("Reading…").setEnabled(False)
+                if not hasattr(m, '_lister'):
+                    m._lister = AsyncLister(m)
+                    m._lister.done.connect(lambda p, names: populate(names))
+                m._lister.request(path)
+            else:
+                populate(list_subdirs(path))
         m.aboutToShow.connect(fill)
         return m
 

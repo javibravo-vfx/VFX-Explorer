@@ -469,6 +469,7 @@ class EntryProxy(QSortFilterProxyModel):
 # ----------------------------------------------------------------------------
 
 class ScanWorker(QThread):
+    cached = Signal(int, str, object)
     done = Signal(int, str, object, str)
 
     def __init__(self, gen, path, show_hidden, collapse=True):
@@ -477,12 +478,17 @@ class ScanWorker(QThread):
 
     def run(self):
         try:
-            self.done.emit(self.gen, self.path, scan_dir(self.path, self.show_hidden, self.collapse), "")
+            from .storage_cache import cached_entries, scan_and_save
+            cached = cached_entries(self.path, self.show_hidden, self.collapse)
+            if cached is not None:
+                self.cached.emit(self.gen, self.path, cached)
+            self.done.emit(self.gen, self.path, scan_and_save(self.path, self.show_hidden, self.collapse), "")
         except Exception as ex:
             self.done.emit(self.gen, self.path, [], str(ex))
 
 
 class SearchWorker(QThread):
+    snapshot = Signal(int, object)
     batch = Signal(int, object)
     progress = Signal(int, int, str)
     finished_search = Signal(int, int, bool)
@@ -496,7 +502,56 @@ class SearchWorker(QThread):
         self.max_depth = max_depth          # None = toda la rama · 1 = solo las subcarpetas directas
         self.cancelled = False
 
+    def _network_search(self):
+        from .storage_cache import cached_entries, scan_and_save
+        def walk(cache_only, stream=False):
+            stack, results, visited, scanned = [(self.root, 0, cache_only)], [], set(), 0
+            while stack and not self.cancelled:
+                d, depth, cached = stack.pop()
+                key = os.path.normcase(os.path.normpath(d))
+                if key in visited:
+                    continue
+                visited.add(key)
+                if cached:
+                    entries = cached_entries(d, self.show_hidden, self.collapse)
+                else:
+                    try:
+                        entries = scan_and_save(d, self.show_hidden, self.collapse)
+                    except OSError:
+                        cached = True  # don't issue further remote calls in this failed branch
+                        entries = cached_entries(d, self.show_hidden, self.collapse)
+                if entries is None:
+                    continue
+                scanned += 1
+                hits = [e for e in entries if entry_matches(e, self.query, self.cat, recursive=True, meta=self.meta.get)]
+                hits = hits[:max(0, self.MAX_RESULTS - len(results))]
+                results.extend(hits)
+                if stream and hits:
+                    self.batch.emit(self.gen, hits)
+                if self.max_depth is None or depth < self.max_depth:
+                    stack.extend((e.path, depth + 1, cached) for e in reversed(entries) if e.kind == 'dir')
+                if not cache_only:
+                    self.progress.emit(self.gen, scanned, d)
+                if len(results) >= self.MAX_RESULTS:
+                    break
+            return results
+        initial = walk(True)
+        if self.cancelled:
+            return
+        if initial:
+            self.snapshot.emit(self.gen, initial)
+        final = walk(False, stream=not initial)
+        if self.cancelled:
+            return
+        if initial:
+            self.snapshot.emit(self.gen, final)
+        self.finished_search.emit(self.gen, len(final), len(final) >= self.MAX_RESULTS)
+
     def run(self):
+        from .core import net_root
+        if net_root(self.root):
+            self._network_search()
+            return
         stack, found, scanned, last = [(self.root, 0)], 0, 0, 0.0
         while stack and not self.cancelled:
             d, depth = stack.pop()
@@ -541,6 +596,7 @@ class DrivesWorker(QThread):
 
 
 class ResolveWorker(QThread):
+    cached = Signal(int, object)
     done = Signal(int, object, int)
 
     def __init__(self, gen, refs):
@@ -549,6 +605,11 @@ class ResolveWorker(QThread):
 
     def run(self):
         try:
+            from .core import net_root
+            if any(net_root(r.get("dir")) for _, r in self.refs):
+                cached, _ = resolve_refs(self.refs, cache_only=True)
+                if cached:
+                    self.cached.emit(self.gen, cached)
             found, missing = resolve_refs(self.refs)
         except Exception:
             found, missing = [], self.refs
