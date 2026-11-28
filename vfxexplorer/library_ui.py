@@ -30,8 +30,10 @@ class LibraryPage(QWidget):
         self.split.setStretchFactor(1, 2)
         self.split.setSizes([520, 380])
         lay.addWidget(self.split)
-        self._debounce = QTimer(self, singleShot=True, interval=140, timeout=self._load_selected)
-        self.pane.selection_changed.connect(lambda *_: self._debounce.start())
+        self._debounce = QTimer(self, singleShot=True, interval=30, timeout=self._load_selected)
+        self.pane.selection_changed.connect(lambda *_: self._sel_changed())
+        self._last_row = None
+        self._dir = 1
         for w in (self.pane.grid, self.pane.list, self.viewer.canvas):
             QShortcut(QKeySequence(Qt.Key_Space), w, self.viewer.toggle, context=Qt.WidgetShortcut)
             QShortcut(QKeySequence(","), w, lambda: self.viewer.step(-1), context=Qt.WidgetShortcut)
@@ -39,6 +41,16 @@ class LibraryPage(QWidget):
             QShortcut(QKeySequence("Home"), w, lambda: self.viewer.seek(0), context=Qt.WidgetShortcut) \
                 if w is self.viewer.canvas else None
         self._last = None
+
+    def _sel_changed(self):
+        """Lo que ya está en memoria se muestra al instante; si no, una espera mínima (30 ms) por si se pasa
+        rápido por varias."""
+        ents = self.pane.selected_entries()
+        if len(ents) == 1 and self.viewer.cached_still(ents[0]):
+            self._debounce.stop()
+            self._load_selected()
+        else:
+            self._debounce.start()
 
     def _load_selected(self):
         ents = self.pane.selected_entries()
@@ -56,7 +68,7 @@ class LibraryPage(QWidget):
         self.viewer.load(e, start=start)
         if hasattr(self.app, "lib_slots"):
             self.app.lib_slots.refresh()
-        QTimer.singleShot(250, lambda e=e: self._prefetch_around(e))
+        QTimer.singleShot(0, lambda e=e: self._prefetch_around(e))
 
     def _prefetch_around(self, e):
         """Imágenes sueltas (fotos y HDRIs): las de al lado se leen de antemano (moverse con las flechas es instantáneo)."""
@@ -68,9 +80,14 @@ class LibraryPage(QWidget):
         ix = v.currentIndex()
         if not ix.isValid():
             return
+        row = ix.row()
+        if self._last_row is not None and row != self._last_row:
+            self._dir = 1 if row > self._last_row else -1     # hacia dónde te movés
+        self._last_row = row
         near = []
-        for d in (1, -1, 2):
-            j = m.index(ix.row() + d, 0)
+        dr = self._dir
+        for d in (dr, -dr, 2 * dr, 3 * dr):                   # como el visor de fotos: +1, −1, +2, +3
+            j = m.index(row + d, 0)
             x = j.data(ROLE_ENTRY) if j.isValid() else None
             if x is not None:
                 near.append(x)

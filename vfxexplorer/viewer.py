@@ -11,7 +11,7 @@ import time
 import threading
 import subprocess
 
-from PySide6.QtCore import Qt, QThread, Signal, QTimer, QRect, QRectF, QSize
+from PySide6.QtCore import Qt, QThread, Signal, QTimer, QRect, QRectF, QSize, QObject
 from PySide6.QtGui import QImage, QPainter, QColor, QFont, QFontMetrics, QKeySequence, QShortcut
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QToolButton, QSlider, QLabel, QComboBox,
                                QSizePolicy)
@@ -27,6 +27,68 @@ HDR_RES = 2048          # el visor de HDRIs lee hasta este tamaño (lo que entra
 HDR_CACHE = 10          # HDRIs ya leídos que quedan en memoria (ir y volver es instantáneo)
 LDR_RES = 2048          # fotos (JPG, PNG, TIFF, RAW…): se leen hasta este tamaño
 LDR_CACHE = 30          # fotos ya leídas que quedan en memoria
+STILL_RAM = 512 << 20   # memoria para las imágenes sueltas ya leídas (fotos y HDRIs), como el visor de fotos
+
+
+class StillPool(QObject):
+    """Dos hilos fijos para leer imágenes sueltas (como el visor de fotos): la que se pidió va primero y las
+    precargas esperan; las precargas que ya no sirven (te moviste para otro lado) se descartan."""
+    done = Signal(object, object)                 # clave, resultado
+
+    def __init__(self, parent=None, workers=2):
+        super().__init__(parent)
+        import collections
+        self._fg = collections.deque()
+        self._bg = collections.deque()
+        self._lock = threading.Lock()
+        self._cv = threading.Condition(self._lock)
+        self._running = set()
+        for _ in range(workers):
+            threading.Thread(target=self._loop, daemon=True).start()
+
+    def submit(self, key, fn, foreground):
+        with self._cv:
+            if key in self._running:
+                return
+            for q in (self._fg, self._bg):
+                for i, (k, f) in enumerate(q):
+                    if k == key:
+                        if foreground and q is self._bg:      # ya estaba como precarga: pasa adelante
+                            del q[i]
+                            self._fg.appendleft((key, fn))
+                            self._cv.notify()
+                        return
+            (self._fg.appendleft if foreground else self._bg.append)((key, fn))
+            self._cv.notify()
+
+    def keep_only(self, keys):
+        """Precargas pendientes que ya no hacen falta: afuera."""
+        with self._cv:
+            for k, f in list(self._bg):
+                if k not in keys:
+                    self._bg.remove((k, f))
+
+    def busy(self, key):
+        with self._lock:
+            return key in self._running or any(k == key for k, _ in self._fg) or any(k == key for k, _ in self._bg)
+
+    def _loop(self):
+        while True:
+            with self._cv:
+                while not self._fg and not self._bg:
+                    self._cv.wait()
+                key, fn = (self._fg or self._bg).popleft()
+                self._running.add(key)
+            try:
+                r = fn()
+            except Exception:
+                r = None
+            with self._lock:
+                self._running.discard(key)
+            try:
+                self.done.emit(key, r)
+            except RuntimeError:                  # la ventana ya se cerró
+                return
 
 
 # ----------------------------------------------------------------------------
@@ -262,8 +324,13 @@ class Canvas(QWidget):
         if self.image is not None and not self.image.isNull():
             sz = self.image.size().scaled(r.size(), Qt.KeepAspectRatio)
             tgt = QRect((r.width() - sz.width()) // 2, (r.height() - sz.height()) // 2, sz.width(), sz.height())
-            p.setRenderHint(QPainter.SmoothPixmapTransform, True)
-            p.drawImage(tgt, self.image)
+            # la imagen ya escalada al tamaño del panel se guarda: repintar no la vuelve a escalar
+            ck = (self.image.cacheKey(), sz.width(), sz.height())
+            if getattr(self, "_spm_key", None) != ck:
+                from PySide6.QtGui import QPixmap
+                self._spm = QPixmap.fromImage(self.image.scaled(sz, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                self._spm_key = ck
+            p.drawPixmap(tgt.topLeft(), self._spm)
         if self.message:
             p.setPen(QColor("#7d8590"))
             f = QFont(self.font())
@@ -489,14 +556,21 @@ class Viewer(QWidget):
         except Exception:
             return None
 
+    @staticmethod
+    def _nbytes(v):
+        if isinstance(v, QImage):
+            return v.sizeInBytes()
+        rgb, alpha = v
+        return rgb.nbytes + (alpha.nbytes if alpha is not None else 0)
+
     def _hdr_store(self, key, r):
+        """Caché por memoria (512 MB, como el visor de fotos); se van las más viejas."""
         self._hdr_cache[key] = r
         self._hdr_cache.move_to_end(key)
-        n_hdr = sum(1 for v in self._hdr_cache.values() if not isinstance(v, QImage))
-        while len(self._hdr_cache) > HDR_CACHE + LDR_CACHE or n_hdr > HDR_CACHE:
+        total = sum(self._nbytes(v) for v in self._hdr_cache.values())
+        while len(self._hdr_cache) > 1 and (total > STILL_RAM or len(self._hdr_cache) > HDR_CACHE + LDR_CACHE):
             k, v = self._hdr_cache.popitem(last=False)
-            if not isinstance(v, QImage):
-                n_hdr -= 1
+            total -= self._nbytes(v)
 
     def _start_hdr(self, e, settings):
         """Una imagen suelta: primero el thumbnail que ya está (al instante), después la imagen (HDRI: en float)."""
@@ -520,24 +594,24 @@ class Viewer(QWidget):
             (pm if pm is not None else None)
         self.canvas.buffering = True
         self.canvas.update()
-        tok = self._load_token
-        if key in self._hdr_busy:                       # ya se está leyendo (lo pidió el prefetch)
-            self._hdr_wait = (tok, key)
-            return
-        self._hdr_busy.add(key)
-        from .asyncdir import run_async
+        self._hdr_wait = (self._load_token, key)        # la que se espera (aunque la haya pedido la precarga)
+        path = e.path
+        self._pool().submit(key, lambda: self._hdr_decode(path, settings), foreground=True)
 
-        def done(r, key=key):
-            self._hdr_busy.discard(key)
-            if r is not None:
-                self._hdr_store(key, r)
-            self._hdr_arrived(key, r, tok)
-        run_async(lambda: self._hdr_decode(e.path, settings), done, self)
+    def _pool(self):
+        if getattr(self, "_still_pool", None) is None:
+            self._still_pool = StillPool(self)
+            self._still_pool.done.connect(self._pool_done)
+        return self._still_pool
+
+    def _pool_done(self, key, r):
+        if r is not None:
+            self._hdr_store(key, r)
+        self._hdr_arrived(key, r)
 
     def _hdr_arrived(self, key, r, tok=None):
         wait = getattr(self, "_hdr_wait", None)
-        mine = (tok is not None and tok == self._load_token) or (wait and wait[1] == key and
-                                                                  wait[0] == self._load_token)
+        mine = wait and wait[1] == key and wait[0] == self._load_token
         if not mine or not self._hdr_mode:
             return
         self._hdr_wait = None
@@ -551,21 +625,23 @@ class Viewer(QWidget):
         """Los HDRIs de al lado (siguiente / anterior) se leen de antemano: al moverse con las flechas
         aparecen al instante."""
         settings = dict(self.app.thumbs.settings)
-        from .asyncdir import run_async
+        pool = self._pool()
+        want = []
         for e in entries:
             if not self.is_still(e):
                 continue
             key = self._hdr_key(e, settings)
-            if key in self._hdr_cache or key in self._hdr_busy:
+            want.append(key)
+            if key in self._hdr_cache:
                 continue
-            self._hdr_busy.add(key)
+            pool.submit(key, lambda p=e.path: self._hdr_decode(p, settings), foreground=False)
+        pool.keep_only(set(want))
 
-            def done(r, key=key):
-                self._hdr_busy.discard(key)
-                if r is not None:
-                    self._hdr_store(key, r)
-                self._hdr_arrived(key, r)
-            run_async(lambda e=e: self._hdr_decode(e.path, settings), done, self)
+    def cached_still(self, e):
+        """¿Ya está en memoria? (entonces se muestra sin esperar)"""
+        if not self.is_still(e):
+            return False
+        return self._hdr_key(e, dict(self.app.thumbs.settings)) in self._hdr_cache
 
     # ---------------- util
     @staticmethod
