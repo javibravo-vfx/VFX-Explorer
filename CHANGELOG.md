@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.62.3-beta — crash log
+
+- New VFXExplorer_data/crash.log: a sudden close now leaves the stack of every thread (native crashes in Qt / OpenImageIO included), plus uncaught Python errors from any thread and Qt critical/fatal messages. Each run writes a start and exit line, so a session without its exit line was a sudden close. Kept under 512 KB.
+
 ## 0.62.2-beta — review of 0.62.1
 
 - A mapped drive read directly from its local disk (SMB loopback, e.g. T: → W:) now wakes that disk the same way as a NAS before OpenImageIO reads it: a sleeping local HDD no longer freezes the window.
