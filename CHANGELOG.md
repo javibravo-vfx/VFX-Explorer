@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.62.2-beta — review of 0.62.1
+
+- A mapped drive read directly from its local disk (SMB loopback, e.g. T: → W:) now wakes that disk the same way as a NAS before OpenImageIO reads it: a sleeping local HDD no longer freezes the window.
+- A network drive letter stays classified as network for the session (it was re-queried every 5 s from the window; on a stale or sleeping mapping that query can be slow). Local letters are still re-checked every 5 s to catch new mappings.
+- Two new routing tests for these.
+
 ## 0.62.1-beta — storage routing and HDR transport
 
 - Central Windows storage routing for physical disks, mapped/UNC shares and SMB loopback. Verified equivalent local files use direct native decoding while retaining logical paths, share-access checks and network-safe listing behavior. Unverified mappings use isolation.

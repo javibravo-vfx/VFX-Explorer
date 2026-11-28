@@ -28,7 +28,12 @@ def decode_path(path):
     if _child:
         return path
     from .storage import native_read_path
-    return native_read_path(path)
+    physical = native_read_path(path)
+    if physical != path:
+        # leído directo del disco local: si es un HDD dormido, que arranque sin tomar el GIL
+        from .imaging import warm_disk
+        warm_disk(physical, path)
+    return physical
 
 
 def _reserve_buffer(maxdim):

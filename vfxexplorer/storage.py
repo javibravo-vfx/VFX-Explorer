@@ -35,7 +35,9 @@ def _remembered(letter):
 def drive_remote(letter):
     now = time.monotonic()
     hit = _drive_cache.get(letter)
-    if hit and now - hit[0] < _TTL:
+    # Una letra de red queda como red toda la sesión: GetDriveType sobre un mapeo caído o dormido puede
+    # demorar y esto se consulta desde la ventana. Una letra local se vuelve a mirar cada 5 s (mapeos nuevos).
+    if hit and (hit[1] or now - hit[0] < _TTL):
         return hit[1]
     try:
         kind = _drive_type(letter)

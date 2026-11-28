@@ -73,6 +73,27 @@ class RoutingTests(unittest.TestCase):
         with patch.object(storage, 'local_candidate', side_effect=AssertionError('blocking lookup')):
             self.assertEqual(storage.native_read_path(r'T:\photo.exr'), r'T:\photo.exr')
 
+    def test_remote_letter_is_not_requeried_from_the_gui(self):
+        storage._drive_cache.clear()
+        calls = []
+        with patch.object(storage, '_drive_type', side_effect=lambda d: calls.append(d) or 4):
+            self.assertEqual(core.net_root(r'E:\a.exr'), 'E:')
+            storage._drive_cache['E:'] = (storage._drive_cache['E:'][0] - 60, True)    # pasó el TTL
+            self.assertEqual(core.net_root(r'E:\b.exr'), 'E:')
+        self.assertEqual(calls, ['E:'])
+
+    def test_direct_local_smb_read_wakes_the_physical_disk_first(self):
+        from vfxexplorer import imaging
+        woken = []
+        with patch.object(storage, 'native_read_path', return_value=r'W:\jobs\plate.exr'), \
+                patch.object(imaging, 'warm_disk', side_effect=lambda phys, logical: woken.append((phys, logical))):
+            self.assertEqual(media_process.decode_path(r'T:\plate.exr'), r'W:\jobs\plate.exr')
+        with patch.object(storage, 'native_read_path', side_effect=lambda p: p), \
+                patch.object(imaging, 'warm_disk', side_effect=AssertionError('not rerouted')):
+            media_process.decode_path(r'E:\plate.exr')
+        self.assertEqual(woken, [(r'W:\jobs\plate.exr', r'T:\plate.exr')])
+
+
 
 class IdentityTests(unittest.TestCase):
     def test_same_file_verified_mismatch_and_missing_fallback(self):
