@@ -112,12 +112,15 @@ class LibrarySidebar(QWidget):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(1)
         from .asyncdir import AsyncLister
-        self._lister = AsyncLister(self)
+        from .tree_retry import TreeRetries
+        self._lister = AsyncLister(self, separate_cache=True)
         self._lister.done.connect(self._listed)
-        self._retries = {}                        # carpeta -> reintentos (lecturas que fallaron, NAS arrancando)
+        self._lister.cached.connect(self._listed_cached)
+        self._retry_state = TreeRetries()
         self.tree = LibTree(app, self._item, self._expand)
         self.tree.setIconSize(app.icons.folder(None, 18).size())
         self.tree.itemExpanded.connect(self._expand)
+        self.tree.itemCollapsed.connect(self._collapsed)
         self.tree.itemClicked.connect(lambda it, c: self.app.open_library(it.data(0, Qt.UserRole)))
         self._press = None                        # (momento, carpeta) del último clic en el árbol
         self.tree.viewport().installEventFilter(self)
@@ -192,9 +195,12 @@ class LibrarySidebar(QWidget):
             fn()
         finally:
             tr.setAutoScroll(auto)
-        if y0 is None or it is None or it.treeWidget() is not tr:
+        try:
+            if y0 is None or it is None or it.treeWidget() is not tr:
+                return
+            y1 = tr.visualItemRect(it).top()
+        except RuntimeError:  # anchor removed by the new listing
             return
-        y1 = tr.visualItemRect(it).top()
         if y1 != y0:
             sb = tr.verticalScrollBar()
             sb.setValue(sb.value() + (y1 - y0))
@@ -297,6 +303,9 @@ class LibrarySidebar(QWidget):
 
     def reload(self):
         cur = self.tree._trace_path
+        self._retry_state.clear()
+        self._lister.cancel_all()
+        self._press = None
         self.tree.clear()
         roots = self.roots()
         if not roots:
@@ -353,6 +362,7 @@ class LibrarySidebar(QWidget):
             path = it.data(0, Qt.UserRole)
             if not path or net_root(path) != root or not it.isExpanded():
                 return
+            self._retry_state.reset(_nk(path))
             self._lister.request(path)
             for i in range(it.childCount()):
                 visit(it.child(i))
@@ -375,6 +385,8 @@ class LibrarySidebar(QWidget):
             return
         path = it.data(0, Qt.UserRole)
         if net_root(path):                        # red (NAS): se lee en otro hilo, sin trabar la ventana
+            if _nk(path) in self._retry_state.pending:
+                return
             it.setData(0, Qt.UserRole + 1, True)
             if not it.childCount():
                 ph = QTreeWidgetItem(["loading…"])
@@ -397,6 +409,8 @@ class LibrarySidebar(QWidget):
         for i in reversed(range(it.childCount())):
             cp = it.child(i).data(0, Qt.UserRole)
             if not cp or _nk(cp) not in expected:              # «loading…» or deleted on disk
+                if cp:
+                    self._cancel_branch(it.child(i))
                 it.takeChild(i)
             else:
                 have.add(_nk(cp))
@@ -438,43 +452,96 @@ class LibrarySidebar(QWidget):
             it = nxt
         return it
 
-    def _retry_later(self, path):
-        """Una lectura que falló (el NAS todavía arrancando): se vuelve a pedir sola, cada vez más espaciado."""
-        n = self._retries.get(_nk(path), 0)
-        if n >= 8:                                 # no hubo caso: se saca el «loading…» (se reintenta al reabrir)
-            it = self._find(path)
-            if it is not None:
-                for i in reversed(range(it.childCount())):
-                    if not it.child(i).data(0, Qt.UserRole):
-                        it.takeChild(i)
-            self._retries.pop(_nk(path), None)
+    def _cancel_branch(self, it):
+        path = it.data(0, Qt.UserRole)
+        if not path:
             return
-        self._retries[_nk(path)] = n + 1
-        QTimer.singleShot(int(min(30, 2 ** (n + 1)) * 1000), lambda p=path: self._retry(p))
+        root = _nk(path)
+        # Only inspect outstanding requests, not every loaded descendant on collapse.
+        outstanding = set(self._retry_state.attempts) | {_nk(p) for p in self._lister.busy}
+        for key in outstanding:
+            if key != root and not key.startswith(root.rstrip("\\/") + os.sep):
+                continue
+            self._retry_state.reset(key)
+            for p in list(self._lister.busy):
+                if _nk(p) == key:
+                    self._lister.cancel(p)
+            child = self._find(key)
+            if child is not None:
+                child.setData(0, Qt.UserRole + 1, False)
+                self._remove_loading(child)
 
-    def _retry(self, path):
+    def _collapsed(self, it):
+        # A collapsed branch no longer needs live reads/retries. Cached children stay visible on reopen.
+        self._cancel_branch(it)
+
+    @staticmethod
+    def _remove_loading(it):
+        for i in reversed(range(it.childCount())):
+            if not it.child(i).data(0, Qt.UserRole):
+                it.takeChild(i)
+
+    @staticmethod
+    def _branch_open(it):
+        while it is not None:
+            if not it.isExpanded():
+                return False
+            it = it.parent()
+        return True
+
+    def _retry_later(self, path):
+        key = _nk(path)
         it = self._find(path)
-        if it is not None and (it.isExpanded() or any(not it.child(i).data(0, Qt.UserRole)
-                                                      for i in range(it.childCount()))):
-            self._lister.request(path)
+        if it is None or not self._branch_open(it):
+            self._retry_state.reset(key)
+            if it is not None:
+                self._remove_loading(it)
+                it.setData(0, Qt.UserRole + 1, False)
+            return
+        scheduled = self._retry_state.schedule(key)
+        if scheduled is None:
+            if key not in self._retry_state.pending:  # exhausted, not just already scheduled
+                self._remove_loading(it)
+                # Suppress incidental sync() reads until collapse/reopen or explicit recovery.
+                it.setData(0, Qt.UserRole + 1, True)
+            return
+        ticket, delay = scheduled
+        QTimer.singleShot(delay, self, lambda p=path, t=ticket: self._retry(p, t))
 
-    def _listed(self, path, dirs):
+    def _retry(self, path, ticket):
+        key = _nk(path)
+        if not self._retry_state.consume(key, ticket):
+            return
+        it = self._find(path)
+        if it is not None and self._branch_open(it):
+            self._lister.request(path)
+        else:
+            self._retry_state.reset(key)
+            if it is not None:
+                self._remove_loading(it)
+                it.setData(0, Qt.UserRole + 1, False)
+
+    def _listed_cached(self, path, dirs):
+        self._listed(path, dirs, cached=True)
+
+    def _listed(self, path, dirs, cached=False):
         it = self._find(path)
         if it is None:
+            self._retry_state.reset(_nk(path))
             return
-        # lo que llega de la red no corre la vista: queda quieta la primera carpeta visible
         if dirs is None:
-            real = any(it.child(i).data(0, Qt.UserRole) for i in range(it.childCount()))
-            if not real:                           # nada que mostrar todavía: se puede volver a abrir
-                it.setData(0, Qt.UserRole + 1, False)
-            self._retry_later(path)                # y se reintenta solo (el «loading…» queda mientras tanto)
+            # Keep cached children, but don't mark the directory authoritative.
+            it.setData(0, Qt.UserRole + 1, False)
+            self._retry_later(path)
             return
-        self._retries.pop(_nk(path), None)
+        if not cached:
+            self._retry_state.reset(_nk(path))
+        it.setData(0, Qt.UserRole + 1, True)
         top = self.tree.itemAt(0, 0)
         self._anchored(top, lambda: self._fill(it, path, [d for d in dirs if not d.startswith(".")]))
         cur = self.tree._trace_path
         if cur and os.path.normcase(cur).startswith(os.path.normcase(os.path.normpath(path))):
-            self.sync(cur, scroll=False)          # el camino actual pasaba por acá: completar el trazo
+            self.sync(cur, scroll=False)
 
     def add_root(self):
         d = QFileDialog.getExistingDirectory(self, "VFX Library folder",

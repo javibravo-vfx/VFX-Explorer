@@ -1672,8 +1672,15 @@ class FilePane(QFrame):
                 self._live = False
             self.grid.verticalScrollBar().setValue(bars[0])
             self.list.verticalScrollBar().setValue(bars[1])
-        from .asyncdir import run_async
-        run_async(scan, got, self)
+        from .asyncdir import run_async, RemoteScan
+        root = net_root(path)
+        if root:
+            if not hasattr(self, "_remote_live"):
+                self._remote_live = RemoteScan(self)
+            self._remote_live.request(root.casefold(), None, scan, None,
+                                      lambda entries, err: got(entries))
+        else:
+            run_async(scan, got, self)
 
     def refresh(self):
         self.app.thumbs.failed.clear()
@@ -1750,15 +1757,36 @@ class FilePane(QFrame):
             self._start_search()
             return
         self._stop_search()
+        self._cancel_remote_scans()
         self.gen += 1
         self._set_status("Reading…")
-        w = ScanWorker(self.gen, self.tab_path(), bool(self.app.cfg["show_hidden"]),
-                       collapse=bool(self.app.cfg["collapse_seqs"]))
-        self._scan_inflight = (self.gen, self.tab_path())
+        gen, path = self.gen, self.tab_path()
+        hidden, collapse = bool(self.app.cfg["show_hidden"]), bool(self.app.cfg["collapse_seqs"])
+        self._scan_inflight = (gen, path)
+        root = net_root(path)
+        if root:
+            from .asyncdir import RemoteScan
+            from .storage_cache import cached_entries, scan_and_save
+            if not hasattr(self, "_remote_scan"):
+                self._remote_scan = RemoteScan(self)
+            self._remote_scan.request(root.casefold(), lambda: cached_entries(path, hidden, collapse),
+                                      lambda: scan_and_save(path, hidden, collapse),
+                                      lambda entries: self._scan_cached(gen, path, entries),
+                                      lambda entries, err: self._scan_done(gen, path, entries or [], err))
+            return
+        w = ScanWorker(gen, path, hidden, collapse=collapse)
         w.cached.connect(self._scan_cached)
         w.done.connect(self._scan_done)
         self._track(w)
         w.start()
+
+    def _cancel_remote_scans(self):
+        if hasattr(self, "_remote_scan"):
+            self._remote_scan.cancel()
+        if hasattr(self, "_remote_live"):
+            if self._remote_live._job is not None:
+                self._live_busy = False
+            self._remote_live.cancel()
 
     def _track(self, w):
         self.workers.add(w)
@@ -1917,6 +1945,7 @@ class FilePane(QFrame):
             self.search_worker = None
 
     def _start_search(self):
+        self._cancel_remote_scans()
         self._stop_search()
         self.app.thumbs.cancel_pending()
         self.gen += 1
@@ -2027,6 +2056,7 @@ class FilePane(QFrame):
         self._load_virtual()
 
     def _load_virtual(self):
+        self._cancel_remote_scans()
         self._stop_search()
         self.app.thumbs.cancel_pending()
         t = self.tab()

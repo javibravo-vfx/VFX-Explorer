@@ -1,3 +1,27 @@
+# NAS validation — 0.62.6-beta
+
+## Scope and changes (from 0.62.5-beta, a1ff647)
+
+- Library tree caches and real results have distinct signals. Only authoritative success resets the retry counter; eight retries are scheduled at 2/4/8/16/30/30/30/30 seconds. Reload, collapse, branch removal and recovery invalidate stale tickets. Exhausted branches stop auto-retrying until explicitly reopened or recovery is observed. Existing children remain visible.
+- Ordinary foreground and live pane scans use a bounded daemon queue per logical network root (2 active, 16 pending); tree listings use another (2 active, 64 pending). Latest foreground requests take priority and superseded queued work is cancelled. Cache queries use a separate bounded local queue (2 active, 128 pending), so an SMB wait does not consume cache capacity. No Qt objects are touched by these storage workers. Owner-thread timers check completions every 15 ms while pending; tree callbacks are budgeted between results. This adds a small scheduling interval to mapped/UNC directory delivery, not a per-file check. Fixed local pane and local tree scan paths are unchanged.
+- OS reads already in progress cannot safely be interrupted; if both slots are blocked, the latest uncached folder waits for a slot, while its cached listing can appear independently. Limits are per mapped letter/UNC share and role, not global or across alias letters. Recursive searches, file operations, folder covers and other `run_async` jobs are not covered by these new scan limits. The existing global thumbnail cancellation is unchanged; the reported Qt crash has NOT been diagnosed or reproduced here.
+- Windows CI now runs the new Qt regression tests and requires both offscreen and real-window stress. The stress gate fails on unhandled/action exceptions, no observed wake/wait, stuck loading, gaps >1.5 s, p95 >200 ms, p99 >500 ms (50 ms heartbeat). These are provisional acceptance gates, not measured Windows latency. The fake NAS no longer accumulates arbitrary awake time per access. The `beta-0.62` branch triggers builds without changing main.
+
+## Validation performed here
+
+- 34 passing non-GUI tests: 10 storage cache, 6 network state, 11 routing, 1 real process, 1 real shared-memory transport, 5 queue/retry. The new queue test simulates 100 rapid requests behind two blocked reads: only the last queued request executes, another root completes independently.
+- `test_storage_routing.py` has one additional Qt-dependent case that could not run; `test_core.py` and the five new Qt delivery tests also require PySide6. Installation was unavailable here. OpenImageIO and Windows are not available. Syntax compile and workflow YAML checks passed. The EXE was not built or run, and GitHub was not accessed or modified.
+- No measured navigation throughput or actual crash reproduction. Run the Windows gates and compare directory opening/scroll on local, SMB-loopback and real remote drives before merging.
+
+## Manual acceptance
+
+1. Populate the cache on E: with the NAS awake, let the NAS sleep, then open many folders quickly while the disks start. Verify the current folder wins, prior queued results never replace it, the tree stays responsive and cached entries remain visible.
+2. While E: is blocked, navigate T: (local SMB) and a physical local drive. Compare perceived speed and directory timings to 0.62.5 and 0.61.3 (100/1,000/10,000 entries, cold/warm cache). Also test a second real NAS and an all-local configuration. Verify no changes to tags, paths, viewer or Review.
+3. With NAS off, inspect backoff and collapse/reopen branches; stop issuing retries for closed branches. Reconnect and verify the list/selection/scroll recover. Repeat while closing the app. Keep VFXExplorer_data/crash.log from any unexpected exit and Windows WER report; do not assume this patch proves the native crash resolved.
+4. In Windows run the frozen EXE stress and NAS selftest; use GitHub artifacts only after required gates pass. Keep main/0.61.3 as a backup.
+
+---
+
 # NAS cache-first — 0.62.1-beta (validation build)
 
 ## 0.62.1 storage routing and transfer

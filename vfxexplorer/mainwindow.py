@@ -1904,6 +1904,11 @@ class MainWindow(QMainWindow):
         # Stop accepting network decoder jobs before waiting on viewer threads.
         from .media_process import shutdown
         shutdown()
+        # Pending remote scans are pure Python daemon work, never deliver to a closing window.
+        for p in self.all_panes:
+            p._cancel_remote_scans()
+        self.libside._lister.cancel_all()
+        self.libside._retry_state.clear()
         if getattr(self, "_resetting", False):
             self.save_timer.stop()
             for p in self.all_panes:

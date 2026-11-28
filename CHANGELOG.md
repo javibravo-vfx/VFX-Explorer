@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.62.6-beta — bounded NAS navigation and retry stability
+
+- Fix Library tree retry backoff: cached results do not reset the counter. Real success resets it; stale retry tickets are invalidated on collapse, reload, removal or recovery. Stop after eight retries (2/4/8/16/30 seconds, capped at 30). Keep cached children.
+- Ordinary mapped/UNC pane scans and tree listings use separate bounded daemon queues per logical storage root (two active reads per role, up to 16 pending pane jobs and 64 pending tree jobs). Cancel obsolete foreground requests; prioritize the latest. Cache reads are separate and can finish while live I/O is blocked. Local fixed-drive pane scans keep the existing QThread path.
+- Remote directory results are delivered only by owner-thread timers (15 ms while jobs are pending); tree updates are budgeted between deliveries to reduce wake-up bursts. Active OS reads are not force-killed.
+- NAS stress now fails on action/uncaught exceptions, missing wake coverage, stuck loading, maximum heartbeat gap >1.5 s, p95 >200 ms or p99 >500 ms. Real-window Windows stress is mandatory; beta branch builds automatically. Fix the simulated awake interval.
+- Add scheduler/backoff and Qt delivery regression tests. Retain native crash logging, SMB loopback, HDR shared memory and the original UI. Crash root cause and Windows performance still require validation.
+
 ## 0.62.5-beta
 
 - Fix: VFX Library tree folders could stay on «loading…» forever after the NAS woke up (the File Explorer tab opened them fine). A listing that failed while the disks were spinning up marked the parent branch as unread although it still showed its folders, and from then on the listings of its subfolders were discarded. Listings now find their folder as the tree shows it, and a failed listing retries by itself (2, 4, 8… up to 30 s) instead of leaving the «loading…» behind.

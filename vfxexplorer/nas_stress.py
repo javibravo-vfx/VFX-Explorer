@@ -24,7 +24,9 @@ import traceback
 
 WAKE = 4.0          # lo que tardan los discos en arrancar
 AWAKE = 10.0        # despiertos hasta volver a dormirse (sin uso)
-MAX_GAP = 5.0       # la ventana no puede quedar trabada más que esto
+MAX_GAP = 1.5       # hard guard: a responsive UI must not stall for seconds
+P95_GAP = .20       # includes the 50 ms heartbeat interval
+P99_GAP = .50
 
 
 class FakeNas:
@@ -59,7 +61,7 @@ class FakeNas:
                 self.wake_end = now + WAKE * random.uniform(.5, 1.5)   # empieza a despertarse
                 self.wakeups += 1
             wait = self.wake_end - now
-            self.awake_until = max(self.awake_until, self.wake_end) + AWAKE
+            self.awake_until = max(now, self.wake_end) + AWAKE
             if wait > 0:
                 self.waits += 1
         if wait > 0:
@@ -186,7 +188,22 @@ def run(argv):
         w.show()
         w.libside.reload()
         rnd = random.Random(seed)
-        state = {"n": 0, "errors": 0, "last": time.monotonic(), "gap": 0.0, "gaps": []}
+        state = {"n": 0, "errors": 0, "uncaught": 0, "last": time.monotonic(),
+                 "gap": 0.0, "gaps": [], "samples": []}
+        previous_hook = sys.excepthook
+        previous_thread_hook = threading.excepthook
+
+        def unhandled(t, v, tb):
+            state["uncaught"] += 1
+            previous_hook(t, v, tb)
+
+        def unhandled_thread(args):
+            if args.exc_type is not SystemExit:
+                state["uncaught"] += 1
+            previous_thread_hook(args)
+
+        sys.excepthook = unhandled
+        threading.excepthook = unhandled_thread
         if len(roots) > 1:
             from . import storage
             _nrp = storage.native_read_path
@@ -205,6 +222,7 @@ def run(argv):
         def beat():
             now = time.monotonic()
             g = now - state["last"]
+            state["samples"].append(g)
             if g > state["gap"]:
                 state["gap"] = g
             if g > 1.0:
@@ -292,12 +310,17 @@ def run(argv):
                 if it.parent() is not None and not it.data(0, 256) and it.text(0).startswith("loading"):
                     p = it.parent().data(0, 256)
                     k = os.path.normcase(os.path.normpath(p))
-                    if p not in S._lister.busy and k not in getattr(S, "_retries", {}):
+                    if p not in S._lister.busy and k not in S._retry_state.pending:
                         out.append(p)
             return out
 
         def finish():
+            beat()  # include time since the last heartbeat before shutdown
             hb.stop()
+            samples = sorted(state["samples"])
+            state["p95"] = samples[int((len(samples) - 1) * .95)] if samples else float('inf')
+            state["p99"] = samples[int((len(samples) - 1) * .99)] if samples else float('inf')
+            say(f"heartbeat: p95 {state['p95'] * 1000:.0f} ms · p99 {state['p99'] * 1000:.0f} ms · muestras {len(samples)}")
             stuck = stuck_loading()
             state["stuck"] = stuck
             if stuck:
@@ -316,15 +339,24 @@ def run(argv):
         app.exec()
         if not state.get("done"):
             say("la app salió antes de terminar")
+        elif state["n"] != steps or state["errors"] or state["uncaught"]:
+            say(f"acciones incompletas o excepciones: {state['n']}/{steps}, acciones {state['errors']}, no atrapadas {state['uncaught']}")
+        elif not nas.wakeups or not nas.waits:
+            say("la prueba no ejercitó ninguna lectura durante un despertar")
         elif state.get("stuck"):
             say("el árbol de la VFX Library quedó con carpetas en «loading…»")
         elif state["gap"] > MAX_GAP:
             say(f"la ventana se trabó {state['gap']:.1f} s (máximo {MAX_GAP} s)")
+        elif state["p95"] > P95_GAP or state["p99"] > P99_GAP:
+            say(f"latencia excesiva: p95 {state['p95']:.3f} s / p99 {state['p99']:.3f} s")
         else:
             ok = True
     except Exception:
         say(traceback.format_exc())
     finally:
+        if 'previous_hook' in locals():
+            sys.excepthook = previous_hook
+            threading.excepthook = previous_thread_hook
         try:
             media_process.shutdown()
         except Exception:
