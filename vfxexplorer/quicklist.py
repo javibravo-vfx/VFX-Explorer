@@ -148,6 +148,15 @@ class QuickList(RightDragMixin, QListWidget):
     def _rd_path(self, it):
         return it.data(ROLE_PATH) if it is not None and not it.data(ROLE_SEP) else None
 
+    def mimeData(self, items):
+        """El arrastre normal (botón izquierdo) lleva también las rutas: así se puede soltar en la otra lista
+        (Quick access ↔ Workspace Pins) y se mueve; dentro de la misma lista sigue reordenando."""
+        md = super().mimeData(items)
+        paths = [it.data(ROLE_PATH) for it in items if it is not None and it.data(ROLE_PATH)]
+        if paths:
+            md.setUrls([QUrl.fromLocalFile(p) for p in paths])
+        return md
+
     def mousePressEvent(self, ev):
         self._rd_press(ev)
         super().mousePressEvent(ev)

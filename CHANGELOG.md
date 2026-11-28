@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.58.3
+- Fix: VFX Library, dragging with the left button between Quick access and VFX WORKSPACE PINS did nothing; now it moves the folder (the right button still duplicates).
+
 ## 0.58.2
 - Between Quick access and the Workspace Pins (File Explorer) and between Quick access and VFX WORKSPACE PINS (VFX Library): drag with the left button to move, drag with the right button to duplicate (it stays in both). A right-click without dragging still opens the menu.
 
