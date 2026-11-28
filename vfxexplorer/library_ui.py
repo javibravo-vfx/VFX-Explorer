@@ -135,8 +135,11 @@ class LibrarySidebar(QWidget):
                                      "lib_tree_autocollapse", self._collapse_toggled)
         self.b_sort = self._tbtn("sortaz", "Sort library folders by name (off: in the order they were added)",
                                  "lib_tree_sort_name", lambda on: self.reload())
+        self.b_lock = self._tbtn("lock", "", "lib_tree_lock", self._lock_toggled)
+        self._lock_toggled(self.b_lock.isChecked())
         bar.addWidget(self.b_collapse)
         bar.addWidget(self.b_sort)
+        bar.addWidget(self.b_lock)
         bar.addStretch(1)
         lay.addLayout(bar)
         self.reload()
@@ -202,6 +205,15 @@ class LibrarySidebar(QWidget):
         if it is None or not self.app.cfg["lib_tree_autocollapse"]:
             return
         self._anchored(self._hands_on() or it, lambda: self._auto_collapse(it))
+
+    def _lock_toggled(self, on):
+        """Candado (prendido por defecto): en el árbol de la librería no se puede soltar nada ni mover carpetas;
+        lo que se arrastra desde el árbol a otro lado siempre se copia. Para ordenar, el File Explorer."""
+        self.tree.locked = bool(on)
+        self.b_lock.setIcon(self.app.icons.glyph("lock" if on else "unlock", 16, "#4cc2ff" if on else "#8a8f96"))
+        self.b_lock.setToolTip("Library tree locked: nothing can be dropped, moved or written here "
+                               "(dragging out always copies). Click to unlock" if on else
+                               "Library tree unlocked: folders can be dropped and moved here. Click to lock")
 
     def _double(self, it, col):
         """Doble clic en una carpeta: entra y (con auto colapsar) cierra las que quedan fuera del camino."""

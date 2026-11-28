@@ -472,6 +472,17 @@ class Icons:
             path.moveTo(s * .3, s * .14); path.lineTo(s * .5, s * .34); path.lineTo(s * .7, s * .14)
             path.moveTo(s * .3, s * .86); path.lineTo(s * .5, s * .66); path.lineTo(s * .7, s * .86)
             path.moveTo(s * .16, s * .5); path.lineTo(s * .84, s * .5)
+        elif kind in ("lock", "unlock"):    # candado: cerrado / con el arco abierto
+            p.drawRoundedRect(QRectF(s * .22, s * .46, s * .56, s * .42), s * .07, s * .07)
+            if kind == "lock":
+                path.moveTo(s * .34, s * .46); path.lineTo(s * .34, s * .32)
+                path.arcTo(QRectF(s * .34, s * .12, s * .32, s * .4), 180, -180)
+                path.lineTo(s * .66, s * .46)
+            else:
+                path.moveTo(s * .34, s * .46); path.lineTo(s * .34, s * .26)
+                path.arcTo(QRectF(s * .34, s * .06, s * .32, s * .4), 180, -180)
+                path.lineTo(s * .66, s * .32)
+            path.moveTo(s * .5, s * .6); path.lineTo(s * .5, s * .72)
         elif kind == "sortaz":              # A sobre Z con flecha hacia abajo
             path.moveTo(s * .14, s * .44); path.lineTo(s * .27, s * .12); path.lineTo(s * .4, s * .44)
             path.moveTo(s * .19, s * .33); path.lineTo(s * .35, s * .33)

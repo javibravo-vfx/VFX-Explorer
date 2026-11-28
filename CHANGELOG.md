@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.61.0
+- VFX Library tree: new lock button next to Auto collapse and Sort, on by default. While locked, nothing can be dropped on the tree and folders dragged out of it are always copied, never moved (Shift included). Unlock it to drop or move folders there; for reorganizing files, use the File Explorer.
+
 ## 0.60.1
 - VFX Library tree: clicking a folder no longer moves the view, so the double-click lands on the same folder. With Auto collapse on, the other folders close after the double-click time and the clicked folder stays in place.
 - Fix: the whole VFX Library could appear duplicated below itself in the tree (a NAS folder listing arriving twice).

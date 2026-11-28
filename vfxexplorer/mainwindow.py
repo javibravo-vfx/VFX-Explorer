@@ -4,6 +4,7 @@
 import os
 import sys
 import subprocess
+import time
 
 from PySide6.QtCore import Qt, QSize, QTimer, QByteArray, QDir, QUrl, QEvent, Signal, QRectF, QPointF, QObject
 from PySide6.QtGui import QKeySequence, QShortcut, QDesktopServices, QCursor, QAction, QPixmap, QFont, QColor
@@ -3127,7 +3128,11 @@ class MainWindow(QMainWindow):
         if all(same_path(os.path.dirname(p), target) for p in paths):
             return
         from_lib = all(self.libpane.allowed(p) for p in paths) and not self.libpane.allowed(target)
-        if mods & Qt.ShiftModifier:
+        ld = getattr(self, "_lib_locked_drag", None)
+        if ld and time.monotonic() - ld[1] < 600 and {os.path.normcase(os.path.normpath(p)) for p in paths} == ld[0]:
+            self._lib_locked_drag = None
+            op = "copy"               # desde el árbol de la librería con candado: siempre copia (Shift no mueve)
+        elif mods & Qt.ShiftModifier:
             op = "move"
         elif mods & Qt.ControlModifier or from_lib:
             op = "copy"               # de la VFX Library a una carpeta: siempre copia, sin preguntar

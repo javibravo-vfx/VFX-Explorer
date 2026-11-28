@@ -1026,6 +1026,7 @@ class Config:
         "raw_app": "",                  # RAW de cámara (DNG, CR2…): programa elegido
         "raw_use_viewer": True,
         "lib_slots": [None, None, None, None],
+        "lib_tree_lock": True,          # VFX Library: el árbol no mueve, copia ni escribe carpetas (candado)
         "lib_tree_autocollapse": True,  # VFX Library: el árbol cierra las carpetas fuera del camino actual
         "lib_tree_sort_name": True,     # VFX Library: raíces por nombre (si no, en el orden en que se agregaron)
         "lib_folder_pdf": True,

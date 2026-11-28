@@ -307,6 +307,7 @@ class LibTree(_LinedMixin, QTreeWidget):
         super().__init__()
         self._lined_init(app)
         self._make_item, self._expand_item = make_item, expand_item
+        self.locked = True                        # candado: nada se suelta acá y lo que sale se copia
         self.setItemDelegate(_LibDelegate(self))
         self.setHeaderHidden(True)
         self.setDragEnabled(True)
@@ -318,8 +319,30 @@ class LibTree(_LinedMixin, QTreeWidget):
     def mimeData(self, items):
         from PySide6.QtCore import QMimeData, QUrl
         md = QMimeData()
-        md.setUrls([QUrl.fromLocalFile(it.data(0, Qt.UserRole)) for it in items if it.data(0, Qt.UserRole)])
+        paths = [it.data(0, Qt.UserRole) for it in items if it.data(0, Qt.UserRole)]
+        md.setUrls([QUrl.fromLocalFile(p) for p in paths])
+        if self.locked:                           # con el candado, adonde se suelte se copia (nunca se mueve)
+            import time
+            self.app._lib_locked_drag = ({os.path.normcase(os.path.normpath(p)) for p in paths}, time.monotonic())
         return md
+
+    def dragEnterEvent(self, ev):
+        if self.locked:
+            ev.ignore()
+            return
+        super().dragEnterEvent(ev)
+
+    def dragMoveEvent(self, ev):
+        if self.locked:
+            ev.ignore()
+            return
+        super().dragMoveEvent(ev)
+
+    def dropEvent(self, ev):
+        if self.locked:
+            ev.ignore()
+            return
+        super().dropEvent(ev)
 
     def supportedDropActions(self):
         return Qt.CopyAction | Qt.MoveAction
