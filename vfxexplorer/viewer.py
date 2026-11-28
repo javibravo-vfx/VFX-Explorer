@@ -541,11 +541,8 @@ class Viewer(QWidget):
         self.canvas.update()
 
     def _hdr_key(self, e, settings):
-        try:
-            mt = os.path.getmtime(e.path)
-        except OSError:
-            mt = 0
-        return (e.path, mt, tuple(settings.get("channels") or ()))
+        # la fecha que ya se leyó al listar la carpeta: sin tocar el disco (un NAS dormido trababa la ventana)
+        return (e.path, getattr(e, "mtime", 0) or 0, tuple(settings.get("channels") or ()))
 
     def _hdr_decode(self, path, settings):
         try:

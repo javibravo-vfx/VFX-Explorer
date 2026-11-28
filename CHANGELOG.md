@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.59.1
+- Fix: since 0.59.0 the VFX Library viewer read the file date from disk on every selection; with the NAS off or waking up that could freeze the window. It now uses the date already read when listing the folder.
+
 ## 0.59.0
 - VFX Library viewer, much faster with photos and HDRIs (ideas from Photo Lite Fast): what's already in memory shows at once (the 140 ms wait after each selection is gone; 30 ms otherwise); two fixed reader threads where the image you asked for goes first; read-ahead in the direction you move (+1, −1, +2, +3) and stale read-aheads are dropped; the image is scaled to the panel once instead of on every repaint; the memory cache is 512 MB instead of a count. Moving with the arrows: about 150 ms per photo before, a few ms now.
 
