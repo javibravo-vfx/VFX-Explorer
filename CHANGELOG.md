@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.61.3
+- Fix: in the VFX Library, clicking the empty space of the top tab row made Details show the file selected in a File Explorer tab. That space now only moves the window; Details keeps showing the library selection.
+
 ## 0.61.2
 - Fix (since 0.60.1): on start, the VFX Library tree on a NAS could lose its expand arrows and could not be opened. A folder listing that arrives twice no longer marks the folder as empty.
 

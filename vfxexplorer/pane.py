@@ -867,7 +867,12 @@ class FilePane(QFrame):
     def eventFilter(self, obj, ev):
         if ev.type() in (QEvent.MouseButtonPress, QEvent.MouseButtonDblClick) and (
                 obj is self.tabsrow or (obj is self.tabbar and self.tabbar.tabAt(ev.position().toPoint()) < 0)):
-            self.focused.emit(self)
+            # en la VFX Library, el espacio vacío de las pestañas de arriba solo mueve la ventana: no activa el
+            # panel de File Explorer (si no, Details mostraba lo seleccionado en esa pestaña)
+            lib_mode = getattr(self.app, "mode", None) and self.app.mode() == "library" \
+                and self is not getattr(self.app, "libpane", None)
+            if not lib_mode:
+                self.focused.emit(self)
             if self._window_drag(ev):
                 return True
         if obj is self.tabbar and ev.type() in (QEvent.DragEnter, QEvent.DragMove):
