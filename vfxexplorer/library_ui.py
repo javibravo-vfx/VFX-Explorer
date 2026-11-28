@@ -114,6 +114,7 @@ class LibrarySidebar(QWidget):
         from .asyncdir import AsyncLister
         self._lister = AsyncLister(self)
         self._lister.done.connect(self._listed)
+        self._retries = {}                        # carpeta -> reintentos (lecturas que fallaron, NAS arrancando)
         self.tree = LibTree(app, self._item, self._expand)
         self.tree.setIconSize(app.icons.folder(None, 18).size())
         self.tree.itemExpanded.connect(self._expand)
@@ -414,18 +415,61 @@ class LibrarySidebar(QWidget):
                     c.setIcon(0, ic)
             it.addChild(c)
 
+    def _find(self, path):
+        """La carpeta en el árbol tal como está ahora, sin leer nada ni depender de qué ramas ya se leyeron
+        (una rama que falló mientras el NAS arrancaba no tiene que esconder lo que llega de sus subcarpetas)."""
+        key = _nk(path)
+        best = None
+        for i in range(self.tree.topLevelItemCount()):
+            t = self.tree.topLevelItem(i)
+            r = _nk(t.data(0, Qt.UserRole))
+            if r and (key == r or key.startswith(r.rstrip("\\/") + os.sep)):
+                if best is None or len(r) > len(_nk(best.data(0, Qt.UserRole))):
+                    best = t
+        it = best
+        while it is not None and _nk(it.data(0, Qt.UserRole)) != key:
+            nxt = None
+            for j in range(it.childCount()):
+                c = it.child(j)
+                cp = c.data(0, Qt.UserRole)
+                if cp and (key == _nk(cp) or key.startswith(_nk(cp).rstrip("\\/") + os.sep)):
+                    nxt = c
+                    break
+            it = nxt
+        return it
+
+    def _retry_later(self, path):
+        """Una lectura que falló (el NAS todavía arrancando): se vuelve a pedir sola, cada vez más espaciado."""
+        n = self._retries.get(_nk(path), 0)
+        if n >= 8:                                 # no hubo caso: se saca el «loading…» (se reintenta al reabrir)
+            it = self._find(path)
+            if it is not None:
+                for i in reversed(range(it.childCount())):
+                    if not it.child(i).data(0, Qt.UserRole):
+                        it.takeChild(i)
+            self._retries.pop(_nk(path), None)
+            return
+        self._retries[_nk(path)] = n + 1
+        QTimer.singleShot(int(min(30, 2 ** (n + 1)) * 1000), lambda p=path: self._retry(p))
+
+    def _retry(self, path):
+        it = self._find(path)
+        if it is not None and (it.isExpanded() or any(not it.child(i).data(0, Qt.UserRole)
+                                                      for i in range(it.childCount()))):
+            self._lister.request(path)
+
     def _listed(self, path, dirs):
-        it = self.tree.item_for(path, expand=False) if hasattr(self.tree, "item_for") else None
-        if it is None or os.path.normcase(os.path.normpath(it.data(0, Qt.UserRole) or "")) != \
-                os.path.normcase(os.path.normpath(path)):
+        it = self._find(path)
+        if it is None:
             return
         # lo que llega de la red no corre la vista: queda quieta la primera carpeta visible
         if dirs is None:
-            it.setData(0, Qt.UserRole + 1, False)
-            for i in reversed(range(it.childCount())):
-                if not it.child(i).data(0, Qt.UserRole):
-                    it.takeChild(i)
+            real = any(it.child(i).data(0, Qt.UserRole) for i in range(it.childCount()))
+            if not real:                           # nada que mostrar todavía: se puede volver a abrir
+                it.setData(0, Qt.UserRole + 1, False)
+            self._retry_later(path)                # y se reintenta solo (el «loading…» queda mientras tanto)
             return
+        self._retries.pop(_nk(path), None)
         top = self.tree.itemAt(0, 0)
         self._anchored(top, lambda: self._fill(it, path, [d for d in dirs if not d.startswith(".")]))
         cur = self.tree._trace_path

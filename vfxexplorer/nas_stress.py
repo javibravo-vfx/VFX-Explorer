@@ -64,6 +64,10 @@ class FakeNas:
                 self.waits += 1
         if wait > 0:
             time.sleep(wait)
+            # como Windows con un NAS que arranca: algunas lecturas que esperaron fallan igual
+            if random.random() < .3:
+                self.failed = getattr(self, "failed", 0) + 1
+                raise OSError("simulated NAS spin-up error")
 
 
 def _fixture(base, tops=None):
@@ -153,7 +157,14 @@ def run(argv):
         _scan = core.scan_dir
         core.scan_dir = lambda p, *a, **k: (nas.touch(p), _scan(p, *a, **k))[1]
         _ls = asyncdir.list_subdirs
-        asyncdir.list_subdirs = lambda p, *a, **k: (nas.touch(p), _ls(p, *a, **k))[1]
+
+        def ls(p, *a, **k):
+            try:
+                nas.touch(p)
+            except OSError:
+                return None                      # como list_subdirs ante un error de lectura
+            return _ls(p, *a, **k)
+        asyncdir.list_subdirs = ls
         _lt = imaging.load_thumbnail
         imaging.load_thumbnail = lambda e, *a, **k: (nas.touch(e.path), _lt(e, *a, **k))[1]
         _qt = imaging.qt_thumb
@@ -273,12 +284,29 @@ def run(argv):
             else:
                 QTimer.singleShot(int((WAKE + 4) * 1000), finish)     # que lleguen las lecturas pendientes
 
+        def stuck_loading():
+            """«loading…» que quedó colgado: ni se está leyendo ni hay un reintento pendiente."""
+            S = w.libside
+            out = []
+            for it in tree_items(S.tree):
+                if it.parent() is not None and not it.data(0, 256) and it.text(0).startswith("loading"):
+                    p = it.parent().data(0, 256)
+                    k = os.path.normcase(os.path.normpath(p))
+                    if p not in S._lister.busy and k not in getattr(S, "_retries", {}):
+                        out.append(p)
+            return out
+
         def finish():
             hb.stop()
+            stuck = stuck_loading()
+            state["stuck"] = stuck
+            if stuck:
+                say(f"carpetas trabadas en «loading…» en el árbol: {len(stuck)} · {stuck[:5]}")
             if "routed" in state:
                 say(f"unidad mapeada: lecturas directas del disco {state['routed']['direct']} · por red {state['routed']['network']}")
             say(f"pasos {state['n']} · errores de acción {state['errors']} · despertares del NAS {nas.wakeups} · "
-                f"lecturas que esperaron {nas.waits} · traba máx {state['gap']:.2f} s · trabas >1 s {state['gaps'][:20]}")
+                f"lecturas que esperaron {nas.waits} · fallaron {getattr(nas, 'failed', 0)} · traba máx {state['gap']:.2f} s · "
+                f"trabas >1 s {state['gaps'][:20]}")
             state["done"] = True
             w.close()
             app.quit()
@@ -288,6 +316,8 @@ def run(argv):
         app.exec()
         if not state.get("done"):
             say("la app salió antes de terminar")
+        elif state.get("stuck"):
+            say("el árbol de la VFX Library quedó con carpetas en «loading…»")
         elif state["gap"] > MAX_GAP:
             say(f"la ventana se trabó {state['gap']:.1f} s (máximo {MAX_GAP} s)")
         else:

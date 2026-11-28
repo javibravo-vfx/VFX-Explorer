@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.62.5-beta
+
+- Fix: VFX Library tree folders could stay on «loading…» forever after the NAS woke up (the File Explorer tab opened them fine). A listing that failed while the disks were spinning up marked the parent branch as unread although it still showed its folders, and from then on the listings of its subfolders were discarded. Listings now find their folder as the tree shows it, and a failed listing retries by itself (2, 4, 8… up to 30 s) instead of leaving the «loading…» behind.
+- NAS stress test: some reads during spin-up now fail, as on Windows, and the run fails if any tree folder is left on «loading…».
+
 ## 0.62.4-beta — NAS stress test
 
 - New `VFXExplorer.exe --nas-stress [seed] [steps]`: ~150 folders (photos, EXR, HDR, EXR sequences) on a simulated NAS whose disks fall asleep and take 2–6 s to wake; the real window gets random actions (Library and File Explorer navigation, tree expand/collapse and clicks, file selection with viewer and Details, tabs, mode switches, refresh, back). Fails on a crash or if the window stalls more than 5 s. Result and crash.log in %TEMP%\vfx_nas_stress.
