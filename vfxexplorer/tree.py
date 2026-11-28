@@ -310,6 +310,7 @@ class LibTree(_LinedMixin, QTreeWidget):
         self.setItemDelegate(_LibDelegate(self))
         self.setHeaderHidden(True)
         self.setDragEnabled(True)
+        self.setVerticalScrollMode(QTreeView.ScrollPerPixel)   # para que la vista quede quieta al pixel
 
     def mimeTypes(self):
         return ["text/uri-list"]

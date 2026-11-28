@@ -3,6 +3,7 @@
 
 import os
 import re
+import time
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QKeySequence, QShortcut
@@ -14,6 +15,10 @@ from .viewer import Viewer
 from .pane import FilePane
 from .tree import LibTree
 
+
+
+def _nk(p):
+    return os.path.normcase(os.path.normpath(p or ""))
 
 class LibraryPage(QWidget):
     def __init__(self, app):
@@ -113,6 +118,9 @@ class LibrarySidebar(QWidget):
         self.tree.setIconSize(app.icons.folder(None, 18).size())
         self.tree.itemExpanded.connect(self._expand)
         self.tree.itemClicked.connect(lambda it, c: self.app.open_library(it.data(0, Qt.UserRole)))
+        self._press = None                        # (momento, carpeta) del último clic en el árbol
+        self.tree.viewport().installEventFilter(self)
+        self._collapse_timer = QTimer(self, singleShot=True, timeout=self._deferred_collapse)
         self._collapse_next = False
         self.tree.itemDoubleClicked.connect(self._double)
         app.hook_tree_keys(self.tree, self.app.open_library)
@@ -152,6 +160,48 @@ class LibrarySidebar(QWidget):
         paint(b.isChecked())
         b.toggled.connect(toggled)
         return b
+
+    def eventFilter(self, obj, ev):
+        from PySide6.QtCore import QEvent
+        if ev.type() in (QEvent.MouseButtonPress, QEvent.MouseButtonDblClick):
+            self._press = (time.monotonic(), self.tree.itemAt(ev.position().toPoint()))
+        return False
+
+    def _hands_on(self):
+        """Carpeta clickeada hace un instante en el árbol (o None): el árbol no se mueve debajo del mouse."""
+        pr = self._press
+        if pr and pr[1] is not None and time.monotonic() - pr[0] < 2.5:
+            try:
+                if pr[1].treeWidget() is self.tree:
+                    return pr[1]
+            except RuntimeError:                  # el ítem ya no existe (árbol recargado)
+                pass
+        return None
+
+    def _anchored(self, it, fn):
+        """Hace fn() dejando la carpeta `it` en el mismo lugar de la pantalla (para poder hacer el doble clic)."""
+        tr = self.tree
+        y0 = tr.visualItemRect(it).top() if it is not None else None
+        auto = tr.hasAutoScroll()
+        tr.setAutoScroll(False)                   # marcar la carpeta no desplaza la vista
+        try:
+            fn()
+        finally:
+            tr.setAutoScroll(auto)
+        if y0 is None or it is None or it.treeWidget() is not tr:
+            return
+        y1 = tr.visualItemRect(it).top()
+        if y1 != y0:
+            sb = tr.verticalScrollBar()
+            sb.setValue(sb.value() + (y1 - y0))
+
+    def _deferred_collapse(self):
+        """Auto colapsar después de un clic: espera a que pase el tiempo del doble clic y no mueve la carpeta."""
+        path = self.tree._trace_path
+        it = self.tree.item_for(path, expand=False) if path else None
+        if it is None or not self.app.cfg["lib_tree_autocollapse"]:
+            return
+        self._anchored(self._hands_on() or it, lambda: self._auto_collapse(it))
 
     def _double(self, it, col):
         """Doble clic en una carpeta: entra y (con auto colapsar) cierra las que quedan fuera del camino."""
@@ -198,21 +248,35 @@ class LibrarySidebar(QWidget):
             elif t is not keep:
                 walk(t)
 
-    def sync(self, path):
-        """La carpeta de la pestaña activa queda marcada en el árbol (con su trazo)."""
+    def sync(self, path, scroll=True):
+        """La carpeta de la pestaña activa queda marcada en el árbol (con su trazo). Si se abrió con un clic en el
+        árbol, el árbol no se mueve: la carpeta queda debajo del mouse para el doble clic, y el auto colapsar
+        espera a que pase el tiempo del doble clic."""
         it = self.tree.item_for(path) if path else None
         if it is not None:
-            p = it.parent()
-            while p is not None:
-                p.setExpanded(True)
-                p = p.parent()
-            if self.app.cfg["lib_tree_autocollapse"]:
-                self._auto_collapse(it)                # en cada carpeta a la que se entra (árbol o panel)
-            self._collapse_next = False
-            self.tree._syncing = True
-            self.tree.setCurrentItem(it)
-            self.tree._syncing = False
-            self.tree.scrollToItem(it)
+            hand = self._hands_on()
+            click = hand is not None
+
+            def apply():
+                p = it.parent()
+                while p is not None:
+                    p.setExpanded(True)
+                    p = p.parent()
+                if self.app.cfg["lib_tree_autocollapse"]:
+                    if click:
+                        from PySide6.QtWidgets import QApplication
+                        self._collapse_timer.start(QApplication.doubleClickInterval() + 60)
+                    else:
+                        self._auto_collapse(it)        # en cada carpeta a la que se entra (desde el panel)
+                self._collapse_next = False
+                self.tree._syncing = True
+                self.tree.setCurrentItem(it)
+                self.tree._syncing = False
+            if click or not scroll:
+                self._anchored(hand or it, apply)
+            else:
+                apply()
+                self.tree.scrollToItem(it)
         self.tree.set_trace_path(path if it is not None else "")
 
     def roots(self):
@@ -299,9 +363,15 @@ class LibrarySidebar(QWidget):
         self._fill(it, path, dirs)
 
     def _fill(self, it, path, dirs):
+        have = set()
         for i in reversed(range(it.childCount())):
-            if not it.child(i).data(0, Qt.UserRole):          # «loading…»
+            cp = it.child(i).data(0, Qt.UserRole)
+            if not cp:                                        # «loading…»
                 it.takeChild(i)
+            else:
+                have.add(_nk(cp))
+        # una lectura que llega dos veces (de la red, o después de recargar el árbol) no duplica las carpetas
+        dirs = [d for d in dirs if _nk(os.path.join(path, d)) not in have]
         if not dirs:
             it.setChildIndicatorPolicy(QTreeWidgetItem.DontShowIndicator)
         main = bool(it.data(0, Qt.UserRole + 4))
@@ -319,10 +389,12 @@ class LibrarySidebar(QWidget):
         if it is None or os.path.normcase(os.path.normpath(it.data(0, Qt.UserRole) or "")) != \
                 os.path.normcase(os.path.normpath(path)):
             return
-        self._fill(it, path, [d for d in dirs if not d.startswith(".")])
+        # lo que llega de la red no corre la vista: queda quieta la primera carpeta visible
+        top = self.tree.itemAt(0, 0)
+        self._anchored(top, lambda: self._fill(it, path, [d for d in dirs if not d.startswith(".")]))
         cur = self.tree._trace_path
         if cur and os.path.normcase(cur).startswith(os.path.normcase(os.path.normpath(path))):
-            self.sync(cur)                        # el camino actual pasaba por acá: completar el trazo
+            self.sync(cur, scroll=False)          # el camino actual pasaba por acá: completar el trazo
 
     def add_root(self):
         d = QFileDialog.getExistingDirectory(self, "VFX Library folder",

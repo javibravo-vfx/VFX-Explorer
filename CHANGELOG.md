@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.60.1
+- VFX Library tree: clicking a folder no longer moves the view, so the double-click lands on the same folder. With Auto collapse on, the other folders close after the double-click time and the clicked folder stays in place.
+- Fix: the whole VFX Library could appear duplicated below itself in the tree (a NAS folder listing arriving twice).
+
 ## 0.60.0
 - File type filter (next to the search box): new "HDR" (.hdr / .rgbe) and "EXR + HDR" options. The button shows HDR or E+H when they are on.
 
