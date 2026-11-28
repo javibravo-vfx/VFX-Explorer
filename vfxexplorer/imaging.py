@@ -33,19 +33,25 @@ _PDF_LOCK = threading.Lock()     # pdfium no es thread-safe
 
 
 
-def _warm(path, whole):
+_WARM = {}            # unidad de red -> último momento en que se la despertó
+
+
+def _warm(path, whole=False):
     """OpenImageIO no suelta el GIL de Python mientras espera al disco: con el NAS con los discos dormidos, un
-    hilo leyendo un EXR congelaba toda la app hasta que arrancaban. Antes se lee el archivo con Python (que sí lo
-    suelta): los discos arrancan acá, sin trabar nada, y OIIO después lee de la caché."""
-    if not net_root(path):
+    hilo leyendo un EXR congelaba toda la app hasta que arrancaban. Antes se lee un pedacito con Python (que sí lo
+    suelta): los discos arrancan acá, sin trabar nada. Si el NAS se usó hace menos de 30 s, los discos ya están
+    andando y no se lee nada de más (reproducir una secuencia desde el NAS rinde igual que antes)."""
+    root = net_root(path)
+    if not root:
+        return
+    now = time.monotonic()
+    if now - _WARM.get(root, -1e9) < 30:
+        _WARM[root] = now
         return
     try:
         with open(path, "rb", buffering=0) as f:
-            if whole:
-                while f.read(4 << 20):
-                    pass
-            else:
-                f.read(256 << 10)
+            f.read(64 << 10)
+        _WARM[root] = time.monotonic()
     except OSError:
         pass
 
