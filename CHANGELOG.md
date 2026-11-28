@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.60.0
+- File type filter (next to the search box): new "HDR" (.hdr / .rgbe) and "EXR + HDR" options. The button shows HDR or E+H when they are on.
+
 ## 0.59.4
 - The NAS wake-up read is now just 64 KB, and it is skipped when the NAS was used in the last 30 seconds: no extra cost when browsing or playing EXR sequences from the NAS.
 

@@ -347,13 +347,14 @@ class FilterButton(QToolButton):
             f.moveTo(cx - 7, cy - 6); f.lineTo(cx + 7, cy - 6); f.lineTo(cx + 2, cy + 1)
             f.lineTo(cx + 2, cy + 6); f.lineTo(cx - 2, cy + 7); f.lineTo(cx - 2, cy + 1); f.closeSubpath()
             p.drawPath(f)
-        elif cat == "exr":
+        elif cat in ("exr", "hdr", "exrhdr"):
             fnt = QFont(self.font())
-            fnt.setPointSizeF(7.5)
+            fnt.setPointSizeF(7.5 if cat != "exrhdr" else 6.5)
             fnt.setBold(True)
             p.setFont(fnt)
             p.setPen(c)
-            p.drawText(QRectF(cx - 13, cy - 8, 26, 16), Qt.AlignCenter, "EXR")
+            p.drawText(QRectF(cx - 14, cy - 8, 28, 16), Qt.AlignCenter,
+                       {"exr": "EXR", "hdr": "HDR", "exrhdr": "E+H"}[cat])
         elif cat == "seq":
             for k in (4, 0, -4):
                 p.drawRect(QRectF(cx - 6 + k * .5, cy - 5 - k * .5, 11, 9))

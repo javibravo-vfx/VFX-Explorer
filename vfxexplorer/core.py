@@ -46,6 +46,8 @@ FILTERS = [
     ("Media (no others)", "media"),
     ("Sequences", "seq"),
     ("EXR", "exr"),
+    ("HDR", "hdr"),
+    ("EXR + HDR", "exrhdr"),
     ("Camera RAW", "raw"),
     ("Hide Camera RAW", "noraw"),
     ("Videos", "video"),
@@ -815,6 +817,12 @@ def entry_matches(e, q, cat, recursive=False, meta=None):
                 return False
         elif cat == "exr":
             if e.ext != ".exr":
+                return False
+        elif cat == "hdr":
+            if e.ext not in (".hdr", ".rgbe"):
+                return False
+        elif cat == "exrhdr":
+            if e.ext not in (".exr", ".hdr", ".rgbe"):
                 return False
         elif cat == "raw":
             if e.ext not in RAW_EXTS:
