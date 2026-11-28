@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.62.4-beta — NAS stress test
+
+- New `VFXExplorer.exe --nas-stress [seed] [steps]`: ~150 folders (photos, EXR, HDR, EXR sequences) on a simulated NAS whose disks fall asleep and take 2–6 s to wake; the real window gets random actions (Library and File Explorer navigation, tree expand/collapse and clicks, file selection with viewer and Details, tabs, mode switches, refresh, back). Fails on a crash or if the window stalls more than 5 s. Result and crash.log in %TEMP%\vfx_nas_stress.
+- GitHub Windows build runs it on the exe (3 seeds × 400 steps, required; plus one run with a real Windows window, informative) and prints crash.log on failure. App behavior unchanged.
+
 ## 0.62.3-beta — crash log
 
 - New VFXExplorer_data/crash.log: a sudden close now leaves the stack of every thread (native crashes in Qt / OpenImageIO included), plus uncaught Python errors from any thread and Qt critical/fatal messages. Each run writes a start and exit line, so a session without its exit line was a sudden close. Kept under 512 KB.

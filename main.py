@@ -169,6 +169,9 @@ def selftest():
 
 
 def main():
+    if "--nas-stress" in sys.argv:
+        from vfxexplorer.nas_stress import run
+        sys.exit(run(sys.argv))
     if "--nas-selftest" in sys.argv:
         from vfxexplorer.nas_selftest import run
         sys.exit(run())
