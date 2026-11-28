@@ -21,7 +21,7 @@ except Exception:  # pragma: no cover
     oiio = None
     HAS_OIIO = False
 
-from .core import IS_WIN, VIDEO_EXTS, find_tool
+from .core import IS_WIN, VIDEO_EXTS, find_tool, net_root
 
 try:
     import pypdfium2 as _pdfium
@@ -31,6 +31,28 @@ except Exception:          # pragma: no cover
     HAS_PDF = False
 _PDF_LOCK = threading.Lock()     # pdfium no es thread-safe
 
+
+
+def _warm(path, whole):
+    """OpenImageIO no suelta el GIL de Python mientras espera al disco: con el NAS con los discos dormidos, un
+    hilo leyendo un EXR congelaba toda la app hasta que arrancaban. Antes se lee el archivo con Python (que sí lo
+    suelta): los discos arrancan acá, sin trabar nada, y OIIO después lee de la caché."""
+    if not net_root(path):
+        return
+    try:
+        with open(path, "rb", buffering=0) as f:
+            if whole:
+                while f.read(4 << 20):
+                    pass
+            else:
+                f.read(256 << 10)
+    except OSError:
+        pass
+
+
+def oiio_open(path, whole=False):
+    _warm(path, whole)
+    return oiio.ImageInput.open(path)
 
 def pdf_page_count(path):
     if not HAS_PDF:
@@ -199,7 +221,7 @@ def exr_layers(path):
     """Capas de un EXR para el selector del viewer: [(etiqueta, [canales] | None, es_dato)]."""
     if not HAS_OIIO:
         return []
-    inp = oiio.ImageInput.open(path)
+    inp = oiio_open(path)
     if not inp:
         return []
     try:
@@ -252,7 +274,7 @@ def oiio_thumb(path, settings, maxdim=THUMB_RES):
 def _oiio_read(path, settings, maxdim):
     """Lee los píxeles en float, salteando filas y columnas (y con el mip más chico que alcance) hasta ~2× maxdim.
     Devuelve (arr, chroma, is_float, cs_attr, wanted) o None."""
-    inp = oiio.ImageInput.open(path)
+    inp = oiio_open(path, whole=True)
     if not inp:
         return None
     try:
@@ -786,7 +808,7 @@ class ThumbManager(QObject):
 # ----------------------------------------------------------------------------
 
 def oiio_info(path):
-    inp = oiio.ImageInput.open(path)
+    inp = oiio_open(path)
     if not inp:
         return [("Error", oiio.geterror() or "could not open")]
     rows = []

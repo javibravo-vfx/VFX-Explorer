@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.59.3
+- Fix: the whole app froze while the NAS disks were spinning up. Reading EXR/HDR files (OpenImageIO) blocks every Python thread while it waits for the disk, even from a background thread. Files on network drives are now read first in a way that does not block, so the disks wake up there and the window keeps responding ("loading").
+
 ## 0.59.2
 - Fix: when the selected file in the VFX Library is overwritten on disk, the viewer now reloads it (it kept showing the old image; thumbnails were already updated).
 

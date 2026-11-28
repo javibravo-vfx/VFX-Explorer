@@ -26,7 +26,8 @@ def read_image_meta(path):
     ext = os.path.splitext(path)[1].lower().lstrip(".")
     out = {}
     if HAS_OIIO and (ext in OIIO_EXTS or ext not in QT_FAST):
-        inp = oiio.ImageInput.open(path)
+        from .imaging import oiio_open
+        inp = oiio_open(path)
         if inp:
             try:
                 spec = inp.spec()
