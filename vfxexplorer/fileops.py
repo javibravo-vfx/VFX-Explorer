@@ -55,16 +55,8 @@ def is_subpath(child, parent):
 
 
 def is_network_path(path):
-    p = os.path.abspath(path)
-    if p.startswith("\\\\") or p.startswith("//"):
-        return True
-    if IS_WIN:
-        try:
-            root = os.path.splitdrive(p)[0] + "\\"
-            return ctypes.windll.kernel32.GetDriveTypeW(ctypes.c_wchar_p(root)) == 4  # DRIVE_REMOTE
-        except Exception:
-            return False
-    return False
+    from .core import net_root
+    return bool(net_root(path))
 
 
 def new_folder(parent, name):

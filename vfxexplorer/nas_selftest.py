@@ -27,7 +27,10 @@ def run():
         imaging.init_formats()
         assert imaging.HAS_OIIO, 'OpenImageIO unavailable in executable'
         settings = {'cs': 'lin709', 'chroma': False, 'ffmpeg': None, 'sidecar': True}
-        with tempfile.TemporaryDirectory() as tmp:
+        # Optional real Windows SMB-loopback fixture, provisioned by CI.
+        share_path = os.environ.get('VFX_LOOPBACK_LOCAL')
+        mapped_path = os.environ.get('VFX_LOOPBACK_MAPPED')
+        with tempfile.TemporaryDirectory(dir=share_path if share_path and mapped_path else None) as tmp:
             # Deterministic float pixel data including values above 1.0, plus EXR alpha.
             rgb = np.linspace(.02, 2.0, 64 * 32 * 3, dtype=np.float32).reshape(32, 64, 3)
             rgba = np.concatenate((rgb, np.full((32, 64, 1), .75, dtype=np.float32)), axis=2)
@@ -53,6 +56,27 @@ def run():
             assert layers, 'missing EXR layers'
             assert media.worker_counts() == {'preview': 0, 'foreground': 0}, 'local decoding started a process'
             log.append('Local EXR/HDR: OK; zero decoder processes')
+            if share_path and mapped_path:
+                from .storage import native_read_path
+                from concurrent.futures import ThreadPoolExecutor
+                with ThreadPoolExecutor(1) as pool:
+                    for path, expected in zip(paths, baseline):
+                        mapped = os.path.join(mapped_path, os.path.relpath(path, share_path))
+                        assert core.net_root(mapped), 'mapped drive is not network-sensitive'
+                        resolved = pool.submit(native_read_path, mapped).result(timeout=20)
+                        assert resolved != mapped and not core.net_root(resolved), f'local SMB not resolved: {mapped}'
+                        actual = pool.submit(decode, mapped).result(timeout=30)
+                        assert actual[0] == expected[0], 'SMB-local thumbnail differs'
+                        np.testing.assert_allclose(actual[1][0], expected[1][0], rtol=1e-6, atol=1e-7)
+                        if expected[1][1] is None:
+                            assert actual[1][1] is None
+                        else:
+                            np.testing.assert_allclose(actual[1][1], expected[1][1], rtol=1e-6, atol=1e-7)
+                        assert actual[2] == expected[2], 'SMB-local metadata differs'
+                assert media.worker_counts() == {'preview': 0, 'foreground': 0}, 'SMB local unexpectedly started decoder'
+                log.append('Real local SMB mapped drive: direct EXR/HDR, zero decoder processes')
+            else:
+                log.append('Real local SMB mapped drive: NOT RUN (no fixture configured)')
             core.NET_FAKE_ROOTS.add(tmp)
             try:
                 for path, expected in zip(paths, baseline):
@@ -67,11 +91,12 @@ def run():
                         np.testing.assert_allclose(linear[1], expected[1][1], rtol=1e-6, atol=1e-7)
                     assert info == expected[2], 'metadata differs from local decoding'
                     log.append(f'Network {os.path.splitext(path)[1]} thumb + linear + info: OK ({time.perf_counter()-t:.3f}s)')
+                assert media.shared_transfers() >= len(paths), 'float data did not use shared memory'
                 assert imaging.exr_layers(paths[0]) == layers, 'layer selector differs'
                 assert media.worker_counts() == {'preview': 1, 'foreground': 1}, 'extra idle processes'
                 parent = os.getpid()
-                old = media.call('os', 'getpid', (), _timeout=20)
-                preview = media.call('os', 'getpid', (), preview=True, _timeout=20)
+                old = media.call('os', 'getpid', (), _timeout=20, storage=tmp)
+                preview = media.call('os', 'getpid', (), preview=True, _timeout=20, storage=tmp)
                 assert len({old, preview, parent}) == 3, 'not isolated into separate processes'
                 log.append(f'Lazy spawn: parent={parent}, foreground={old}, preview={preview}')
                 # Deliberately block a child; the actual Qt event loop must keep ticking.
@@ -79,7 +104,7 @@ def run():
                 result = []
                 def blocked():
                     try:
-                        media.call('time', 'sleep', (30,), _timeout=.6)
+                        media.call('time', 'sleep', (30,), _timeout=.6, storage=tmp)
                         result.append('unexpected success')
                     except OSError as exc:
                         result.append(str(exc))
@@ -103,8 +128,8 @@ def run():
                 worker.join(1)
                 assert done.is_set() and result == ['Network decoder timed out'], result
                 assert ticks[0] >= 5, f'GUI heartbeat stalled: {ticks[0]}'
-                assert media.call('os', 'getpid', (), preview=True, _timeout=20) == preview, 'preview pool was lost'
-                new = media.call('os', 'getpid', (), _timeout=20)
+                assert media.call('os', 'getpid', (), preview=True, _timeout=20, storage=tmp) == preview, 'preview pool was lost'
+                new = media.call('os', 'getpid', (), _timeout=20, storage=tmp)
                 assert new != old, 'blocked worker was not replaced'
                 assert imaging.hdr_linear(paths[0], settings, 64) is not None, 'decoder failed after recovery'
                 log.append(f'Blocked child: {ticks[0]} GUI timer ticks; isolated timeout + recovery OK')

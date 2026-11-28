@@ -34,6 +34,8 @@ jobs:
           python tests/test_storage_cache.py
           python tests/test_network_state.py
           python tests/test_media_process.py
+          python tests/test_storage_routing.py
+          python tests/test_media_transport.py
 
       - name: Compilar exe portable
         run: >
@@ -78,13 +80,46 @@ jobs:
         run: |
           $exe = (Resolve-Path "dist\VFXExplorer\VFXExplorer.exe").Path
           Remove-Item "$env:TEMP\vfxexplorer_nas_selftest.log" -ErrorAction SilentlyContinue
-          $p = Start-Process -FilePath $exe -ArgumentList "--nas-selftest" -Wait -PassThru
-          if (Test-Path "$env:TEMP\vfxexplorer_nas_selftest.log") { Get-Content "$env:TEMP\vfxexplorer_nas_selftest.log" }
-          if ($p.ExitCode -ne 0) { throw "NAS selftest falló ($($p.ExitCode))" }
-          if (-not (Test-Path "$env:TEMP\vfxexplorer_nas_selftest.log")) { throw "NAS selftest no produjo log" }
-          if (-not (Select-String -Path "$env:TEMP\vfxexplorer_nas_selftest.log" -Pattern '^NAS SELFTEST OK$' -Quiet)) { throw "NAS selftest no terminó" }
-          $left = @(Get-Process VFXExplorer -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe })
-          if ($left.Count -gt 0) { $left | Stop-Process -Force; throw "Procesos VFXExplorer huérfanos" }
+          # Create a temporary loopback SMB mapping, if the runner permits it.
+          # If provisioning is unavailable, explicitly log the skipped real-SMB test;
+          # the synthetic NAS decoder test and mocked routing tests remain mandatory.
+          $share = "VFXLoopback$([Guid]::NewGuid().ToString('N').Substring(0,8))"
+          $local = Join-Path $env:RUNNER_TEMP $share
+          $letter = $null
+          $created = $false
+          $mapped = $false
+          try {
+            try {
+              New-Item -ItemType Directory -Force $local | Out-Null
+              $used = @(Get-PSDrive -PSProvider FileSystem | ForEach-Object { $_.Name })
+              $letter = @('Z','Y','X','V','U','R') | Where-Object { $_ -notin $used } | Select-Object -First 1
+              if (-not $letter) { throw "No free drive letter for loopback fixture" }
+              New-SmbShare -Name $share -Path $local -FullAccess "$env:USERDOMAIN\$env:USERNAME" -ErrorAction Stop | Out-Null
+              $created = $true
+              $drive = "${letter}:"
+              & net.exe use $drive "\\$env:COMPUTERNAME\$share" /persistent:no
+              if ($LASTEXITCODE -ne 0) { throw "Cannot map local SMB fixture" }
+              $mapped = $true
+              if (-not (Test-Path "${drive}\")) { throw "Cannot access local SMB fixture" }
+              $env:VFX_LOOPBACK_LOCAL = $local
+              $env:VFX_LOOPBACK_MAPPED = "${drive}\"
+            } catch {
+              Write-Warning "Real SMB fixture unavailable: $_. Routing mocks and synthetic NAS test still run."
+              Remove-Item Env:VFX_LOOPBACK_LOCAL,Env:VFX_LOOPBACK_MAPPED -ErrorAction SilentlyContinue
+            }
+            $p = Start-Process -FilePath $exe -ArgumentList "--nas-selftest" -Wait -PassThru
+            if (Test-Path "$env:TEMP\vfxexplorer_nas_selftest.log") { Get-Content "$env:TEMP\vfxexplorer_nas_selftest.log" }
+            if ($p.ExitCode -ne 0) { throw "NAS selftest falló ($($p.ExitCode))" }
+            if (-not (Test-Path "$env:TEMP\vfxexplorer_nas_selftest.log")) { throw "NAS selftest no produjo log" }
+            if (-not (Select-String -Path "$env:TEMP\vfxexplorer_nas_selftest.log" -Pattern '^NAS SELFTEST OK$' -Quiet)) { throw "NAS selftest no terminó" }
+            $left = @(Get-Process VFXExplorer -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe })
+            if ($left.Count -gt 0) { $left | Stop-Process -Force; throw "Procesos VFXExplorer huérfanos" }
+          } finally {
+            Remove-Item Env:VFX_LOOPBACK_LOCAL,Env:VFX_LOOPBACK_MAPPED -ErrorAction SilentlyContinue
+            if ($mapped -and $letter) { & net.exe use "${letter}:" /delete /y | Out-Null }
+            if ($created) { Remove-SmbShare -Name $share -Force -ErrorAction SilentlyContinue }
+            Remove-Item -Recurse -Force $local -ErrorAction SilentlyContinue
+          }
 
       - name: Tiempo de arranque
         shell: pwsh

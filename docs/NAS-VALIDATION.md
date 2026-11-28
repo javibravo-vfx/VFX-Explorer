@@ -1,4 +1,42 @@
-# NAS cache-first — 0.62.0-beta (validation build)
+# NAS cache-first — 0.62.1-beta (validation build)
+
+## 0.62.1 storage routing and transfer
+
+This beta is based on the supplied 0.62.0-beta source. No paths, tags, ratings, favourites, library roots, or config are migrated. Fixed local drives keep their original no-IPC decode route. Logical mapped and UNC paths retain network-safe listing/caching even for SMB loopback. On background native-image reads, the current Windows mapping is checked against exact local computer names (no DNS). The share's local physical path is resolved from local configuration/service; a direct file read is used only when the actual original SMB open succeeds, the physical file is on a fixed local drive, and file identity matches. If any check fails, the original isolated decoder is used. No file operations are redirected, and no share permissions are changed. Local name aliases not recognized, DFS/junctions, inaccessible shares, non-equivalent file IDs, and unusual mapping providers may conservatively use IPC. The Windows SMB path is not considered proven until real tests pass. No manual override UI is added in this beta.
+
+- Separate thumbnail, metadata and still-viewer work queues per mapped letter or UNC share, separate from fixed local reads. Native decoder pools are also partitioned by logical root, with lazy spawn and at most two slots per role per root, and four retained idle slots overall. Multiple simultaneously active roots may use more than four workers. Alias letters and UNC paths for the same physical NAS can have separate queues. Ordinary file-operation and other less common paths are not comprehensively isolated.
+- Remote HDR linear RGB/alpha results can use parent-owned shared memory instead of pickling pixel arrays. The parent copies into ordinary owned NumPy arrays before closing/unlinking the mapping, preserving existing viewer cache semantics. Per-call allocation cap 256 MiB; aggregate cap 512 MiB; fallback to existing IPC if unavailable or too large. No performance claim until measured on Windows with real media. Local images do not use shared memory.
+- Directory, thumbnail and metadata caches prefer local paths. Existing local portable caches remain in place. Portable config/library metadata still follows the existing app data location; run locally for full offline startup. Reparse points and unusual redirected local cache paths are not comprehensively handled.
+
+### Tests run in the development environment
+
+- `test_storage_cache.py`: 10 tests.
+- `test_network_state.py`: 6 tests.
+- `test_media_process.py`: 1 real spawned-process test.
+- `test_storage_routing.py`: 10 tests (Windows APIs simulated, real file-identity checks).
+- `test_media_transport.py`: 1 real spawned-process test (RGB and alpha fidelity, no alpha, no image, ordinary IPC fallback, per-root separation during a blocked read, timeout cleanup and child shutdown).
+- Syntax compilation and workflow YAML parsing passed. Qt/OIIO, the full general suite, Windows, and physical NAS are unavailable here. The EXE has not been built and GitHub Actions has not been run.
+
+### Windows acceptance gate and mixed setup
+
+The packaged EXE test requires shared-memory transfer for its small EXR/HDR fixtures. CI also attempts to create an ephemeral local SMB share mapped to a free letter. If provisioning succeeds, the EXE must verify direct local-file resolution, matching image pixels/metadata and zero native decoder children for that mapping. If Windows policy prevents creating/mapping the share, the CI log explicitly says the real SMB fixture was not run; this is **not** proof that loopback works. The synthetic NAS test is mandatory either way. Keep this version beta until an actual mapping is verified.
+
+Test the packaged EXE in three setups: all fixed local, all NAS (awake and sleeping), and mixed. In the mixed setup, open EXR/HDR files from T: while E: is suspended or disconnected; check that the logical path stays T:, the local decode is selected for verified files and a pending E: read does not hold T:'s queue. Compare Windows Task Manager process counts and time-to-first-frame for each route. For a controlled test of an existing verified local SMB share, set the following **only in a disposable writable test folder** (not a production library); the selftest creates and removes its own temporary fixture subfolder:
+
+```powershell
+$env:VFX_LOOPBACK_LOCAL = 'W:\VFX_WANKA_T\test-folder'
+$env:VFX_LOOPBACK_MAPPED = 'T:\test-folder'
+$p = Start-Process .\dist\VFXExplorer\VFXExplorer.exe -ArgumentList '--nas-selftest' -Wait -PassThru
+Get-Content "$env:TEMP\vfxexplorer_nas_selftest.log"
+$p.ExitCode
+Remove-Item Env:VFX_LOOPBACK_LOCAL,Env:VFX_LOOPBACK_MAPPED
+```
+
+Expected: `Real local SMB mapped drive: direct EXR/HDR, zero decoder processes` and `NAS SELFTEST OK`. A failed equivalence test must be investigated rather than forcing direct reads. A local HDD that suspends or a filesystem filter can still stall native local decoding. Windows real-hardware timing and suspension behavior remain unverified.
+
+---
+
+## Previous 0.62.0-beta validation notes
 
 Based on the supplied 0.61.4 NAS source, itself based on 0.61.3. Existing UI layout, workspace settings and library metadata format retained. No Windows binary compiled here.
 

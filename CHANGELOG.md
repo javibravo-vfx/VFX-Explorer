@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.62.1-beta — storage routing and HDR transport
+
+- Central Windows storage routing for physical disks, mapped/UNC shares and SMB loopback. Verified equivalent local files use direct native decoding while retaining logical paths, share-access checks and network-safe listing behavior. Unverified mappings use isolation.
+- Separate thumbnail, metadata, still-viewer and native decoder queues per network root; retain direct local queues and bound idle decoder retention.
+- Parent-owned bounded shared-memory transport for linear RGB/alpha data, with original IPC fallback and cleanup on failure or timeout.
+- Preserve local derived caches even if the portable app/data folder is on a mapped share.
+- New routing and real process-transport tests; packaged EXE test now verifies shared-memory transport and, when Windows CI can provision a real SMB loopback share, direct decoding through its mapped drive.
+- Physical NAS and Windows performance/SMB verification still pending.
+
 ## 0.62.0-beta — NAS stabilization
 
 - Fix false offline at online-probe TTL expiry: keep last confirmed state; unknown is not offline and stale probe results cannot overwrite a newer successful read.

@@ -228,7 +228,8 @@ def exr_layers(path):
     """Capas de un EXR para el selector del viewer: [(etiqueta, [canales] | None, es_dato)]."""
     if not HAS_OIIO:
         return []
-    from .media_process import isolated, call
+    from .media_process import isolated, call, decode_path
+    path = decode_path(path)
     if isolated(path):
         return call(__name__, "exr_layers", (path,))
     inp = oiio_open(path)
@@ -274,7 +275,8 @@ def exr_layers(path):
 
 
 def oiio_thumb(path, settings, maxdim=THUMB_RES):
-    from .media_process import isolated, call
+    from .media_process import isolated, call, decode_path
+    path = decode_path(path)
     if isolated(path):
         return call(__name__, "oiio_thumb", (path, settings, maxdim), preview=maxdim <= THUMB_RES)
     r = _oiio_read(path, settings, maxdim)
@@ -357,7 +359,8 @@ def _oiio_cs(path, settings, chroma, is_float, cs_attr):
 def hdr_linear(path, settings, maxdim):
     """Para el visor de HDRIs: la imagen en float lineal Rec.709 (sin recortar los altos), para aplicarle
     exposición y gamma al vuelo. Devuelve (rgb HxWx3 float32, alpha o None) o None."""
-    from .media_process import isolated, call
+    from .media_process import isolated, call, decode_path
+    path = decode_path(path)
     if isolated(path):
         return call(__name__, "hdr_linear", (path, settings, maxdim))
     r = _oiio_read(path, settings, maxdim)
@@ -725,8 +728,8 @@ class ThumbManager(QObject):
         self.pool = QThreadPool()
         self.cache_pool = QThreadPool(self)
         self.cache_pool.setMaxThreadCount(4)
-        self.network_pool = QThreadPool(self)
-        self.network_pool.setMaxThreadCount(3)
+        from .storage import RootPools
+        self.storage_pools = RootPools(self.pool, self, 3)
         self._epoch = 0
         self.retry_after = {}
         self.cache = OrderedDict()
@@ -738,7 +741,7 @@ class ThumbManager(QObject):
         self.signals.done.connect(self._done)
         self.signals.cache_miss.connect(self._cache_miss)
         from .storage_cache import cache_home
-        self.cache_dir = os.path.join(cache_home() or data_dir, "thumbs")
+        self.cache_dir = os.path.join(cache_home(data_dir) or data_dir, "thumbs")
         os.makedirs(self.cache_dir, exist_ok=True)
         self.reload_settings()
 
@@ -825,7 +828,7 @@ class ThumbManager(QObject):
             if pm is None:
                 if key not in self.pending and key not in self.failed and time.monotonic() >= self.retry_after.get(key, 0):
                     self.pending.add(key)
-                    pool = self.network_pool if net_root(e.path) else self.pool
+                    pool = self.storage_pools.for_path(e.path)
                     pool.start(VideoScrubTask(key, e.path, k, steps, dict(self.settings), self.cache_dir,
                                                    self.signals, self._epoch, (e.mtime, e.size) if net_root(e.path) and e.mtime else None))
                 return None, f"{int(frac * 100)}%"
@@ -843,7 +846,7 @@ class ThumbManager(QObject):
     def _cache_miss(self, payload):
         key, e, settings, epoch = payload
         if epoch == self._epoch and key in self.pending:
-            self.network_pool.start(ThumbTask(key, e, settings, self.cache_dir, self.index, self.signals, epoch=epoch))
+            self.storage_pools.for_path(e.path).start(ThumbTask(key, e, settings, self.cache_dir, self.index, self.signals, epoch=epoch))
 
     def _done(self, key, img, epoch):
         if epoch != self._epoch:
@@ -863,9 +866,8 @@ class ThumbManager(QObject):
 
     def cancel_pending(self):
         self._epoch += 1
-        self.pool.clear()
+        self.storage_pools.clear()
         self.cache_pool.clear()
-        self.network_pool.clear()
         self.pending.clear()
 
     def forget(self, keys=None):
@@ -906,7 +908,8 @@ class ThumbManager(QObject):
 # ----------------------------------------------------------------------------
 
 def oiio_info(path):
-    from .media_process import isolated, call
+    from .media_process import isolated, call, decode_path
+    path = decode_path(path)
     if isolated(path):
         return call(__name__, "oiio_info", (path,), preview=True)
     inp = oiio_open(path)

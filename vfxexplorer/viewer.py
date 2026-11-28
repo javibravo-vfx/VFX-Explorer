@@ -43,8 +43,8 @@ class StillPool(QObject):
         self._lock = threading.Lock()
         self._cv = threading.Condition(self._lock)
         self._running = set()
-        for _ in range(workers):
-            threading.Thread(target=self._loop, daemon=True).start()
+        self._max_workers = workers
+        self._workers = 0
 
     def submit(self, key, fn, foreground):
         with self._cv:
@@ -59,6 +59,9 @@ class StillPool(QObject):
                             self._cv.notify()
                         return
             (self._fg.appendleft if foreground else self._bg.append)((key, fn))
+            while self._workers < min(self._max_workers, len(self._fg) + len(self._bg) + len(self._running)):
+                self._workers += 1
+                threading.Thread(target=self._loop, daemon=True).start()
             self._cv.notify()
 
     def keep_only(self, keys):
@@ -76,7 +79,9 @@ class StillPool(QObject):
         while True:
             with self._cv:
                 while not self._fg and not self._bg:
-                    self._cv.wait()
+                    if not self._cv.wait(timeout=60) and not self._fg and not self._bg:
+                        self._workers -= 1
+                        return
                 key, fn = (self._fg or self._bg).popleft()
                 self._running.add(key)
             try:
@@ -88,6 +93,8 @@ class StillPool(QObject):
             try:
                 self.done.emit(key, r)
             except RuntimeError:                  # la ventana ya se cerró
+                with self._cv:
+                    self._workers -= 1
                 return
 
 
@@ -593,13 +600,18 @@ class Viewer(QWidget):
         self.canvas.update()
         self._hdr_wait = (self._load_token, key)        # la que se espera (aunque la haya pedido la precarga)
         path = e.path
-        self._pool().submit(key, lambda: self._hdr_decode(path, settings), foreground=True)
+        self._pool(path).submit(key, lambda: self._hdr_decode(path, settings), foreground=True)
 
-    def _pool(self):
-        if getattr(self, "_still_pool", None) is None:
-            self._still_pool = StillPool(self)
-            self._still_pool.done.connect(self._pool_done)
-        return self._still_pool
+    def _pool(self, path):
+        from .storage import queue_key
+        root = queue_key(path)
+        pools = getattr(self, "_still_pools", None)
+        if pools is None:
+            pools = self._still_pools = {}
+        if root not in pools:
+            pools[root] = StillPool(self)
+            pools[root].done.connect(self._pool_done)
+        return pools[root]
 
     def _pool_done(self, key, r):
         if r is not None:
@@ -622,7 +634,6 @@ class Viewer(QWidget):
         """Los HDRIs de al lado (siguiente / anterior) se leen de antemano: al moverse con las flechas
         aparecen al instante."""
         settings = dict(self.app.thumbs.settings)
-        pool = self._pool()
         want = []
         for e in entries:
             if not self.is_still(e):
@@ -631,8 +642,9 @@ class Viewer(QWidget):
             want.append(key)
             if key in self._hdr_cache:
                 continue
-            pool.submit(key, lambda p=e.path: self._hdr_decode(p, settings), foreground=False)
-        pool.keep_only(set(want))
+            self._pool(e.path).submit(key, lambda p=e.path: self._hdr_decode(p, settings), foreground=False)
+        for pool in getattr(self, "_still_pools", {}).values():
+            pool.keep_only(set(want))
 
     def cached_still(self, e):
         """¿Ya está en memoria? (entonces se muestra sin esperar)"""

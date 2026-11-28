@@ -10,18 +10,24 @@ _lock = threading.Lock()
 _inflight = {}
 
 
-def cache_home():
+def cache_home(data_path=None):
     # Derived data is disposable and must never follow a portable exe onto a share.
     from .core import app_dir, net_root
-    if net_root(app_dir()):
-        base = os.environ.get('LOCALAPPDATA') or os.path.join(os.path.expanduser('~'), '.cache')
-        return os.path.join(base, 'VFX Explorer')
+    if net_root(app_dir()) or (data_path and net_root(data_path)):
+        for base in (os.environ.get('LOCALAPPDATA'), os.environ.get('TEMP'), os.environ.get('TMP'),
+                     os.path.join(os.path.expanduser('~'), '.cache')):
+            if base and not net_root(base):
+                return os.path.join(base, 'VFX Explorer')
+        raise OSError('No local cache location available')
     return None
 
 
 def _db():
     from .core import data_dir
-    d = cache_home() or data_dir()
+    d = cache_home()
+    if not d:
+        portable = data_dir()
+        d = cache_home(portable) or portable
     os.makedirs(d, exist_ok=True)
     con = sqlite3.connect(os.path.join(d, 'directory-cache.sqlite3'), timeout=2)
     con.execute('CREATE TABLE IF NOT EXISTS snapshots (key TEXT PRIMARY KEY, payload TEXT NOT NULL)')

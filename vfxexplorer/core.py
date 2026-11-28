@@ -99,49 +99,26 @@ _NET = {}            # raíz -> {"ok": bool|None, "t": float, "busy": bool, "ev"
 _NET_LOCK = _thr.Lock()
 _NET_OK_TTL = 30.0   # una vez visto vivo, no se vuelve a chequear por 30 s
 _NET_BAD_TTL = 8.0   # caído: se reintenta cada 8 s (en otro hilo)
-_DRIVE_TYPES = {}
 NET_FAKE_ROOTS = set()     # pruebas en Linux: carpetas que se tratan como un share de red
 NET_FAKE_OFFLINE = set()   # pruebas: de esas, las que están caídas (el chequeo tarda y falla)
 
 
 def _drive_is_remote(letter):
-    if letter in _DRIVE_TYPES:
-        return _DRIVE_TYPES[letter]
-    r = False
-    if IS_WIN:
-        try:
-            import ctypes
-            r = ctypes.windll.kernel32.GetDriveTypeW(ctypes.c_wchar_p(letter + "\\")) == 4   # DRIVE_REMOTE
-            if not r:
-                # A persistent mapped drive can be disconnected at startup. Registry is local.
-                import winreg
-                try:
-                    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Network\\" + letter[0]):
-                        r = True
-                except OSError:
-                    pass
-        except Exception:
-            r = False
-    _DRIVE_TYPES[letter] = r
-    return r
+    from .storage import drive_remote
+    return drive_remote(letter)
 
 
 def net_root(path):
-    r"""«\\server\share», «T:» (unidad de red) o None si la ruta es local."""
-    p = str(path or "").replace("/", "\\") if IS_WIN else str(path or "")
-    if p.startswith("\\\\") or p.startswith("//"):
-        parts = [x for x in re.split(r"[\\/]+", p) if x]
-        return ("\\\\" + "\\".join(parts[:2])) if len(parts) >= 2 else None
-    if NET_FAKE_ROOTS:                               # pruebas
+    """Logical network root, including local SMB for safe UI and cache access."""
+    p = str(path or "")
+    if NET_FAKE_ROOTS:
         np_ = os.path.normcase(os.path.normpath(p))
         for r in NET_FAKE_ROOTS:
             nr = os.path.normcase(os.path.normpath(r))
             if np_ == nr or np_.startswith(nr.rstrip("\\/") + os.sep):
                 return r
-    if IS_WIN and len(p) >= 2 and p[1] == ":":
-        letter = p[:2].upper()
-        return letter if _drive_is_remote(letter) else None
-    return None
+    from .storage import network_root
+    return network_root(p)
 
 
 def _net_record(root):
@@ -671,7 +648,6 @@ def _win_drives():
         if dtype in (0, 1):
             continue
         label = ""
-        _DRIVE_TYPES[letter] = dtype == 4
         buf = ctypes.create_unicode_buffer(261)
         # Called from DrivesWorker; only query volume info if the network is reachable.
         if (dtype != 4 or reachable(root, 0.3)) and \
