@@ -3129,7 +3129,7 @@ class MainWindow(QMainWindow):
             return
         from_lib = all(self.libpane.allowed(p) for p in paths) and not self.libpane.allowed(target)
         ld = getattr(self, "_lib_locked_drag", None)
-        if ld and time.monotonic() - ld[1] < 600 and {os.path.normcase(os.path.normpath(p)) for p in paths} == ld[0]:
+        if ld and time.monotonic() - ld[1] < 10 and {os.path.normcase(os.path.normpath(p)) for p in paths} == ld[0]:
             self._lib_locked_drag = None
             op = "copy"               # desde el árbol de la librería con candado: siempre copia (Shift no mueve)
         elif mods & Qt.ShiftModifier:

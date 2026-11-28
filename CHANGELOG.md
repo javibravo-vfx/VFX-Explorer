@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.61.1
+- Folders dragged from the VFX Library tree are offered as copy or link, so Quick access and the Workspace Pins always take them (with the lock on too).
+
 ## 0.61.0
 - VFX Library tree: new lock button next to Auto collapse and Sort, on by default. While locked, nothing can be dropped on the tree and folders dragged out of it are always copied, never moved (Shift included). Unlock it to drop or move folders there; for reorganizing files, use the File Explorer.
 

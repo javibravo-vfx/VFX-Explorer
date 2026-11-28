@@ -96,8 +96,9 @@ class _LinedMixin:
         super().mouseDoubleClickEvent(ev)
 
     def startDrag(self, actions):
-        # solo "copiar" para Qt: así nunca saca filas del árbol; mover o copiar lo decide el destino
-        super().startDrag(Qt.CopyAction)
+        # "copiar" (y "vínculo", que es lo que piden Quick access y los pins) para Qt: así nunca saca filas del
+        # árbol; mover o copiar lo decide el destino
+        super().startDrag(Qt.CopyAction | Qt.LinkAction)
         self.app.drag_finished()
 
     def dragEnterEvent(self, ev):
