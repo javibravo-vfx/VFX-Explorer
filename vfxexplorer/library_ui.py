@@ -57,7 +57,7 @@ class LibraryPage(QWidget):
         e = ents[0] if len(ents) == 1 else None
         if e is None:
             return
-        key = (e.kind, e.path, len(e.files))
+        key = (e.kind, e.path, len(e.files), e.mtime, e.size)    # si se pisó el archivo, el visor lo vuelve a cargar
         if key == self._last:
             return
         self._last = key

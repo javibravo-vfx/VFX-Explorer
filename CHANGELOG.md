@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.59.2
+- Fix: when the selected file in the VFX Library is overwritten on disk, the viewer now reloads it (it kept showing the old image; thumbnails were already updated).
+
 ## 0.59.1
 - Fix: since 0.59.0 the VFX Library viewer read the file date from disk on every selection; with the NAS off or waking up that could freeze the window. It now uses the date already read when listing the folder.
 
