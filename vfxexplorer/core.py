@@ -77,7 +77,7 @@ def data_dir():
             pass
     try:
         os.makedirs(d, exist_ok=True)
-        probe = os.path.join(d, ".write_test")
+        probe = os.path.join(d, f".write_test_{os.getpid()}_{_thr.get_ident()}")
         with open(probe, "w") as f:
             f.write("ok")
         os.remove(probe)
@@ -112,6 +112,14 @@ def _drive_is_remote(letter):
         try:
             import ctypes
             r = ctypes.windll.kernel32.GetDriveTypeW(ctypes.c_wchar_p(letter + "\\")) == 4   # DRIVE_REMOTE
+            if not r:
+                # A persistent mapped drive can be disconnected at startup. Registry is local.
+                import winreg
+                try:
+                    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Network\\" + letter[0]):
+                        r = True
+                except OSError:
+                    pass
         except Exception:
             r = False
     _DRIVE_TYPES[letter] = r
@@ -136,42 +144,86 @@ def net_root(path):
     return None
 
 
-def _net_probe(root, st):
+def _net_record(root):
+    return _NET.setdefault(root, {"ok": None, "t": 0.0, "busy": False,
+                                  "ev": _thr.Event(), "rev": 0, "probe_at": -float("inf")})
+
+
+def _net_probe(root, st, revision, ev):
     try:
-        if root in NET_FAKE_OFFLINE:
-            time.sleep(3.0)
-            ok = False
-        else:
-            ok = os.path.isdir(root + ("\\" if IS_WIN and len(root) == 2 else ""))
+        ok = root not in NET_FAKE_OFFLINE and os.path.isdir(root + ("\\" if IS_WIN and len(root) == 2 else ""))
     except Exception:
         ok = False
     with _NET_LOCK:
-        st["ok"], st["t"], st["busy"] = ok, time.monotonic(), False
-    st["ev"].set()
+        # A successful real directory read is newer evidence than a pending probe.
+        if st["rev"] == revision:
+            st["ok"], st["t"] = ok, time.monotonic()
+        st["busy"] = False
+    ev.set()
+
+
+def _start_probe(root, st, now):
+    # Caller holds _NET_LOCK; no filesystem IO under this lock.
+    st["busy"] = True
+    st["probe_at"] = now
+    ev = st["ev"] = _thr.Event()
+    _thr.Thread(target=_net_probe, args=(root, st, st["rev"], ev), daemon=True).start()
+    return ev
 
 
 def reachable(path, timeout=0.6):
-    """True si la ruta es local o su servidor responde. Nunca bloquea más de `timeout`."""
+    """Return the last confirmed share state while a new probe is pending.
+
+    An unknown share is not assumed offline; bool callers get False until evidence arrives.
+    GUI callers never wait. A timeout is not evidence that a share is offline.
+    """
     root = net_root(path)
     if not root:
         return True
     now = time.monotonic()
     with _NET_LOCK:
-        st = _NET.setdefault(root, {"ok": None, "t": 0.0, "busy": False, "ev": _thr.Event()})
+        st = _net_record(root)
         fresh = st["ok"] is not None and now - st["t"] < (_NET_OK_TTL if st["ok"] else _NET_BAD_TTL)
         if fresh or st["busy"]:
             return bool(st["ok"])
-        st["busy"] = True
-        st["ev"] = _thr.Event()
-        ev = st["ev"]
-    _thr.Thread(target=_net_probe, args=(root, st), daemon=True).start()
-    ev.wait(timeout)
+        ev = _start_probe(root, st, now)
+    if _thr.current_thread() is _thr.main_thread() and "PySide6.QtWidgets" in sys.modules:
+        timeout = 0
+    if timeout > 0:
+        ev.wait(timeout)
     with _NET_LOCK:
-        if st["busy"]:              # no contestó a tiempo: por ahora, caída (el chequeo sigue en su hilo)
-            if st["ok"] is None:
-                st["ok"] = False
-            return False
         return bool(st["ok"])
+
+
+def network_status(path):
+    """(Last confirmed state: True/False/None, probe pending); no IO."""
+    root = net_root(path)
+    if not root:
+        return True, False
+    with _NET_LOCK:
+        st = _NET.get(root)
+        return (st["ok"], st["busy"]) if st else (None, False)
+
+
+def note_network_success(path):
+    """A real successful read confirms connectivity, without an extra root probe."""
+    root = net_root(path)
+    if root:
+        with _NET_LOCK:
+            st = _net_record(root)
+            st["ok"], st["t"] = True, time.monotonic()
+            st["rev"] += 1
+
+
+def note_network_failure(path):
+    """A missing/inaccessible subfolder need not mean the whole share is offline."""
+    root = net_root(path)
+    if root:
+        now = time.monotonic()
+        with _NET_LOCK:
+            st = _net_record(root)
+            if not st["busy"] and now - st["probe_at"] >= _NET_BAD_TTL:
+                _start_probe(root, st, now)
 
 
 def net_offline_roots():
@@ -210,7 +262,8 @@ def safe_isdir(path, timeout=0.6):
             st[0], st[1], st[2] = r, time.monotonic(), False
         ev.set()
     _thr.Thread(target=work, daemon=True).start()
-    ev.wait(min(timeout, 0.25))
+    if _thr.current_thread() is not _thr.main_thread() or "PySide6.QtWidgets" not in sys.modules:
+        ev.wait(min(timeout, 0.25))
     return st[0]
 
 
@@ -358,6 +411,8 @@ class Entry:
     files: list = field(default_factory=list)
     _missing: list = None
     review: bool = False     # hay notas de review al lado (imagen.ext.review.json, del visor de imágenes)
+    thumb_mtime: float = 0.0
+    thumb_size: int = 0
     split_key: str = ""      # frame de una secuencia separada a mano (seq_key): «Group back into sequence»
 
     @property
@@ -510,6 +565,7 @@ def group_files(dirpath, files, collapse=True):
             kind="seq", dirpath=dirpath, name="", path=os.path.join(dirpath, items[0][2]),
             ext=ext, size=sum(t[3] for t in items), mtime=max(t[4] for t in items),
             head=head, pad=pad, frames=[t[0] for t in items], files=[t[2] for t in items],
+            thumb_size=items[len(items) // 2][3], thumb_mtime=items[len(items) // 2][4],
         )
         e.name = f"{head}{e.hashes()}{e.ext_real}"
         out.append(e)
@@ -524,7 +580,7 @@ def group_files(dirpath, files, collapse=True):
 HIDDEN_NAMES = {"thumbs.db", "desktop.ini", "@eadir", "#recycle", "$recycle.bin", "system volume information"}
 
 
-def scan_dir(path, show_hidden=False, collapse=True):
+def scan_dir(path, show_hidden=False, collapse=True, strict=False):
     dirs, files = [], []
     with os.scandir(path) as it:
         for de in it:
@@ -541,6 +597,8 @@ def scan_dir(path, show_hidden=False, collapse=True):
                 else:
                     files.append((name, st.st_size, st.st_mtime))
             except OSError:
+                if strict:
+                    raise
                 continue
     # notas de review del visor (imagen.jpg.review.json): no se listan; la imagen lleva la marquita
     reviews = {f[0][:-len(REVIEW_SUFFIX)].lower() for f in files if f[0].lower().endswith(REVIEW_SUFFIX)}
@@ -554,6 +612,13 @@ def scan_dir(path, show_hidden=False, collapse=True):
             elif e.kind == "seq":
                 e.review = any(n.lower() in reviews for n in e.files)
     return dirs + out
+
+
+def changed_existing_media(entries, previous, stamp):
+    """Only replaced media have a previous thumbnail to invalidate; additions do not."""
+    return [e for e in entries if e.kind not in ("dir", "header")
+            and (e.kind, e.name) in previous
+            and stamp(previous[(e.kind, e.name)]) != stamp(e)]
 
 
 REVIEW_SUFFIX = ".review.json"
@@ -608,7 +673,7 @@ def _win_drives():
         label = ""
         _DRIVE_TYPES[letter] = dtype == 4
         buf = ctypes.create_unicode_buffer(261)
-        # con una unidad de red caída, GetVolumeInformation traba: solo si responde
+        # Called from DrivesWorker; only query volume info if the network is reachable.
         if (dtype != 4 or reachable(root, 0.3)) and \
                 k32.GetVolumeInformationW(ctypes.c_wchar_p(root), buf, 261, None, None, None, None, 0):
             label = buf.value
@@ -694,20 +759,30 @@ def list_drives():
     return out
 
 
-def resolve_refs(refs, show_hidden=True):
+def resolve_refs(refs, show_hidden=True, cache_only=False):
     """Convierte referencias guardadas (colecciones / tags) en Entries actuales. Devuelve (entries, faltantes)."""
     by_dir = {}
     for key, ref in refs:
         by_dir.setdefault(ref.get("dir", ""), []).append((key, ref))
     out, missing = [], []
     for d, items in by_dir.items():
+        from .storage_cache import scan_and_save, cached_entries
         try:
-            listing = {e.key(): e for e in scan_dir(d, show_hidden)}
+            if cache_only:
+                entries = cached_entries(d, show_hidden)
+                if entries is None:
+                    entries = cached_entries(d, not show_hidden)
+            else:
+                entries = scan_and_save(d, show_hidden)
+            listing = {e.key(): e for e in (entries or [])}
         except OSError:
-            listing = {}
+            entries = cached_entries(d, show_hidden)
+            if entries is None:
+                entries = cached_entries(d, not show_hidden)
+            listing = {e.key(): e for e in (entries or [])}
         for key, ref in items:
             e = listing.get(key)
-            if e is None and ref.get("kind") == "dir" and os.path.isdir(os.path.join(d, ref.get("name", ""))):
+            if e is None and not cache_only and not net_root(d) and ref.get("kind") == "dir" and os.path.isdir(os.path.join(d, ref.get("name", ""))):
                 p = os.path.join(d, ref["name"])
                 e = Entry(kind="dir", dirpath=d, name=ref["name"], path=p, mtime=os.path.getmtime(p))
             if e is None:

@@ -5,7 +5,7 @@ varios segundos en contestar y la interfaz no tiene que trabarse)."""
 import os
 import threading
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, Signal, Qt, Slot
 
 
 def list_subdirs(path, show_hidden=False):
@@ -23,15 +23,15 @@ def list_subdirs(path, show_hidden=False):
                         if attrs & 0x6:
                             continue
                 except OSError:
-                    continue
+                    return None
                 out.append(d.name)
     except OSError:
-        return []
+        return None
     return sorted(out, key=str.lower)
 
 
 class AsyncLister(QObject):
-    done = Signal(str, list)          # ruta, subcarpetas
+    done = Signal(str, object)          # ruta, subcarpetas
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -43,16 +43,59 @@ class AsyncLister(QObject):
         self.busy.add(path)
 
         def work():
-            names = list_subdirs(path, show_hidden)
-            self.busy.discard(path)
-            self.done.emit(path, names)
+            from .core import net_root, note_network_success, note_network_failure
+            from .storage_cache import cached_dirs, save_dirs
+            remote = net_root(path)
+            if remote:
+                hit = cached_dirs(path, show_hidden)
+                if hit is not None:
+                    try:
+                        self.done.emit(path, hit)
+                    except RuntimeError:
+                        self.busy.discard(path)
+                        return
+            try:
+                names = list_subdirs(path, show_hidden)
+                if remote and names is not None:
+                    save_dirs(path, show_hidden, names)
+                    note_network_success(path)
+                elif remote:
+                    note_network_failure(path)
+            finally:
+                self.busy.discard(path)
+            try:
+                self.done.emit(path, names)
+            except RuntimeError:
+                pass
         threading.Thread(target=work, daemon=True).start()
 
 
+class _AsyncResult(QObject):
+    sig = Signal(object)
+
+    def __init__(self, owner, callback):
+        super().__init__(owner)
+        self.callback = callback
+        self.sig.connect(self.deliver, Qt.QueuedConnection)
+
+    @Slot(object)
+    def deliver(self, result):
+        try:
+            self.callback(result)
+        finally:
+            self.deleteLater()
+
+
 def run_async(fn, callback, owner):
-    """Corre fn() en otro hilo y llama callback(resultado) en el hilo de la interfaz."""
-    class _S(QObject):
-        sig = Signal(object)
-    s = _S(owner)
-    s.sig.connect(lambda r: (callback(r), s.deleteLater()))
-    threading.Thread(target=lambda: s.sig.emit(fn()), daemon=True).start()
+    """Compute on a daemon worker; explicitly marshal results to the Qt owner thread."""
+    s = _AsyncResult(owner, callback)
+    def work():
+        try:
+            result = fn()
+        except Exception:
+            result = None
+        try:
+            s.sig.emit(result)
+        except RuntimeError:
+            pass
+    threading.Thread(target=work, daemon=True).start()

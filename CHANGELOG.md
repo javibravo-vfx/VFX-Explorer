@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.62.0-beta — NAS stabilization
+
+- Fix false offline at online-probe TTL expiry: keep last confirmed state; unknown is not offline and stale probe results cannot overwrite a newer successful read.
+- Restore offline labels in place; state-only timer, no periodic root probes, retry visible failed reads with 8/16/32/60-second backoff.
+- Reconcile newly added files without invalidating a nonexistent old entry; refresh review badges on actual folder scans/reactivation, not by continuous network polling.
+- Start one native decoder per role on demand, expand to two only when jobs overlap; retire only a blocked slot, cancel pending waits and join children at shutdown.
+- Frozen Windows NAS selftest decodes EXR/HDR, checks thumbnails/float data/layers/metadata, verifies GUI heartbeat, timeout recovery and child cleanup. Beta tags create prereleases.
+- Physical NAS/Windows performance validation still pending.
+
+## 0.61.4 — NAS / cache-first (validation build)
+
+- Persistent SQLite snapshots of visited network folders and expanded trees; display last known content before scanning.
+- Preserve snapshots on failed/partial scans, coalesce same-folder reads, retry failed visible directory reads and reconcile successful scans without unnecessary resets.
+- Cache-first network thumbnails (including old v2 image/sequence cache); separate local, network and disk-cache queues. Cache for previews and directory snapshots stays local if the executable is on a share.
+- Native OpenImageIO network calls run in lazy persistent processes, separate preview and foreground pools; local decoding unchanged.
+- Network breadcrumb, autocomplete and pipeline listings/menus moved off the GUI thread; configured library roots remain available offline.
+- Network searches and saved library references use last-known listings while refreshing. No healthy-share periodic scan added.
+- Added eight headless cache/storage tests; full GUI, Windows SMB, executable packaging and decoder throughput still require validation (see docs/NAS-VALIDATION.md).
+
 ## 0.61.3
 - Fix: in the VFX Library, clicking the empty space of the top tab row made Details show the file selected in a File Explorer tab. That space now only moves the window; Details keeps showing the library selection.
 

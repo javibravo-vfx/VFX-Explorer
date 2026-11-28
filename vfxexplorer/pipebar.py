@@ -9,7 +9,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QWidget, QHBoxLayout, QGridLayout, QLabel, QComboBox, QToolButton, QMenu,
                                QSizePolicy)
 
-from .core import norm_key
+from .core import norm_key, net_root
 
 LEVELS = (("proj", "Project"), ("seq", "Sequence"), ("shot", "Shot"), ("dept", "Dept"), ("task", "Task"))
 
@@ -117,7 +117,29 @@ class PipelineBar(QWidget):
         cb.setCurrentIndex(cb.findData(current) if current in items else -1)
         cb.blockSignals(False)
 
+    def _remote_job(self, fn, callback):
+        from .asyncdir import run_async
+        self._job_id = getattr(self, '_job_id', 0) + 1
+        token = self._job_id
+        run_async(fn, lambda result: callback(result) if token == self._job_id and result is not None else None, self)
+
     def reload(self):
+        if net_root(self.pipe.base()):
+            base = self.pipe.base()
+            def work():
+                return (self.pipe.projects(), os.path.isdir(base))
+            def apply(result):
+                if base != self.pipe.base():
+                    return
+                items, ok = result
+                if ok:
+                    self._fill('proj', items, self._v('proj'))
+                for cb in self.cbs.values():
+                    cb.setEnabled(ok or cb.count() > 0)
+                self.folder.setEnabled(ok or bool(self._v('proj')))
+                self.add_b.setEnabled(ok)
+            self._remote_job(work, apply)
+            return
         ok = self.pipe.available()
         for cb in self.cbs.values():
             cb.setEnabled(ok)
@@ -148,6 +170,28 @@ class PipelineBar(QWidget):
     def _pick(self, level, new_tab=False):
         p, s, sh, d, t = self._vals()
         pipe = self.pipe
+        if net_root(pipe.base()):
+            cur = self.app.explorer_active.current_dir()
+            def work():
+                if level == 'proj':
+                    return pipe.project_dir(p), [('seq', pipe.sequences(p)), ('shot', []), ('dept', []), ('task', [])], 'task'
+                if level == 'seq':
+                    return pipe.seq_dir(p, s), [('shot', pipe.shots(p, s)), ('dept', []), ('task', [])], 'task'
+                if level == 'shot':
+                    return self._same_place(p, s, sh, cur) or pipe.shot_dir(p, s, sh), [('dept', pipe.depts(p, s, sh)), ('task', [])], 'task'
+                if level == 'dept':
+                    return pipe.dept_dir(p, s, sh, d), [('task', pipe.tasks(p, s, sh, d))], pipe.dept_kind(p, s, sh, d)
+                return pipe.task_dir(p, s, sh, t, d), [], 'task'
+            def apply(result):
+                target, updates, kind = result
+                for key, items in updates:
+                    self._fill(key, items)
+                if level == 'dept':
+                    self._task_label(p, s, sh, d, kind)
+                if target:
+                    self.app.open_in_explorer(target, new_tab=new_tab)
+            self._remote_job(work, apply)
+            return
         if level == "proj":
             self._fill("seq", pipe.sequences(p))
             for k in ("shot", "dept", "task"):
@@ -171,9 +215,9 @@ class PipelineBar(QWidget):
         if target and os.path.isdir(target):
             self.app.open_in_explorer(target, new_tab=new_tab)
 
-    def _same_place(self, p, s, sh):
+    def _same_place(self, p, s, sh, cur=None):
         """Al cambiar de shot, entrar al mismo lugar (depto, task, stage, _input…) si existe en el shot nuevo."""
-        cur = self.app.explorer_active.current_dir()
+        cur = self.app.explorer_active.current_dir() if cur is None else cur
         info = self.pipe.parse(cur) if cur else None
         if not info or not info["shot"] or info["shot"] == sh:
             return ""
@@ -193,8 +237,8 @@ class PipelineBar(QWidget):
             parts.pop()
         return ""
 
-    def _task_label(self, p, s, sh, d):
-        kind = self.pipe.dept_kind(p, s, sh, d) if d else "task"
+    def _task_label(self, p, s, sh, d, kind=None):
+        kind = kind or (self.pipe.dept_kind(p, s, sh, d) if d else "task")
         cb = self.cbs["task"]
         cb.setPlaceholderText({"task": "Task", "stage": "Stage", "folder": "Shot"}[kind])
         cb.setToolTip({"task": "Tasks of the department",
@@ -204,7 +248,32 @@ class PipelineBar(QWidget):
 
     def sync(self, path):
         """Pone los combos según la carpeta actual (sin navegar)."""
-        if not path or not self.pipe.available():
+        if not path:
+            return
+        if net_root(self.pipe.base()):
+            pipe = self.pipe
+            info = pipe.parse(path)
+            if not info or not norm_key(path).startswith(norm_key(pipe.project_dir(info['project']))):
+                self.clear()
+                return
+            p, s, sh, d, t = (info[k] for k in ('project', 'seq', 'shot', 'dept', 'task'))
+            def work():
+                return ([pipe.projects(), pipe.sequences(p), pipe.shots(p, s) if s else [],
+                         pipe.depts(p, s, sh) if sh else [], pipe.tasks(p, s, sh, d) if d else []],
+                        pipe.dept_kind(p, s, sh, d) if d else 'task')
+            def apply(result):
+                lists, kind = result
+                for (key, _), items, value in zip(LEVELS, lists, (p, s, sh, d, t)):
+                    if items or not value:
+                        self._fill(key, items, value)
+                self._task_label(p, s, sh, d, kind)
+                for cb in self.cbs.values():
+                    cb.setEnabled(True)
+                self.folder.setEnabled(True)
+                self.add_b.setEnabled(True)
+            self._remote_job(work, apply)
+            return
+        if not self.pipe.available():
             return
         info = self.pipe.parse(path)
         if not info or not norm_key(path).startswith(norm_key(self.pipe.project_dir(info["project"]))):
@@ -230,6 +299,7 @@ class PipelineBar(QWidget):
 
     def clear(self):
         """Carpeta fuera del pipeline: combos vacíos (la lista de proyectos queda para elegir)."""
+        self._job_id = getattr(self, "_job_id", 0) + 1
         cb = self.cbs["proj"]
         cb.blockSignals(True)
         cb.setCurrentIndex(-1)
@@ -239,113 +309,155 @@ class PipelineBar(QWidget):
         self.cbs["task"].setPlaceholderText("Task")
 
     # ---------------- ＋ crear 3D task / DMP / Comp
+    def _menu_data(self, menu, values, fn, render):
+        if not net_root(self.pipe.base()):
+            render(fn())
+            return
+        from .asyncdir import run_async
+        menu.addAction("Reading…").setEnabled(False)
+        token = getattr(menu, '_token', 0) + 1
+        menu._token = token
+        def got(data):
+            if menu._token != token or self._vals() != values:
+                return
+            menu.clear()
+            if data is None:
+                menu.addAction("Storage unavailable").setEnabled(False)
+                return
+            render(data)
+        run_async(fn, got, menu)
+
     def _fill_add_menu(self):
         m = self.add_menu
         m.clear()
-        p, s, sh, d, t = self._vals()
+        vals = self._vals()
+        p, s, sh, d, t = vals
         pipe = self.pipe
         if not sh:
             m.addAction("Pick a shot first").setEnabled(False)
             return
-        inp = pipe.input_name()
-        ex = os.path.isdir(pipe.input_dir(p, s, sh))
-        a = m.addAction(("✓  " if ex else "") + inp + "   (plates)")
-        a.setEnabled(not ex)
-        a.setToolTip(inp + " \\ " + ", ".join(pipe.input_subs()))
-        a.triggered.connect(lambda: self._create("__input__"))
-        m.addSeparator()
-        for dep in pipe.departments():
-            name = dep["name"].strip()
-            path = pipe.dept_path(p, s, sh, name)
-            exists = os.path.isdir(path)
-            if dep.get("has_tasks"):
-                have = {x.lower() for x in pipe.tasks(p, s, sh, os.path.basename(path))} if exists else set()
-                sub = m.addMenu(f"{name} task")
-                for task, _inner in pipe.dept_tasks(name):
-                    a = sub.addAction(("✓  " if task.lower() in have else "     ") + task)
-                    a.setEnabled(task.lower() not in have)
-                    a.triggered.connect(lambda c=False, n=name, x=task: self._create(n, x))
-                if not pipe.dept_tasks(name):
-                    sub.addAction("No tasks (Settings › Pipeline)").setEnabled(False)
-            else:
-                a = m.addAction(("✓  " if exists else "") + name)
-                a.setEnabled(not exists)
-                a.setToolTip(name + " \\ " + ", ".join(pipe.dept_folders(name)))
-                a.triggered.connect(lambda c=False, n=name: self._create(n))
-        if not pipe.departments():
-            m.addAction("No departments (Settings › Pipeline)").setEnabled(False)
-        m.addSeparator()
-        m.addAction("Edit departments…", lambda: self.app.open_settings("Pipeline"))
-        m.setToolTipsVisible(True)
+        def work():
+            inp = pipe.input_name()
+            ex = os.path.isdir(pipe.input_dir(p, s, sh))
+            deps = []
+            for dep in pipe.departments():
+                name = dep['name'].strip()
+                path = pipe.dept_path(p, s, sh, name)
+                exists = os.path.isdir(path)
+                have = {x.lower() for x in pipe.tasks(p, s, sh, os.path.basename(path))} if exists and dep.get('has_tasks') else set()
+                deps.append((name, bool(dep.get('has_tasks')), exists, have))
+            return inp, ex, deps
+        def render(data):
+            inp, ex, deps = data
+            a = m.addAction(("✓  " if ex else "") + inp + "   (plates)")
+            a.setEnabled(not ex)
+            a.setToolTip(inp + " / " + ", ".join(pipe.input_subs()))
+            a.triggered.connect(lambda: self._create("__input__"))
+            m.addSeparator()
+            for name, has_tasks, exists, have in deps:
+                if has_tasks:
+                    sub = m.addMenu(f"{name} task")
+                    for task, _inner in pipe.dept_tasks(name):
+                        a = sub.addAction(("✓  " if task.lower() in have else "     ") + task)
+                        a.setEnabled(task.lower() not in have)
+                        a.triggered.connect(lambda c=False, n=name, x=task: self._create(n, x))
+                    if not pipe.dept_tasks(name):
+                        sub.addAction("No tasks (Settings › Pipeline)").setEnabled(False)
+                else:
+                    a = m.addAction(("✓  " if exists else "") + name)
+                    a.setEnabled(not exists)
+                    a.setToolTip(name + " / " + ", ".join(pipe.dept_folders(name)))
+                    a.triggered.connect(lambda c=False, n=name: self._create(n))
+            if not deps:
+                m.addAction("No departments (Settings › Pipeline)").setEnabled(False)
+            m.addSeparator()
+            m.addAction("Edit departments…", lambda: self.app.open_settings("Pipeline"))
+            m.setToolTipsVisible(True)
+        self._menu_data(m, vals, work, render)
 
     def _create(self, dept, task=None):
         p, s, sh, d, t = self._vals()
-        try:
-            if dept == "__input__":
-                target = self.pipe.create_input(p, s, sh)
-            elif task:
-                target = self.pipe.create_task(p, s, sh, dept, task)
-            else:
-                target = self.pipe.create_dept(p, s, sh, dept)
-        except OSError as ex:
-            from PySide6.QtWidgets import QMessageBox
-            QMessageBox.warning(self, "Pipeline", f"Could not create the folders:\n{ex}")
-            return
-        if target:
-            self.app.status.setText(f"Created {target}")
-            self.app.open_in_explorer(target)
-            self.sync(target)
+        def work():
+            try:
+                if dept == "__input__":
+                    target = self.pipe.create_input(p, s, sh)
+                elif task:
+                    target = self.pipe.create_task(p, s, sh, dept, task)
+                else:
+                    target = self.pipe.create_dept(p, s, sh, dept)
+                return target, None
+            except OSError as ex:
+                return None, str(ex)
+        def got(result):
+            if result is None:
+                return
+            target, err = result
+            if err:
+                from PySide6.QtWidgets import QMessageBox
+                QMessageBox.warning(self, "Pipeline", f"Could not create the folders:\n{err}")
+            elif target:
+                self.app.status.setText(f"Created {target}")
+                self.app.open_in_explorer(target)
+                self.sync(target)
+        if net_root(self.pipe.base()):
+            from .asyncdir import run_async
+            run_async(work, got, self)
+        else:
+            got(work())
 
     def _fill_menu(self):
         m = self.menu
         m.clear()
-        p, s, sh, d, t = self._vals()
+        vals = self._vals()
+        p, s, sh, d, t = vals
         pipe = self.pipe
-
-        def add(label, path, indent=0):
-            a = m.addAction(("    " * indent) + label)
-            ok = bool(path) and os.path.isdir(path)
-            a.setEnabled(ok)
-            if path:
-                a.setToolTip(path)
-            a.triggered.connect(lambda c=False, x=path: self.app.open_in_explorer(x))
-            return a
-
         if not p:
             m.addAction("Pick a project").setEnabled(False)
             return
-        add(f"Project  {p}", pipe.project_dir(p))
-        if s:
-            add(f"Sequence  {s}", pipe.seq_dir(p, s))
-        if sh:
-            m.addSeparator()
-            add(f"Shot  {sh}", pipe.shot_dir(p, s, sh))
-            pd = pipe.plates_dir(p, s, sh)
-            if pd and os.path.isdir(pd):
-                add("Plates  ▸  " + os.path.relpath(pd, pipe.shot_dir(p, s, sh)), pd, 1)
-            for dd in pipe.shot_subdirs(p, s, sh):
-                add(dd, os.path.join(pipe.shot_dir(p, s, sh), dd), 1)
-        if d:
-            m.addSeparator()
-            dd = pipe.dept_dir(p, s, sh, d)
-            add(f"Dept  {d}", dd)
-            for x in pipe.tasks(p, s, sh, d):
-                add(x, os.path.join(dd, x), 1)
-        kind = pipe.dept_kind(p, s, sh, d) if d else "task"
-        if t and kind != "task":
-            m.addSeparator()
-            td = pipe.task_dir(p, s, sh, t, d)
-            add(f"{'Stage' if kind == 'stage' else 'Folder'}  {t}", td)
-            for x in pipe.task_subdirs(p, s, sh, t, d):
-                add(x, os.path.join(td, x), 1)
-        elif t:
-            m.addSeparator()
-            td = pipe.task_dir(p, s, sh, t, d)
-            add(f"Task  {t}", td)
-            subs = pipe.dept_folders(d)
-            existing = pipe.task_subdirs(p, s, sh, t, d)
-            for x in subs + [e for e in existing if e not in subs]:
-                add(x, os.path.join(td, x), 1)
-            if os.path.isdir(td):
-                m.addAction("    ↗ open the task in a new tab", lambda: self.app.open_in_explorer(td, new_tab=True))
-        m.setToolTipsVisible(True)
+        def work():
+            rows = []
+            def add(label, path, indent=0, new_tab=False):
+                rows.append(("    " * indent + label, path, bool(path) and os.path.isdir(path), new_tab))
+            add(f"Project  {p}", pipe.project_dir(p))
+            if s:
+                add(f"Sequence  {s}", pipe.seq_dir(p, s))
+            if sh:
+                rows.append(None)
+                shot = pipe.shot_dir(p, s, sh)
+                add(f"Shot  {sh}", shot)
+                pd = pipe.plates_dir(p, s, sh)
+                if pd and os.path.isdir(pd):
+                    add("Plates  ▸  " + os.path.relpath(pd, shot), pd, 1)
+                for dd in pipe.shot_subdirs(p, s, sh):
+                    add(dd, os.path.join(shot, dd), 1)
+            if d:
+                rows.append(None)
+                dd = pipe.dept_dir(p, s, sh, d)
+                add(f"Dept  {d}", dd)
+                for x in pipe.tasks(p, s, sh, d):
+                    add(x, os.path.join(dd, x), 1)
+            kind = pipe.dept_kind(p, s, sh, d) if d else 'task'
+            if t:
+                rows.append(None)
+                td = pipe.task_dir(p, s, sh, t, d)
+                add(f"{ {'task': 'Task', 'stage': 'Stage', 'folder': 'Folder'}[kind]}  {t}", td)
+                existing = pipe.task_subdirs(p, s, sh, t, d)
+                subs = pipe.dept_folders(d) if kind == 'task' else []
+                for x in subs + [e for e in existing if e not in subs]:
+                    add(x, os.path.join(td, x), 1)
+                if kind == 'task' and os.path.isdir(td):
+                    add("↗ open the task in a new tab", td, 1, True)
+            return rows
+        def render(rows):
+            for row in rows:
+                if row is None:
+                    m.addSeparator()
+                    continue
+                label, path, ok, new_tab = row
+                a = m.addAction(label)
+                a.setEnabled(ok)
+                if path:
+                    a.setToolTip(path)
+                a.triggered.connect(lambda c=False, x=path, n=new_tab: self.app.open_in_explorer(x, new_tab=n))
+            m.setToolTipsVisible(True)
+        self._menu_data(m, vals, work, render)

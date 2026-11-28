@@ -10,7 +10,7 @@ from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QTreeWidget, QTreeWidgetItem,
                                QToolButton, QLabel, QMenu, QFileDialog)
 
-from .core import reachable
+from .core import reachable, net_root, network_status
 from .viewer import Viewer
 from .pane import FilePane
 from .tree import LibTree
@@ -315,16 +315,6 @@ class LibrarySidebar(QWidget):
             # una carpeta elegida: su propio nombre (prolijo) con su ícono, y adentro carpetas comunes
             if is_drive:
                 name = "VFX Library" if single else f"VFX Library ({r.rstrip(chr(92)).rstrip('/')})"
-            if not reachable(r):                  # NAS apagado: se muestra, sin tocarlo, y se reintenta solo
-                it = QTreeWidgetItem([name + "   (offline)"])
-                it.setData(0, Qt.UserRole, r)
-                it.setData(0, Qt.UserRole + 2, True)
-                it.setForeground(0, Qt.gray)
-                it.setIcon(0, self.app.icons.folder_icon(None, 18))
-                it.setToolTip(0, r + "\nNot available right now — it shows up by itself when the network is back")
-                it.setChildIndicatorPolicy(QTreeWidgetItem.DontShowIndicator)
-                self.tree.addTopLevelItem(it)
-                continue
             it = self._item(r, name, pretty=not is_drive)
             it.setToolTip(0, r)
             if is_drive:
@@ -334,10 +324,39 @@ class LibrarySidebar(QWidget):
                 ic = folder_icon_for(os.path.basename(r.rstrip("\\/")), 18)
                 if ic is not None:
                     it.setIcon(0, ic)
+            it.setData(0, Qt.UserRole + 7, it.text(0))
             self.tree.addTopLevelItem(it)
             it.setExpanded(len(roots) <= 3)      # las raíces arrancan abiertas
+        self.update_network_labels()
         if cur:
             self.sync(cur)
+
+    def update_network_labels(self):
+        """Update labels in place; do not rebuild or wake the tree."""
+        for i in range(self.tree.topLevelItemCount()):
+            it = self.tree.topLevelItem(i)
+            path = it.data(0, Qt.UserRole)
+            base = it.data(0, Qt.UserRole + 7)
+            if not path or not net_root(path) or base is None:
+                continue
+            state, pending = network_status(path)
+            suffix = " (offline)" if state is False else ""
+            tip = path + ("\nChecking storage…" if pending or state is None else "\nStorage offline" if state is False else "")
+            if it.text(0) != base + suffix:
+                it.setText(0, base + suffix)
+            it.setToolTip(0, tip)
+
+    def refresh_network_tree(self, root):
+        """Refresh only expanded items of the recovered share, preserving selection/scroll."""
+        def visit(it):
+            path = it.data(0, Qt.UserRole)
+            if not path or net_root(path) != root or not it.isExpanded():
+                return
+            self._lister.request(path)
+            for i in range(it.childCount()):
+                visit(it.child(i))
+        for i in range(self.tree.topLevelItemCount()):
+            visit(self.tree.topLevelItem(i))
 
     def _item(self, path, label, pretty=True):
         if pretty and self.app.cfg["lib_pretty_names"]:
@@ -354,9 +373,6 @@ class LibrarySidebar(QWidget):
         if it.data(0, Qt.UserRole + 1):
             return
         path = it.data(0, Qt.UserRole)
-        if not reachable(path):
-            return
-        from .core import net_root
         if net_root(path):                        # red (NAS): se lee en otro hilo, sin trabar la ventana
             it.setData(0, Qt.UserRole + 1, True)
             if not it.childCount():
@@ -376,9 +392,10 @@ class LibrarySidebar(QWidget):
 
     def _fill(self, it, path, dirs):
         have = set()
+        expected = {_nk(os.path.join(path, d)) for d in dirs}
         for i in reversed(range(it.childCount())):
             cp = it.child(i).data(0, Qt.UserRole)
-            if not cp:                                        # «loading…»
+            if not cp or _nk(cp) not in expected:              # «loading…» or deleted on disk
                 it.takeChild(i)
             else:
                 have.add(_nk(cp))
@@ -403,6 +420,12 @@ class LibrarySidebar(QWidget):
                 os.path.normcase(os.path.normpath(path)):
             return
         # lo que llega de la red no corre la vista: queda quieta la primera carpeta visible
+        if dirs is None:
+            it.setData(0, Qt.UserRole + 1, False)
+            for i in reversed(range(it.childCount())):
+                if not it.child(i).data(0, Qt.UserRole):
+                    it.takeChild(i)
+            return
         top = self.tree.itemAt(0, 0)
         self._anchored(top, lambda: self._fill(it, path, [d for d in dirs if not d.startswith(".")]))
         cur = self.tree._trace_path

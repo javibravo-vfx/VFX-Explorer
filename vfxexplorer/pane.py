@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (QSizePolicy, QFrame, QVBoxLayout, QHBoxLayout, QT
                                QCheckBox, QListView, QTreeView, QStackedWidget, QAbstractItemView, QHeaderView,
                                QLabel, QMenu, QWidget)
 
-from .core import IS_WIN, FILTERS, parse_query, norm_key, same_path, THISPC, IMAGE_EXTS, reachable
+from .core import IS_WIN, FILTERS, parse_query, norm_key, same_path, THISPC, IMAGE_EXTS, reachable, net_root, changed_existing_media
 from .fileops import is_subpath, is_network_path
 from .models import (EntryModel, EntryProxy, ScanWorker, SearchWorker, ResolveWorker, DrivesWorker, ROLE_ENTRY, COLS,
                      C_NAME, C_FOLDER, C_TAGS, C_RATING, VFX_COLS)
@@ -851,7 +851,7 @@ class FilePane(QFrame):
         if i < 0 or i >= len(self.tabs) or self.tabs[i]["virtual"]:
             return None
         p = self.tabs[i]["path"]
-        return p if os.path.isdir(p) else None
+        return p if net_root(p) or os.path.isdir(p) else None
 
     def _window_drag(self, ev):
         """El espacio vacío de la fila de pestañas mueve la ventana (doble click: maximizar)."""
@@ -1373,7 +1373,7 @@ class FilePane(QFrame):
         tabs = [t.get("path") for t in (st or {}).get("tabs", []) if t.get("path")]
         # una pestaña en un NAS apagado no traba el arranque: se abre igual y avisa (al volver la red, Refresh)
         from .core import safe_isdir
-        tabs = [p for p in tabs if p == THISPC or not reachable(p, 0.3) or safe_isdir(p, 0.3)] or [fallback]
+        tabs = [p for p in tabs if p == THISPC or net_root(p) or safe_isdir(p, 0.3)] or [fallback]
         if self.root_lock:
             tabs = [p for p in tabs if self.allowed(p)] or ([fallback] if fallback else [])
         extra = [t for t in (st or {}).get("tabs", []) if t.get("path")]
@@ -1428,14 +1428,8 @@ class FilePane(QFrame):
             self.show_virtual("This PC", "thispc", "")
             return
         path = os.path.expandvars(os.path.expanduser(path))
-        if not reachable(path):
-            self._set_status(f"Network location not available: {path}  (it retries by itself; Refresh when it's back)")
-            self.crumb.set_path(self.tab_path())
-            return
-        from .core import net_root
-        ext = os.path.splitext(path)[1]
-        # en la red solo se pregunta si es archivo cuando el nombre lo parece (un NAS lento no traba la navegación)
-        if (not net_root(path) or (ext and len(ext) <= 6 and ext[1:].isalnum())) and os.path.isfile(path):
+        # Network navigation is never gated on a root probe. The scan decides.
+        if not net_root(path) and os.path.isfile(path):
             select = os.path.basename(path)
             path = os.path.dirname(path)
         if not net_root(path) and not os.path.isdir(path):     # en la red lo dice la lectura (otro hilo)
@@ -1501,7 +1495,7 @@ class FilePane(QFrame):
     def _crumb_alt(self, path):
         """Ctrl+Enter en la barra: un archivo se abre; una carpeta, en una pestaña nueva."""
         p = os.path.expandvars(os.path.expanduser(path.strip().strip('"')))
-        if reachable(p) and os.path.isfile(p):
+        if not net_root(p) and os.path.isfile(p):
             from .core import Entry
             name = os.path.basename(p)
             e = Entry(kind="file", dirpath=os.path.dirname(p), name=name, path=p, ext=os.path.splitext(name)[1].lower())
@@ -1614,7 +1608,7 @@ class FilePane(QFrame):
     # ------------------------------------------------------------------ puesta al día sola
     @staticmethod
     def _live_stamp(e):
-        return (e.size, round(e.mtime or 0, 2))
+        return (e.size, e.mtime or 0, bool(e.review), e.thumb_mtime, e.thumb_size)
 
     @classmethod
     def _live_sig(cls, entries):
@@ -1629,7 +1623,7 @@ class FilePane(QFrame):
         if t is None or t["virtual"] or self._recursive_active() or getattr(self, "_live_busy", False):
             return
         path = self.tab_path()
-        if not path:
+        if not path or getattr(self, "_scan_inflight", None) == (self.gen, path):
             return
         gen = self.gen
         sh = bool(self.app.cfg["show_hidden"])
@@ -1637,25 +1631,29 @@ class FilePane(QFrame):
         self._live_busy = True
 
         def scan():
-            from .core import scan_dir
-            if not reachable(path):            # en otro hilo: un NAS dormido no traba la ventana
-                return None
+            from .storage_cache import scan_and_save
             try:
-                return scan_dir(path, sh, col)
+                return scan_and_save(path, sh, col)
             except Exception:
                 return None
 
         def got(entries):
             self._live_busy = False
-            if entries is None or gen != self.gen or not same_path(self.tab_path() or "", path):
+            if gen != self.gen or not same_path(self.tab_path() or "", path):
+                return
+            if entries is None:
+                if net_root(path):
+                    self._scan_done(gen, path, [], "Network read failed")
                 return
             if self._live_sig(entries) == self._live_sig(self.model.entries):
+                if net_root(path) and getattr(self, "_network_retry", (None, 0))[0] == path:
+                    self.gen += 1  # invalidate an already scheduled retry
+                    self._scan_done(self.gen, path, entries, "")
                 return
             # los que se pisaron (mismo nombre, otra fecha/tamaño): thumbnail nuevo y, si están seleccionados,
             # Details se vuelve a cargar
             old = {(e.kind, e.name): e for e in self.model.entries if e.kind != "header"}
-            changed = [e for e in entries if (e.kind, e.name) in old and e.kind != "dir"
-                       and self._live_stamp(old[(e.kind, e.name)]) != self._live_stamp(e)]
+            changed = changed_existing_media(entries, old, self._live_stamp)
             th = self.app.thumbs
             th.invalidate([th.key_for(e) for e in changed] + [th.key_for(old[(e.kind, e.name)]) for e in changed])
             self._live_prev = self._tab_sel_names()
@@ -1679,6 +1677,7 @@ class FilePane(QFrame):
 
     def refresh(self):
         self.app.thumbs.failed.clear()
+        self.app.thumbs.retry_after.clear()
         self.app.thumbs.index.clear()
         t = self.tab()
         if t and t["virtual"]:
@@ -1741,6 +1740,8 @@ class FilePane(QFrame):
             self._load()
 
     def _load(self):
+        if getattr(self, "_scan_inflight", None) == (self.gen, self.tab_path()) and not self._recursive_active():
+            return
         self.app.thumbs.cancel_pending()
         if self._recursive_active():
             if getattr(self, "_view_pending", False):
@@ -1753,6 +1754,8 @@ class FilePane(QFrame):
         self._set_status("Reading…")
         w = ScanWorker(self.gen, self.tab_path(), bool(self.app.cfg["show_hidden"]),
                        collapse=bool(self.app.cfg["collapse_seqs"]))
+        self._scan_inflight = (self.gen, self.tab_path())
+        w.cached.connect(self._scan_cached)
         w.done.connect(self._scan_done)
         self._track(w)
         w.start()
@@ -1761,9 +1764,60 @@ class FilePane(QFrame):
         self.workers.add(w)
         w.finished.connect(lambda w=w: self.workers.discard(w))
 
+    def _scan_cached(self, gen, path, entries):
+        if gen != self.gen:
+            return
+        # Avoid resetting the same view on refresh; keep scroll, selection and pixels.
+        if not self.model.virtual and same_path(self.model.root or "", path):
+            return
+        self._cached_paint = True
+        try:
+            self._scan_done(gen, path, entries, "")
+        finally:
+            self._cached_paint = False
+        self._set_status("Showing cache · checking storage…")
+
     def _scan_done(self, gen, path, entries, err):
         if gen != self.gen:
             return
+        cached = getattr(self, "_cached_paint", False)
+        if not cached:
+            self._scan_inflight = None
+        same = not self.model.virtual and same_path(self.model.root or "", path)
+        if err and net_root(path):
+            if not same:
+                self.model.set_entries([], path, virtual=False)
+            from .core import network_status
+            offline, _ = network_status(path)
+            label = "Storage offline" if offline is False else "Folder unavailable"
+            self._set_status(f"{label} · showing last known contents" if same and self.model.entries else f"{label} · retrying…")
+            # Only retry failed reads of the current visible location; no polling healthy sleeping disks.
+            ticket = self._network_retry_ticket = object()
+            def retry():
+                if ticket is self._network_retry_ticket and gen == self.gen and self.isVisible() and same_path(self.tab_path() or "", path):
+                    self._load()
+            # Back off repeated failures; never poll an inactive tab or a healthy share.
+            attempts = getattr(self, "_network_retry", (None, 0))
+            count = attempts[1] + 1 if attempts[0] == path else 1
+            self._network_retry = (path, count)
+            QTimer.singleShot(min(60000, 8000 * 2 ** min(count - 1, 3)), retry)
+            return
+        if not cached:
+            was_retry = getattr(self, "_network_retry", (None, 0))[0] == path
+            self._network_retry = (None, 0)
+            self._network_retry_ticket = None
+            if was_retry and self.root_lock and net_root(path):
+                QTimer.singleShot(0, lambda: self.app._lib_folder_changed(path) if same_path(self.current_dir() or "", path) else None)
+        if not cached and net_root(path) and same and not getattr(self, "_view_pending", False) and self.model.group_mode == self.effective_group(virtual=False) and self._live_sig(entries) == self._live_sig(self.model.entries):
+            self._update_status()
+            self.app.request_dir_sizes(self, entries)
+            self.app.thumbs.retry_after.clear()
+            self.grid.viewport().update()
+            self.list.viewport().update()
+            return
+        bars = (self.grid.verticalScrollBar().value(), self.list.verticalScrollBar().value()) if same else None
+        if same and not self.pending_select:
+            self.pending_select = self._tab_sel_names() or None
         live = getattr(self, "_live", False)
         if getattr(self, "_view_pending", False):
             self._view_pending = False
@@ -1774,9 +1828,7 @@ class FilePane(QFrame):
         # otra fecha o tamaño) pierde el thumbnail viejo en memoria; si estaba seleccionado, Details se recarga
         if not self.model.virtual and same_path(self.model.root or "", path) and self.model.entries:
             old = {(e.kind, e.name): e for e in self.model.entries if e.kind not in ("header", "dir")}
-            stamp = {k: (e.size, e.mtime) for k, e in old.items()}
-            changed = [e for e in entries if e.kind != "dir"
-                       and stamp.get((e.kind, e.name), (e.size, e.mtime)) != (e.size, e.mtime)]
+            changed = changed_existing_media(entries, old, lambda e: (e.size, e.mtime, e.thumb_mtime, e.thumb_size))
             if changed:
                 th = self.app.thumbs
                 th.invalidate([th.key_for(e) for e in changed] + [th.key_for(old[(e.kind, e.name)]) for e in changed])
@@ -1797,11 +1849,15 @@ class FilePane(QFrame):
                 and same_path(t["sel"].get("path", ""), path):
             self.pending_select = list(t["sel"].get("names") or []) or None     # una recarga no la pierde
         self._select_pending()
-        if not self.root_lock and not (live and self._tab_sel_names() == getattr(self, "_live_prev", None)):
+        if not cached and not self.root_lock and not (live and self._tab_sel_names() == getattr(self, "_live_prev", None)):
             # Details al día con lo seleccionado (o vacío): vaciar la vista no avisa por sí solo
             # (en una puesta al día sola, si la selección no cambió, Details no se toca: el video sigue)
             self.selection_changed.emit(self)
-        self.app.request_dir_sizes(self, entries)
+        if not cached:
+            self.app.request_dir_sizes(self, entries)
+        if bars is not None:
+            self.grid.verticalScrollBar().setValue(bars[0])
+            self.list.verticalScrollBar().setValue(bars[1])
 
     def _sort(self):
         hd = self.list.header()
@@ -1875,6 +1931,7 @@ class FilePane(QFrame):
         w = SearchWorker(self.gen, self.tab_path(), self._query(), self.filter.currentData(),
                          bool(self.app.cfg["show_hidden"]), self.app.lib.snapshot(), max_depth=depth,
                          collapse=bool(self.app.cfg["collapse_seqs"]))
+        w.snapshot.connect(self._search_snapshot)
         w.batch.connect(self._search_batch)
         w.progress.connect(self._search_progress)
         w.finished_search.connect(self._search_done)
@@ -1882,6 +1939,15 @@ class FilePane(QFrame):
         self.search_worker = w
         self._set_status("Searching…")
         w.start()
+
+    def _search_snapshot(self, gen, entries):
+        if gen != self.gen:
+            return
+        self._pending = []
+        self.model.set_entries(entries, self.tab_path(), virtual=True)
+        self.proxy.refresh_groups()
+        self._sort()
+        self._set_status("Showing cache · checking storage…")
 
     def _search_batch(self, gen, entries):
         if gen == self.gen:
@@ -1991,6 +2057,7 @@ class FilePane(QFrame):
         self._show_location()
         self._set_status("Searching the library…")
         w = ResolveWorker(self.gen, refs)
+        w.cached.connect(self._virtual_cached)
         w.done.connect(self._virtual_done)
         self._track(w)
         w.start()
@@ -2005,6 +2072,11 @@ class FilePane(QFrame):
         self._sort()
         n = len(entries)
         self._set_status(f"{n} {'drive' if n == 1 else 'drives'}")
+
+    def _virtual_cached(self, gen, entries):
+        self._virtual_done(gen, entries, 0)
+        if gen == self.gen:
+            self._set_status("Showing cache · checking storage…")
 
     def _virtual_done(self, gen, entries, n_missing):
         if gen != self.gen:

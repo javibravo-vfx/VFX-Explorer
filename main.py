@@ -169,6 +169,9 @@ def selftest():
 
 
 def main():
+    if "--nas-selftest" in sys.argv:
+        from vfxexplorer.nas_selftest import run
+        sys.exit(run())
     if "--selftest" in sys.argv:
         sys.exit(selftest())
     if sys.platform.startswith("win"):
@@ -225,4 +228,6 @@ def main():
 
 
 if __name__ == "__main__":
+    import multiprocessing
+    multiprocessing.freeze_support()
     main()

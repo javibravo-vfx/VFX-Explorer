@@ -174,7 +174,8 @@ class SlotController(QObject):
             L.pending_select = [s["name"]]
             L._select_pending()
         else:
-            if not os.path.isdir(s["dir"]):
+            from .core import net_root
+            if not net_root(s["dir"]) and not os.path.isdir(s["dir"]):
                 L._f7_resume = False
                 self.app.status.setText(f"Slot {i + 1}: the folder is not available ({s['dir']})")
                 return

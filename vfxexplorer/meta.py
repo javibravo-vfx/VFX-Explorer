@@ -26,6 +26,9 @@ def read_image_meta(path):
     ext = os.path.splitext(path)[1].lower().lstrip(".")
     out = {}
     if HAS_OIIO and (ext in OIIO_EXTS or ext not in QT_FAST):
+        from .media_process import isolated, call
+        if isolated(path):
+            return call(__name__, "read_image_meta", (path,), preview=True)
         from .imaging import oiio_open
         inp = oiio_open(path)
         if inp:

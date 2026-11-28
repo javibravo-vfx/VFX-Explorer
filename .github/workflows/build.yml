@@ -29,7 +29,11 @@ jobs:
       - name: Tests
         env:
           QT_QPA_PLATFORM: offscreen
-        run: python tests/test_core.py
+        run: |
+          python tests/test_core.py
+          python tests/test_storage_cache.py
+          python tests/test_network_state.py
+          python tests/test_media_process.py
 
       - name: Compilar exe portable
         run: >
@@ -66,6 +70,22 @@ jobs:
           Get-Content "$env:TEMP\vfxexplorer_selftest.log"
           if ($p.ExitCode -ne 0) { throw "selftest falló ($($p.ExitCode))" }
 
+      - name: NAS selftest del exe (OpenImageIO + procesos)
+        timeout-minutes: 5
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          $exe = (Resolve-Path "dist\VFXExplorer\VFXExplorer.exe").Path
+          Remove-Item "$env:TEMP\vfxexplorer_nas_selftest.log" -ErrorAction SilentlyContinue
+          $p = Start-Process -FilePath $exe -ArgumentList "--nas-selftest" -Wait -PassThru
+          if (Test-Path "$env:TEMP\vfxexplorer_nas_selftest.log") { Get-Content "$env:TEMP\vfxexplorer_nas_selftest.log" }
+          if ($p.ExitCode -ne 0) { throw "NAS selftest falló ($($p.ExitCode))" }
+          if (-not (Test-Path "$env:TEMP\vfxexplorer_nas_selftest.log")) { throw "NAS selftest no produjo log" }
+          if (-not (Select-String -Path "$env:TEMP\vfxexplorer_nas_selftest.log" -Pattern '^NAS SELFTEST OK$' -Quiet)) { throw "NAS selftest no terminó" }
+          $left = @(Get-Process VFXExplorer -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe })
+          if ($left.Count -gt 0) { $left | Stop-Process -Force; throw "Procesos VFXExplorer huérfanos" }
+
       - name: Tiempo de arranque
         shell: pwsh
         run: |
@@ -93,3 +113,4 @@ jobs:
         with:
           files: VFXExplorer-win64.zip
           generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, 'beta') }}
